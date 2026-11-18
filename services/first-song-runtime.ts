@@ -1,3 +1,4 @@
+import type { LocalPostsEffectFence } from "../packages/community/local-posts-custody.ts";
 import { publishingAttachment } from "../deploy/linux/web2-publishing-attachment.ts";
 import { ownerAuthorizationRecord } from "../packages/community/owner-authorization-typed-data.ts";
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
@@ -47,6 +48,8 @@ export interface FirstSongRuntimeEnv {
   CATALOG_TRANSPORT?: (request:Request)=>Promise<Response>;
   /** Trusted service binding; the configured managed origin remains the request scope. */
   MANAGED_RELEASE_SERVICE?: Fetcher;
+  /** In-process local fixture selection, installed before owner Posts work. */
+  LOCAL_POSTS_EFFECT_FENCE?: LocalPostsEffectFence;
 }
 function managedTransport(env: FirstSongRuntimeEnv) {
   return env.MANAGED_RELEASE_SERVICE
@@ -166,6 +169,12 @@ export function ownerSongRuntime(
     ),
     managed = { origin: deployment.managedOrigin, publisher, configuration, transport: managedTransport(env) };
   insist(publisher.address.toLowerCase() === configuration.publisher,"publisher_custody_binding_changed",503);
+  const localPostsFence = env.LOCAL_POSTS_EFFECT_FENCE;
+  if (localPostsFence) {
+    insist(isWeb2Deployment(deployment), "local_posts_custody_scope_changed", 409);
+    localPostsFence.assertApplicationRpc(deployment.rpcUrl);
+    localPostsFence.assertScope(env.DB, configuration, publisher.address);
+  }
   const managedChainClient = megaethReadClient(undefined, deployment.rpcUrl);
   const runtime: FirstSongDriverPorts = {
     db: env.DB,
@@ -190,6 +199,7 @@ export function ownerSongRuntime(
         expiresAt: grant!.expiresAt,
       },
       ownerGrant: grant!,
+      ...(localPostsFence ? { localPostsFence } : {}),
     },
     acrEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
     ownerAuthorization,
@@ -236,7 +246,7 @@ export function firstSongRuntime(
 ): FirstSongDriverPorts {
   if (ownerOnly(configuration.policies.admission))
     return ownerSongRuntime(env, configuration, currentConfiguration, undefined, deployment);
-  insist(!isWeb2Deployment(deployment) && configuration.schema!=="pirate.community-config/4",
+  insist(!env.LOCAL_POSTS_EFFECT_FENCE && !isWeb2Deployment(deployment) && configuration.schema!=="pirate.community-config/4",
     "historical_registered_release_profile_required", 503);
   insist(
     /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&

@@ -46,6 +46,10 @@ import {
   type Web2InstallPlan,
 } from "./web2-profile-authority.ts";
 import type { NativeGraph } from "./full-native-config.ts";
+import { nativePublicationBindingNames } from "./web2-publication-selection.ts";
+import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
+import type { Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
+import { postsSelectorPath, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 import {
   assertNoBootstrapPractice, assertWeb2LocalStudyInputs,
   validateWeb2LocalStudyPolicy, withWeb2LocalStudy,
@@ -89,6 +93,8 @@ export interface Web2RuntimeBindingInputs {
   now: () => number;
   /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
   publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
+  publication?: Web2PublicationInstallationInputs;
+  posts?: Web2PostsInstallationInputs;
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
   signApplicationRelease(
     body: Web2NativeOriginal["release"]["body"],
@@ -210,6 +216,19 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   );
   assertNoBootstrapPractice(policy.graph);
   assertNoBootstrapNativeActivities(policy.graph);
+  const publicationNames = new Set<string>(nativePublicationBindingNames);
+  assert(![...policy.graph.applicationBindings, ...policy.graph.secretBindings,
+    ...policy.graph.actors.flatMap(actor => actor.bindings)].some(binding => publicationNames.has(binding.name)),
+    "prebound_native_publication_refused");
+  const publication = input.publication;
+  assert(Boolean(policy.graph.nativePublication) === Boolean(publication), "native_publication_owner_unavailable");
+  assert(policy.graph.publicationExpansion === undefined ||
+    policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.nativePublication &&
+    policy.graph.fixtureTransport && policy.ingress.tls.kind === "local-fixture-ca",
+    "native_expanded_fixture_selection_required");
+  const posts = input.posts;
+  assert(Boolean(postsSelectorPath(policy.graph, policy.target)) === Boolean(posts),
+    "native_posts_install_owner_unavailable");
   const privatePracticeSelection = offeredPractice(policy.privateStudy, policy.nativeActivities);
   const checkNative = async () => {
     if (!policy.nativeActivities) return;
@@ -267,12 +286,14 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       "web2_binding_policy_expired",
     );
   }
-  async function authenticate(draft: LinuxWeb2Draft) {
+  type ExpansionRead = () => ReturnType<typeof readApprovedExpandedPublication>;
+  async function authenticate(draft: LinuxWeb2Draft, expanded?: ExpansionRead) {
     live();
     await lease.assertHeld();
     await verifyWeb2BootstrapRelease(captured.bootstrap, captured.trust);
     assert(draft.origin === policy.origin, "web2_binding_origin_changed");
-    await authenticateWeb2Enrollment(chain, draft);
+    if (expanded) await expanded();
+    else await authenticateWeb2Enrollment(chain, draft);
     const controller = await createLocalController(policy.target, lease);
     try {
       const host = await controller.inspectHost(AbortSignal.timeout(45000));
@@ -291,6 +312,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     }
     live();
     await lease.assertHeld();
+    if (expanded) await expanded();
   }
   function validateIntent(intent: BindingIntent, draft?: LinuxWeb2Draft) {
     assert(
@@ -338,7 +360,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         scope.controller === c.controller && scope.publisher === c.publisher && scope.postsContract === c.postsContract &&
         scope.deploymentDigest === hashJson(draft.deployment),"web2_publishing_attachment_scope_changed");
     }
-    return composeNativeActivities(withWeb2LocalStudy({
+    const graph = composeNativeActivities(withWeb2LocalStudy({
       ...structuredClone(policy.graph),
       directoryRuntimeBinding: JSON.stringify(draft.deployment),
       applicationBindings: [
@@ -356,6 +378,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       ],
     }, draft, bootstrap, policy.privateStudy, policy.nativeActivities?.socket),
       draft, policy.privateStudy, policy.nativeActivities);
+    if (graph.nativePublication) {
+      assert(draft.privatePractice && policy.nativeActivities &&
+        graph.localActivitySocket === policy.nativeActivities.socket,
+        "native_publication_requires_selected_activity_socket");
+    }
+    return graph;
   }
   function admissionFor(
     draft: LinuxWeb2Draft,
@@ -395,12 +423,24 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       ) === canonicalDigest(web2ApplicationReleaseBody(bound.intent.release)),
       "application_release_identity_changed",
     );
-    await authenticate(draft);
+    let expanded: ExpansionRead | undefined;
+    const graph = bound.intent.release.graph;
+    if (await expandedPublicationApprovalExists(graph)) {
+      const record = await readPrivateJSON<SignedRecord<Web2InstallPlan>>(join(policy.bindingDirectory, "web2-original.json"));
+      assert(canonicalDigest(record.body.draft) === canonicalDigest(draft), "native_expanded_bound_draft_changed");
+      const original: Web2NativeOriginal = { schema: "pirate.web2-native-application-original/1", record,
+        release: bound.applicationRelease, trust: captured.trust, durableScope: graph.durableScope };
+      expanded = () => readApprovedExpandedPublication({ graph, original, chain });
+    }
+    await authenticate(draft, expanded);
     if (bound.intent.publishingAttachment) {
       assert(publishing,"web2_publishing_authority_unavailable");
-      assert(canonical(await publishing.attachment(draft)) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
+      const retained = expanded
+        ? await publishing.retainedExpandedAttachment(draft, bound.intent.publishingAttachment, async () => (await expanded!()).configuration)
+        : await publishing.attachment(draft);
+      assert(canonical(retained) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
     }
-    if (draft.privatePractice) await authenticate(draft);
+    if (draft.privatePractice) await authenticate(draft, expanded);
     await retainWeb2Record(
       policy.bindingDirectory,
       "web2-binding-intent",
@@ -453,7 +493,10 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       hostFingerprint: policy.hostFingerprint,
       nativeRuntimeDirectory: policy.nativeRuntimeDirectory,
       now,
+      ...(publication ? { publication } : {}),
+      ...(posts ? { posts } : {}),
       signProfile: async (body,generation) => {
+        assert(!expanded, "native_expanded_signed_plan_replacement_refused");
         if (bound.intent.publishingAttachment) {
           assert(publishing,"web2_publishing_authority_unavailable");
           assert(canonical(await publishing.attachment(draft)) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
@@ -478,12 +521,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       busy = true;
       try {
         const draft = linuxWeb2DraftFrom(value);
-        await authenticate(draft);
         const bound = await optionalWeb2Record<BoundRuntime>(boundPath);
         if (bound) {
           validateIntent(bound.intent, draft);
           return hostInputs(bound);
         }
+        await authenticate(draft);
         let intent = await optionalWeb2Record<BindingIntent>(intentPath);
         if (intent) validateIntent(intent, draft);
         else {

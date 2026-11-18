@@ -21,6 +21,8 @@ import type { Web2NativeActivityPolicy } from "./web2-native-activities.ts";
 import type { Web2LocalStudyPolicy } from "./web2-local-study.ts";
 import { selectLocalAsr } from "./web2-native-study-asr.ts";
 import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
+import { publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
+import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
 
 const UPLOAD_IDLE_MS = 15_000;
 const PROCESSING_MS = new Map<string, number>([
@@ -53,7 +55,8 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
     const value = incoming.headers[key];
     if (typeof value === "string") headers.set(key, value);
   }
-  return new Request("http://local-activity" + incoming.url, { method: "POST", headers,
+  const base = incoming.url === publicationHostPath ? publicationHostOrigin : "http://local-activity";
+  return new Request(base + incoming.url, { method: "POST", headers,
     body: Readable.toWeb(incoming), signal, duplex: "half" } as RequestInit);
 }
 
@@ -62,13 +65,18 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
 export async function startWeb2NativeActivityHost(options: {
   selected: Web2NativeActivityPolicy; study: Web2LocalStudyPolicy; host: Web2NativeActivityHostInputs;
   ingress: PublicIngress; stateRoot: string; lease: OperationLease;
+  publication?: NativePublicationActivityRoute;
+  deferredPublication?: () => NativePublicationActivityRoute | undefined;
 }) {
-  const { selected, study, host, ingress, lease } = options;
+  const { selected, study, host, ingress, lease, publication, deferredPublication } = options;
   const socket = selected.socket;
   assert(socket === join(options.stateRoot, "activity-transport", "host.sock"), "selected_activity_socket_changed");
   assert(study.asr.upstream === "unix:" + socket &&
     Boolean(selected.karaoke) === Boolean(host.karaoke) && Boolean(selected.dance) === Boolean(host.dance),
     "selected_activity_host_mismatch");
+  assert(!(publication && deferredPublication) &&
+    (!publication || publication.lease === lease && publication.socket === socket),
+    "native_publication_listener_scope_changed");
   await lease.assertHeld();
   await privateDirectory(dirname(socket));
   try { await lstat(socket); throw Error("activity_socket_original_held"); }
@@ -153,6 +161,12 @@ export async function startWeb2NativeActivityHost(options: {
       throw error;
     }
     request.signal.throwIfAborted();
+    if (url.pathname === publicationHostPath && (publication || deferredPublication)) {
+      const route = publication ?? deferredPublication?.();
+      if (!route) return new Response(null, { status: 503 });
+      assert(route.lease === lease && route.socket === socket, "native_publication_listener_scope_changed");
+      return route.fetch(request);
+    }
     if(url.pathname==="/transcribe") {
       // The Study bridge checks its scoped bearer before running the model.
       const bytes = await readMediaBody(request,MAX_STUDY_AUDIO_BYTES).catch(error => {
@@ -188,7 +202,8 @@ export async function startWeb2NativeActivityHost(options: {
   let active: Promise<void> | undefined, stopping = false;
   const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
     if (stopping || active) {outgoing.writeHead(429,{connection:"close"}).end();return;}
-    const processingMs = PROCESSING_MS.get(incoming.url ?? "");
+    const processingMs = incoming.url === publicationHostPath && (publication || deferredPublication)
+      ? 10000 : PROCESSING_MS.get(incoming.url ?? "");
     if (incoming.method !== "POST" || processingMs === undefined) {
       outgoing.writeHead(404, { connection: "close" }).end();
       return;

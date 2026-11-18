@@ -3,8 +3,8 @@
  * separate from stopping this service. No detach, systemd mutation or adoption. */
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
-import { realpath } from "node:fs/promises";
-import { relative, isAbsolute } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { join, relative, isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
   canonicalDigest,
@@ -18,7 +18,9 @@ import {
   installedExecutionPaths,
   type Web2BootstrapRelease,
 } from "./installed-release.ts";
-import { privateDirectory } from "./backend-state.ts";
+import { hash, privateDirectory } from "./backend-state.ts";
+import { isNativePublicationActivityRoute, type NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
+import { assertNativePublicationHost, type Web2PublicationActivation, type Web2PublicationPreparation } from "./web2-publication-installation.ts";
 import { publicIngressFrom } from "./public-ingress.ts";
 import { startWeb2NativeActivityHost, type Web2NativeActivityHostInputs } from "./web2-native-activity-host.ts";
 import {
@@ -51,6 +53,15 @@ export interface Web2LocalInstallationConfiguration {
 export interface Web2BootstrapInputs {
   binding: Web2RuntimeBindingInputs;
   activityHost?: Web2NativeActivityHostInputs;
+  publicationActivity?: NativePublicationActivityRoute;
+  /** Selected owner bootstrap runs only inside the reviewed install apply. */
+  prepareExpandedPublication?(input: Web2PublicationPreparation): Promise<void>;
+  /** Fresh fixture owner opens the genuine route only after its admitted
+   * expanded plan and selector are staged. It keeps the returned Store alive
+   * until the existing closeControl, after the listener drains. */
+  openExpandedPublication?(input: Web2PublicationActivation): Promise<NativePublicationActivityRoute>;
+  startExpandedFirstGrant?(): void;
+  drainExpandedFirstGrant?(): Promise<void>;
   /** Release only the foreground control lock after its listeners have stopped.
    * Persistent containers and whole-writer backup barriers remain untouched. */
   closeControl(): Promise<void>;
@@ -61,73 +72,102 @@ export interface Web2BootstrapInputs {
     authorization: Parameters<PairedOperatorInputs["createRuntime"]>[0];
   }): Promise<PairedOperatorRuntime>;
 }
+export function createWeb2SetupLifetime(signal?: AbortSignal) {
+  let closed = false, busy = false;
+  let idle = Promise.resolve();
+  async function exclusive<T>(action: () => Promise<T>) {
+    assert(!closed && !signal?.aborted && !busy, "web2_setup_closed_or_busy");
+    busy = true;
+    const active = Promise.withResolvers<void>();
+    idle = active.promise;
+    try {
+      return await action();
+    } finally {
+      busy = false;
+      active.resolve();
+    }
+  }
+  return {
+    exclusive,
+    running(afterRunning?: () => void) {
+      if (!closed && !signal?.aborted) afterRunning?.();
+    },
+    closeSetup() {
+      assert(!busy, "web2_setup_operation_not_quiescent");
+      closed = true;
+    },
+    async shutdown(stop: () => Promise<void>, drain?: () => Promise<void>) {
+      // Close admission before waiting: an in-flight activation can finish
+      // owning its resources but cannot start a new first-grant run.
+      closed = true;
+      await idle;
+      await drain?.();
+      await stop();
+    },
+  };
+}
+
 /** The public four-method port is available before enrollment exists. Only its
  * prepare method may bind the real persisted enrollment to a strict runtime. */
 export async function createWeb2BootstrapInstallation(
   inputs: Web2RuntimeBindingInputs,
   signal?: AbortSignal,
+  afterRunning?: () => void,
 ) {
   const binder = await createWeb2RuntimeBinder(inputs);
-  let installation: Web2InstalledService | undefined,
-    closed = false,
-    busy = false;
-  let idle = Promise.resolve(),
-    finish: () => void = () => {};
-  async function exclusive<T>(action: () => Promise<T>) {
-    assert(!closed && !signal?.aborted && !busy, "web2_setup_closed_or_busy");
-    busy = true;
-    idle = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    try {
-      return await action();
-    } finally {
-      busy = false;
-      finish();
-    }
-  }
+  const lifetime = createWeb2SetupLifetime(signal);
+  let installation: Web2InstalledService | undefined;
   const port: LinuxWeb2Installation = {
     ...(binder.privateStudyAvailable ? { privateStudyAvailable: true } : {}),
     ...(binder.privatePracticeSelection ? { privatePracticeSelection: binder.privatePracticeSelection } : {}),
     prepare: (value) =>
-      exclusive(async () => {
+      lifetime.exclusive(async () => {
         const draft = linuxWeb2DraftFrom(value);
         const host = await binder.bind(draft);
         installation ??= await createWeb2Installation(host, signal);
         return installation.prepare(draft);
       }),
     apply: (selection) =>
-      exclusive(async () => {
+      lifetime.exclusive(async () => {
         assert(installation, "original_web2_runtime_unavailable");
         assert(await binder.retained(),"original_web2_runtime_unavailable");
-        return installation.apply(selection);
+        const current = await installation.apply(selection);
+        if (current.state === "running") lifetime.running(afterRunning);
+        return current;
+      }),
+    verifyExpandedPublishing: (selection, draft) =>
+      lifetime.exclusive(async () => {
+        const expanded = await installation?.verifyExpandedPublishing?.(selection, draft);
+        if (expanded) {
+          // The binder rechecks the exact attached grant under the authenticated expanded configuration.
+          assert(await binder.retained(), "original_web2_runtime_unavailable");
+        }
+        return expanded;
       }),
     status: (selection) =>
-      exclusive(async () => {
+      lifetime.exclusive(async () => {
         assert(installation, "original_web2_runtime_unavailable");
         assert(await binder.retained(),"original_web2_runtime_unavailable");
         return installation.status(selection);
       }),
     async close() {
-      assert(!busy, "web2_setup_operation_not_quiescent");
-      closed = true;
+      lifetime.closeSetup();
       await installation?.close();
     },
   };
   return {
     port,
-    async resumeOriginal() {
+    resumeOriginal: () => lifetime.exclusive(async () => {
       const host = await binder.retained();
       if (host) {
         installation = await createWeb2Installation(host, signal);
-        await installation.resumeOriginal();
+        const current = await installation.resumeOriginal();
+        if (current?.state === "running") lifetime.running(afterRunning);
       }
-    },
-    async shutdownService() {
-      closed = true;
-      await idle;
+    }),
+    shutdownService: (drain?: () => Promise<void>) => lifetime.shutdown(async () => {
       await installation?.shutdownService();
-    },
+    }, drain),
   };
 }
 export class Web2ServiceStartupFailure extends AggregateError {
@@ -200,23 +240,78 @@ export async function launchWeb2LocalInstallation(
     "genuine_web2_installed_backend_required",
   );
   const inputs = await loaded.createWeb2BootstrapInputs();
-  assert(
-    canonicalDigest(inputs.binding.bootstrap) ===
-      canonicalDigest(config.release) &&
-      canonicalDigest(inputs.binding.trust) === canonicalDigest(config.trust) &&
-      inputs.binding.lease.installationId === runtime.installationId,
-    "installed_web2_backend_changed",
-  );
-  assert.deepEqual(
-    await readPrivateJSON(config.runtimeProfileFile),
-    selected,
-    "web2_launch_selection_changed",
-  );
-  await verifyWeb2BootstrapRelease(config.release, config.trust);
   let nativeActivityHost: Awaited<ReturnType<typeof startWeb2NativeActivityHost>> | undefined;
   const installation = await (async () => {
     try {
+      assert(
+        canonicalDigest(inputs.binding.bootstrap) ===
+          canonicalDigest(config.release) &&
+          canonicalDigest(inputs.binding.trust) === canonicalDigest(config.trust) &&
+          inputs.binding.lease.installationId === runtime.installationId,
+        "installed_web2_backend_changed",
+      );
+      assert.deepEqual(
+        await readPrivateJSON(config.runtimeProfileFile),
+        selected,
+        "web2_launch_selection_changed",
+      );
+      await verifyWeb2BootstrapRelease(config.release, config.trust);
       const policy = verifyRecord(inputs.binding.policy, config.trust);
+      const publication = inputs.publicationActivity;
+      const prepare = inputs.prepareExpandedPublication?.bind(inputs);
+      const activate = inputs.openExpandedPublication?.bind(inputs);
+      const startFirstGrant = inputs.startExpandedFirstGrant?.bind(inputs);
+      const drainFirstGrant = inputs.drainExpandedFirstGrant?.bind(inputs);
+      const ports = inputs.binding.publication;
+      assert(Boolean(policy.graph.nativePublication) === Boolean(publication || activate) &&
+        Boolean(publication || activate) === Boolean(ports) && !(publication && activate) &&
+        !ports?.prepareExpansion && !ports?.activateAfterStaging && Boolean(prepare) === Boolean(activate) &&
+        Boolean(activate) === Boolean(startFirstGrant) &&
+        Boolean(activate) === Boolean(drainFirstGrant) &&
+        (!activate || policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.fixtureTransport),
+        "native_publication_host_unavailable");
+      function checkRoute(route: NativePublicationActivityRoute) {
+        assert(isNativePublicationActivityRoute(route), "native_publication_host_unavailable");
+        assertNativePublicationHost(policy, route, inputs.binding.lease);
+      }
+      if (publication) checkRoute(publication);
+      if (ports) {
+        const bytes = await readFile(join(release.root, "migration-plan.json"));
+        assert(hash(bytes) === release.files["migration-plan.json"], "native_publication_migrations_changed");
+        const plan = JSON.parse(bytes.toString("utf8"));
+        const names: string[] = plan.migrations.map((row: {name: string}) => row.name);
+        const consent = names.indexOf("0020_publication_consent.sql");
+        assert(consent >= 0 && names[consent + 1] === "0021_publication_installed_selection.sql",
+          "native_publication_migrations_unavailable");
+        await inputs.binding.lease.assertHeld();
+        const now = Date.now();
+        assert(Number.isSafeInteger(policy.issuedAt) && Number.isSafeInteger(policy.expiresAt) &&
+          policy.issuedAt <= now && now < policy.expiresAt && !signal?.aborted, "native_publication_host_expired");
+      }
+      let stagedRoute: NativePublicationActivityRoute | undefined;
+      let originalActivation: { identity: string; task: Promise<void> } | undefined;
+      const binding = prepare && activate && ports ? { ...inputs.binding, publication: {
+        ...ports,
+        prepareExpansion: prepare,
+        async activateAfterStaging(input: Web2PublicationActivation) {
+          const identity = canonicalDigest({ original: input.original, selection: input.selection,
+            selectionSha256: input.selectionSha256 });
+          if (originalActivation) {
+            assert(originalActivation.identity === identity, "native_expanded_publication_activation_changed");
+            return originalActivation.task;
+          }
+          const task = (async () => {
+            await input.assertCurrent();
+            const route = await activate(input);
+            checkRoute(route);
+            await input.assertCurrent();
+            signal?.throwIfAborted();
+            stagedRoute = route;
+          })();
+          originalActivation = { identity, task };
+          return task;
+        },
+      } } : inputs.binding;
       if (policy.nativeActivities) {
         assert(policy.privateStudy && inputs.activityHost && policy.installationId === runtime.installationId &&
           policy.target.installationId === runtime.installationId && Date.now() < policy.expiresAt && !signal?.aborted &&
@@ -224,9 +319,10 @@ export async function launchWeb2LocalInstallation(
           "native_activity_bootstrap_scope_required");
         nativeActivityHost = await startWeb2NativeActivityHost({selected:policy.nativeActivities,study:policy.privateStudy,
           host:structuredClone(inputs.activityHost), ingress:publicIngressFrom(policy.ingress),
-          stateRoot:policy.target.stateRoot,lease:inputs.binding.lease});
+          stateRoot:policy.target.stateRoot,lease:inputs.binding.lease,publication,
+          ...(activate ? { deferredPublication: () => stagedRoute } : {})});
       } else assert(!inputs.activityHost, "unselected_activity_host_refused");
-      return await createWeb2BootstrapInstallation(inputs.binding, signal);
+      return await createWeb2BootstrapInstallation(binding, signal, startFirstGrant);
     } catch (error) {
       const cleanup = async () => { await nativeActivityHost?.close(); await inputs.closeControl(); };
       try { await cleanup(); } catch (failure) { throw new Web2ServiceStartupFailure([error,failure],cleanup); }
@@ -269,8 +365,8 @@ export async function launchWeb2LocalInstallation(
       runtime: { close: closeSetup },
       shutdownService: () =>
         (serviceStop ??= (async () => {
-          // Stop explicit service ingress first; closing only setup never does so.
-          await installation.shutdownService();
+          // Close setup and drain the owned attempt while the app proof and activity listener still exist.
+          await installation.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
           await closeSetup();
           await nativeActivityHost?.close();
           await inputs.closeControl();
@@ -282,7 +378,7 @@ export async function launchWeb2LocalInstallation(
   } catch (error) {
     secret.fill(0);
     const cleanup = async () => {
-      await installation.shutdownService();
+      await installation.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
       if (error instanceof PairedOperatorStartupFailure) await error.close();
       await nativeActivityHost?.close();
       await inputs.closeControl();

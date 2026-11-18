@@ -18,6 +18,7 @@ import {
   web2ProfileDocument,
 } from "../../packages/community/web2-directory.ts";
 import { readWeb2Community } from "../../packages/community/web2-directory-reader.ts";
+import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
   bindWeb2RegistrationTransaction,
   observeWeb2Registration,
@@ -126,6 +127,35 @@ export async function authenticateWeb2Enrollment(
   input: Web2ChainAuthority,
   value: unknown,
 ): Promise<Web2EnrollmentEvidence> {
+  return authenticateEnrollment(input, value);
+}
+
+export interface Web2ExpandedEnrollmentExpectation {
+  original: Web2EnrollmentEvidence;
+  configuration: Web2CommunityConfig;
+  configurationHash: Hex;
+  configurationBlockHash: Hex;
+  admittedSafeBlock: string;
+  admittedSafeBlockHash: Hex;
+  genesisHash: Hex;
+  registryRuntimeHash: Hex;
+}
+
+/** Only used with the verified opt-in native launch record. Registration is
+ * still authenticated byte-for-byte using the immutable revision-one draft. */
+export async function authenticateWeb2ExpandedEnrollment(
+  input: Web2ChainAuthority,
+  draft: LinuxWeb2Draft,
+  expected: Web2ExpandedEnrollmentExpectation,
+) {
+  return authenticateEnrollment(input, draft, structuredClone(expected));
+}
+
+async function authenticateEnrollment(
+  input: Web2ChainAuthority,
+  value: unknown,
+  expanded?: Web2ExpandedEnrollmentExpectation,
+): Promise<Web2EnrollmentEvidence> {
   const authority = ownWeb2ChainAuthority(input),
     draft = linuxWeb2DraftFrom(value);
   const p = parseWeb2ProfileDocument(draft.enrollment.profile);
@@ -208,7 +238,31 @@ export async function authenticateWeb2Enrollment(
     503,
   );
   const c = current.config;
-  insist(
+  if (expanded) {
+    const { original, configuration: selected } = expanded;
+    const transition = current.configurationEvidence?.log;
+    const revisionOne = draft.configuration;
+    insist(original.configurationRevision === 1 &&
+      original.configurationSha256 === canonicalDigest(revisionOne) &&
+      expectedHash === original.transactionHash && observed.receipt.blockHash === original.registrationBlockHash &&
+      String(observed.receipt.blockNumber) === original.registrationBlock &&
+      revisionOne.configurationRevision === 1 && selected.configurationRevision === 2 && c.learningRecords !== revisionOne.learningRecords &&
+      canonical(c) === canonical(selected) && canonical(current.history) === canonical([revisionOne, selected]) &&
+      canonical({ ...selected, configurationRevision: 1, learningRecords: revisionOne.learningRecords }) === canonical(revisionOne) &&
+      transition?.args.revision === 2n && transition.transactionHash === expanded.configurationHash &&
+      transition.blockHash === expanded.configurationBlockHash &&
+      current.blockNumber >= BigInt(expanded.admittedSafeBlock),
+      "install_expanded_configuration_changed", 409);
+    const [initial, admitted, genesis, registry] = await Promise.all([
+      authority.client.getBlock({ blockNumber: BigInt(original.safeBlock) }),
+      authority.client.getBlock({ blockNumber: BigInt(expanded.admittedSafeBlock) }),
+      authority.client.getBlock({ blockNumber: 0n }),
+      authority.client.getCode({ address: c.learningRecords, blockHash: current.blockHash, requireCanonical: true }),
+    ]);
+    insist(initial.hash === original.safeBlockHash && admitted.hash === expanded.admittedSafeBlockHash &&
+      genesis.hash === expanded.genesisHash && registry && registry !== "0x" &&
+      keccak256(registry) === expanded.registryRuntimeHash, "install_expanded_chain_or_registry_changed", 503);
+  } else insist(
     canonical(c) === canonical(draft.configuration) &&
       c.configurationRevision === draft.configuration.configurationRevision &&
       c.controller === draft.configuration.controller &&

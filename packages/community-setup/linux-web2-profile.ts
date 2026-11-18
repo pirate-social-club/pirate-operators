@@ -72,6 +72,8 @@ export interface LinuxWeb2Observation extends LinuxWeb2PlanSelection {
   reason?: string;
 }
 export interface LinuxWeb2Installation {
+  /** Server-only read of the exact retained expanded plan and attached grant. */
+  verifyExpandedPublishing?(selection: LinuxWeb2PlanSelection, draft: LinuxWeb2Draft): Promise<"expanded" | undefined>;
   readonly privateStudyAvailable?: boolean;
   readonly privatePracticeSelection?: Web2PracticeSelection;
   prepare(value: unknown): Promise<LinuxWeb2PlanSummary>;

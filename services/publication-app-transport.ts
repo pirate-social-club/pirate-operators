@@ -93,51 +93,81 @@ export function parsePublicationReceipt(
 }
 /** Actual signed canonical HTTP client for the existing operator endpoints.
  * The URL is a service-binding routing URL, never a caller-controlled host. */
+export type PublicationOperatorPath =
+  | "/publication/v1/fence" | "/publication/v1/accept" | "/publication/v1/reconcile";
+export type PublicationOperatorIdentity = Pick<CommandRow, "command_id" | "nonce_hex">;
+export type PublicationOperatorReferenceExchange = (
+  path: PublicationOperatorPath, row: PublicationOperatorIdentity, release: PublicationAppRelease,
+  body: unknown, signal: AbortSignal,
+) => Promise<unknown>;
+type DirectTransport = {
+  fetcher: Pick<Fetcher, "fetch">;
+  signer: ManagedPublicationIssuer;
+  clock: () => number;
+  timeoutMs: number;
+  maxResponseBytes: number;
+  drainOnTimeout: boolean;
+};
+type ReferenceTransport = { exchange: PublicationOperatorReferenceExchange; timeoutMs: number };
 export class PublicationOperatorTransport {
-  private readonly fetcher: Pick<Fetcher, "fetch">;
-  private readonly signer: ManagedPublicationIssuer;
-  private readonly clock: () => number;
-  private readonly timeoutMs: number;
-  private readonly maxResponseBytes: number;
-  constructor(
-    fetcher: Pick<Fetcher, "fetch">,
-    signer: ManagedPublicationIssuer,
-    clock: () => number,
-    timeoutMs: number,
-    maxResponseBytes: number,
-  ) {
-    check(
-      Number.isSafeInteger(timeoutMs) &&
-        timeoutMs > 0 &&
-        timeoutMs <= 30000 &&
-        Number.isSafeInteger(maxResponseBytes) &&
-        maxResponseBytes > 0 &&
-        maxResponseBytes <= 32768,
-      "publication_transport_bounds_invalid",
-    );
-    this.fetcher = fetcher;
-    this.signer = signer;
-    this.clock = clock;
-    this.timeoutMs = timeoutMs;
-    this.maxResponseBytes = maxResponseBytes;
+  private readonly transport: DirectTransport | ReferenceTransport;
+  constructor(reference: ReferenceTransport);
+  constructor(fetcher: Pick<Fetcher, "fetch">, signer: ManagedPublicationIssuer,
+    clock: () => number, timeoutMs: number, maxResponseBytes: number, custody?: { drainOnTimeout: true });
+  constructor(first: Pick<Fetcher, "fetch"> | ReferenceTransport, signer?: ManagedPublicationIssuer,
+    clock?: () => number, timeoutMs?: number, maxResponseBytes?: number, custody?: { drainOnTimeout: true }) {
+    if ("exchange" in first) {
+      check(typeof first.exchange === "function" && Number.isSafeInteger(first.timeoutMs) &&
+        first.timeoutMs > 0 && first.timeoutMs <= 30000, "publication_transport_bounds_invalid");
+      this.transport = { ...first };
+    } else {
+      check(signer && clock && typeof timeoutMs === "number" && Number.isSafeInteger(timeoutMs) &&
+        timeoutMs > 0 && timeoutMs <= 30000 && typeof maxResponseBytes === "number" &&
+        Number.isSafeInteger(maxResponseBytes) && maxResponseBytes > 0 && maxResponseBytes <= 32768,
+        "publication_transport_bounds_invalid");
+      this.transport = { fetcher: first, signer, clock, timeoutMs, maxResponseBytes,
+        drainOnTimeout: custody?.drainOnTimeout === true };
+    }
   }
   async request(
-    path:
-      | "/publication/v1/fence"
-      | "/publication/v1/accept"
-      | "/publication/v1/reconcile",
-    row: CommandRow,
+    path: PublicationOperatorPath,
+    row: PublicationOperatorIdentity,
     release: PublicationAppRelease,
     body: unknown,
     installation?: PublicationInstallation,
   ) {
+    const selected = this.transport;
+    if ("exchange" in selected) {
+      check(installation, "publication_installation_required");
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("publication_operator_timeout"));
+        }, selected.timeoutMs);
+      });
+      const observed = async () => {
+        await installation.check();
+        controller.signal.throwIfAborted();
+        const value = await selected.exchange(path, row, release, body, controller.signal);
+        await installation.check();
+        controller.signal.throwIfAborted();
+        return value;
+      };
+      try { return await Promise.race([observed(), deadline]); }
+      finally {
+        clearTimeout(timer);
+        controller.abort();
+      }
+    }
     const s = publicationSelectionSource(release),
       json = canonical(body),
-      issuedAt = this.clock();
+      issuedAt = selected.clock();
     check(
       Number.isSafeInteger(issuedAt) &&
         issuedAt > 0 &&
-        this.signer.address.toLowerCase() === release.issuer,
+        selected.signer.address.toLowerCase() === release.issuer,
       "publication_issuer_changed",
     );
     check(
@@ -165,10 +195,10 @@ export class PublicationOperatorTransport {
       timer = setTimeout(() => {
         controller.abort();
         reject(new Error("publication_operator_timeout"));
-      }, this.timeoutMs);
+      }, selected.timeoutMs);
     });
     const operation = async () => {
-      const signature = await this.signer.signMessage({
+      const signature = await selected.signer.signMessage({
         message: canonical(envelope),
       });
       check(
@@ -181,7 +211,7 @@ export class PublicationOperatorTransport {
           ).toLowerCase() === release.issuer,
         "publication_issuer_changed",
       );
-      const now = this.clock();
+      const now = selected.clock();
       check(
         now >= issuedAt &&
           now < envelope.expiresAt &&
@@ -190,7 +220,7 @@ export class PublicationOperatorTransport {
       );
       await installation?.check();
       check(!controller.signal.aborted, "publication_operator_timeout");
-      const response = await this.fetcher.fetch(
+      const response = await selected.fetcher.fetch(
         new Request("https://publication.internal" + path, {
           method: "POST",
           headers: {
@@ -207,9 +237,9 @@ export class PublicationOperatorTransport {
       );
       const bytes = await publicationResponseBytes(
         response,
-        this.maxResponseBytes,
+        selected.maxResponseBytes,
       );
-      const ended = this.clock();
+      const ended = selected.clock();
       check(
         ended >= now &&
           ended < envelope.expiresAt &&
@@ -220,11 +250,16 @@ export class PublicationOperatorTransport {
         new TextDecoder("utf-8", { fatal: true }).decode(bytes),
       ) as unknown;
     };
+    const pending = operation();
     try {
-      return await Promise.race([operation(), deadline]);
+      return await Promise.race([pending, deadline]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       controller.abort();
+      // The local host owns this in-process signer and handler. The deadline
+      // fixes the request outcome, but its slot and teardown must also wait
+      // for the original work, including a rejected late RPC or Store read.
+      if (selected.drainOnTimeout) await pending.then(() => undefined, () => undefined);
     }
   }
 }

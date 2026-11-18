@@ -1,4 +1,5 @@
 import { privateDanceHistory } from "./private-dance-history.ts";
+import type { DancePublicationMediaAccess } from "./dance-publication-media-access.ts";
 import { createDancePrivateCatalogue, type DancePrivatePolicyV2 } from "./dance-private-catalogue.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
@@ -50,6 +51,7 @@ export class CommunityPrivateDance {
   readonly media: CommunityMedia;
   private readonly legacyDance: DancePorts | null;
   readonly privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
+  readonly publicationV2?: DancePublicationMediaAccess;
   get dance(): DancePorts { insist(this.legacyDance, "dance_legacy_runtime_unavailable", 503); return this.legacyDance; }
   readonly db: D1Database;
   readonly catalogue?: DanceSelectedCatalogue;
@@ -63,6 +65,7 @@ export class CommunityPrivateDance {
     renderer: Pick<Fetcher, "fetch">;
     dance?: Omit<DancePorts, "media">;
     privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
+    publicationV2?: DancePublicationMediaAccess;
     catalogue?: DanceSelectedCatalogue;
     source3?: DanceSource3Bindings;
     current?: () => Promise<void>;
@@ -75,6 +78,7 @@ export class CommunityPrivateDance {
   }) {
     insist(input.dance || input.privateV2, "dance_runtime_unavailable", 503);
     this.privateV2 = input.privateV2;
+    this.publicationV2 = input.publicationV2;
     this.db = input.db;
     this.communityId = input.communityId;
     this.catalogue = input.catalogue;
@@ -146,7 +150,8 @@ export class CommunityPrivateDance {
     }
     const dance = await danceCommunityApi(
       request,
-      { db: this.db, dance: this.legacyDance ?? undefined, catalogue: this.catalogue, privateV2: this.privateV2 },
+      { db: this.db, dance: this.legacyDance ?? undefined, catalogue: this.catalogue, privateV2: this.privateV2,
+        publicationV2: this.publicationV2 },
       context,
       headers,
     );
@@ -234,10 +239,12 @@ export class CommunityPrivateDance {
  * processor and R2 objects; no V4 placeholder or second recorder pipeline. */
 export function createPrivatePracticeDance(input:{db:D1Database;bucket:R2Bucket;config:CommunityConfig;reads:PublicReadPorts;
   policy:DancePrivatePolicyV2;referenceAccess?:DanceReferenceAccess;renderer:Pick<Fetcher,"fetch">;
+  publicationV2?: DancePublicationMediaAccess;
   enqueue(job:PrivateMediaJob):Promise<void>;now?:()=>number;current?:()=>Promise<void>}) {
   const catalogue=createDancePrivateCatalogue(input);
-  const source3=new Source3({db:input.db,communityId:input.config.communityId,privateV2:{current:(actor,capture)=>catalogue.mediaAccess(actor,capture)}});
+  const source3=new Source3({db:input.db,communityId:input.config.communityId,privateV2:{current:(actor,capture)=>catalogue.mediaAccess(actor,capture)},
+    publicationV2:input.publicationV2});
   return new CommunityPrivateDance({db:input.db,bucket:input.bucket,communityId:input.config.communityId,renderer:input.renderer,
-    privateV2:catalogue,source3,current:input.current,active:actor=>catalogue.active(actor),song:(key,revision)=>catalogue.publishedSong(key,revision),
+    privateV2:catalogue,source3,publicationV2:input.publicationV2,current:input.current,active:actor=>catalogue.active(actor),song:(key,revision)=>catalogue.publishedSong(key,revision),
     reservation:(actor,intent,song)=>source3.reservation(actor,intent,song),preview:(actor,media)=>source3.preview(actor,media),enqueue:input.enqueue,now:input.now});
 }

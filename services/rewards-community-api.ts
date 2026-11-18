@@ -23,7 +23,11 @@ import {
   type OfferRow,
   type PaymentRow,
 } from "../packages/rewards/store.ts";
-import { RewardOffers, offerView } from "../packages/rewards/offers.ts";
+import {
+  RewardOffers,
+  offerView,
+  type RewardManualClose,
+} from "../packages/rewards/offers.ts";
 import { RewardClaims } from "../packages/rewards/claims.ts";
 import { RewardPayments } from "../packages/rewards/payments.ts";
 import {
@@ -42,6 +46,8 @@ export interface RewardsApiPorts {
   chain: RewardChain;
   verification: RewardVerificationProvider;
   sources?: RewardSources;
+  /** Selected expanded operator read/close routes. Legacy callers omit this. */
+  manualClose?: RewardManualClose;
   now?: () => number;
   songs?: () => Promise<{ songKey: string; title: string; postId?: string }[]>;
   /** Safe-confirmed timestamp in Unix milliseconds; absence never unlocks closing. */
@@ -61,6 +67,15 @@ export async function rewardsCommunityApi(
     !path.startsWith("/api/operator/rewards")
   )
     return null;
+  const manualClose = ports.manualClose;
+  if (manualClose)
+    insist(
+      (request.method === "GET" && path === "/api/operator/rewards") ||
+        (request.method === "POST" &&
+          path === `/api/operator/rewards/offers/${manualClose.offerId}/close`),
+      "reward_route_not_found",
+      404,
+    );
   const session =
     request.method === "GET"
       ? await accountSession(request, ports.db, context)
@@ -438,7 +453,7 @@ export async function rewardsCommunityApi(
     if (offer)
       return reply(
         await (offer[2] === "close"
-          ? offers.close(offer[1])
+          ? offers.close(offer[1], manualClose)
           : offers.settle(
               offer[1],
               body.claimHash === undefined

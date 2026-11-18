@@ -4,7 +4,7 @@ import { requireMedia } from "./validation.ts";
 
 export async function mediaPlayback(
   request: Request,
-  service: CommunityMedia,
+  service: Pick<CommunityMedia, "playbackRecord" | "ports">,
   id: string,
   actor: MediaActor | null,
 ) {

@@ -12,6 +12,7 @@ import { createPublicClient, http } from "viem";
 import {
   canonicalDigest,
   readPrivateJSON,
+  verifyRecord,
   type SignedRecord,
   type TrustAnchor,
 } from "./installed-records.ts";
@@ -32,6 +33,7 @@ import { assertStartAllowed } from "./maintenance-guard.ts";
 import {
   authenticateWeb2Enrollment,
   readWeb2HostAdmission,
+  type Web2ChainAuthority,
   type Web2InstallPlan,
 } from "./web2-profile-authority.ts";
 import {
@@ -41,6 +43,10 @@ import {
 } from "../../packages/community/web2-native-business-binding.ts";
 import { communityIpfsTransport } from "../../services/community-deployment-profile.ts";
 import { setTimeout as delay } from "node:timers/promises";
+import { nativePublicationPaths, publicationMountFor, type Web2NativePublicationInitialization,
+  type Web2NativePublicationMount } from "./web2-publication-selection.ts";
+import { readNativePostsRole } from "./web2-native-posts-role.ts";
+import { readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
 
 export interface Web2LaunchConfiguration {
   schema: "pirate.linux-web2-launch/1";
@@ -151,6 +157,24 @@ export async function runWeb2Native(configPath: string) {
   await web2NativeOriginal(JSON.stringify(original));
   const plan = original.record.body,
     deployment = plan.draft.deployment;
+  const publication = graph.nativePublication;
+  const publicationFiles = publication ? nativePublicationPaths(publication.directory) : undefined;
+  const postsRole = graph.secretBindings.find(binding => binding.name === "POSTS_CUSTODY_HOST_AUTH");
+  async function publicationMount() {
+    if (!publication || !publicationFiles) return undefined;
+    const files = publicationFiles;
+    const [initialization, selector] = await Promise.all([
+      readPrivateJSON<Web2NativePublicationInitialization>(files.initialization, 5 * 1024 ** 2),
+      readPrivateJSON<SignedRecord<Web2NativePublicationMount>>(files.selector),
+    ]);
+    const body = verifyRecord(selector, config.trust);
+    assert(initialization.schema === "pirate.web2-native-publication-initialization/1" &&
+      canonicalDigest(initialization.selector) === canonicalDigest(selector) &&
+      canonicalDigest(body) === canonicalDigest(publicationMountFor(original, initialization.selection, publication)),
+      "native_publication_launch_original_changed");
+    return body.mount.selectionSha256;
+  }
+  const publicationSha256 = await publicationMount();
   const {
     communityId: _id,
     communityKey: _key,
@@ -196,8 +220,7 @@ export async function runWeb2Native(configPath: string) {
         planId: plan.planId,
       });
     await admission();
-    await authenticateWeb2Enrollment(
-      {
+    const chain: Web2ChainAuthority = {
         client,
         send: communityIpfsTransport(deployment, send),
         now: () => BigInt(Math.floor(Date.now() / 1000)),
@@ -207,9 +230,14 @@ export async function runWeb2Native(configPath: string) {
         deployment: directory,
         registrar: plan.registrationAuthority.registrar,
         registrarRevision: BigInt(plan.registrationAuthority.registrarRevision),
-      },
-      plan.draft,
-    );
+    };
+    if (postsRole) await readNativePostsRole(postsRole.path, publicationFiles);
+    if (graph.publicationExpansion !== undefined) {
+      const approved = await readApprovedExpandedPublication({ graph, original, chain });
+      assert(approved.selectionSha256 === await publicationMount(), "native_expanded_publication_selection_changed");
+      const confirmed = await readApprovedExpandedPublication({ graph, original, chain });
+      assert(confirmed.selectionSha256 === approved.selectionSha256, "native_expanded_publication_selection_changed");
+    } else await authenticateWeb2Enrollment(chain, plan.draft);
     await admission();
   };
   await current();
@@ -250,6 +278,7 @@ export async function runWeb2Native(configPath: string) {
   async function phase(mode: "initialize" | "serve") {
     assert(!stopped, "web2_native_cancelled");
     await current();
+    assert(await publicationMount() === publicationSha256, "native_publication_launch_selection_changed");
     const bootId = randomBytes(32).toString("hex"),
       socket = join(scratch, mode + ".sock");
     const file = join(scratch, mode + ".capnp");
@@ -371,10 +400,11 @@ export async function runWeb2Native(configPath: string) {
       const reply = await privateReady(socket);
       assert(
         reply.initialized === true &&
-          (mode === "initialize" || reply.bootId === bootId),
+          (mode === "initialize" ? reply.publicationSelectionSha256 === publicationSha256 : reply.bootId === bootId),
         "actual_web2_startup_required",
       );
       await current();
+      assert(await publicationMount() === publicationSha256, "native_publication_launch_selection_changed");
       await writeExclusive(
         join(scratch, mode + "-readback.json"),
         JSON.stringify({

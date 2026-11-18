@@ -1,3 +1,5 @@
+import { LOCAL_POSTS_CUSTODY_SCHEMA } from "../../packages/community/local-posts-custody.ts";
+
 /** Explicit fresh-Web2 schema selection, not a numbered migration or upgrade.
  * The installed release pins the complete plan. Owning SQL guards and the
  * initialization ledger commit in one real D1 batch, including trigger bodies. */
@@ -32,6 +34,7 @@ export async function initializeWeb2Schema(
   db: D1Database,
   input: Web2SchemaPlan,
   releaseSha256: string,
+  options: { postsCustody?: boolean } = {},
 ) {
   const plan = structuredClone(input);
   if (
@@ -56,7 +59,9 @@ export async function initializeWeb2Schema(
     )
       throw Error("web2_schema_source_changed");
   }
-  const manifestSha256 = await digest(JSON.stringify(plan));
+  const posts = options.postsCustody ? LOCAL_POSTS_CUSTODY_SCHEMA : [];
+  const selected = options.postsCustody ? { plan, postsCustody: posts } : plan;
+  const manifestSha256 = await digest(JSON.stringify(selected));
   const existing = await db
     .prepare(
       "SELECT name FROM sqlite_schema WHERE lower(name)='_pirate_web2_schema'",
@@ -86,6 +91,7 @@ export async function initializeWeb2Schema(
     ...plan.overlays.flatMap((row) =>
       row.statements.map((sql) => db.prepare(sql)),
     ),
+    ...posts.map((sql) => db.prepare(sql)),
     db.prepare(guard),
     db.prepare(
       "INSERT INTO _pirate_web2_transition_guard SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM pragma_foreign_key_check) THEN 1 ELSE 0 END",

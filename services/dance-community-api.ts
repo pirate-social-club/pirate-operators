@@ -22,11 +22,13 @@ import { decodeDanceDecision } from "../packages/dance/commands.ts";
 import type { DanceSelectedCatalogue } from "./dance-production.ts";
 import { requireProductionTarget } from "./dance-production.ts";
 import { DanceProductionReads } from "./dance-production-reads.ts";
+import type { DancePublicationMediaAccess } from "./dance-publication-media-access.ts";
 
 export interface DanceCommunityPorts {
   db: D1Database;
   dance?: DancePorts;
   privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
+  publicationV2?: DancePublicationMediaAccess;
   /** Required for production catalogue/access routes; no successful fallback. */
   catalogue?: DanceSelectedCatalogue;
 }
@@ -39,7 +41,7 @@ export async function danceCommunityApi(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/dance/")) return null;
-  if (ports.privateV2) return dancePrivateCommunityApi(request, ports.db, ports.privateV2, context, headers);
+  if (ports.privateV2) return dancePrivateCommunityApi(request, ports.db, ports.privateV2, context, headers, ports.publicationV2);
   insist(ports.dance, "dance_runtime_unavailable", 503);
   if (request.method !== "GET") requestOrigin(request, context.origin);
   const session =

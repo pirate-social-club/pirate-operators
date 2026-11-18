@@ -1,4 +1,5 @@
 import {
+  canonical,
   hashJson,
   bytes32,
   exact,
@@ -32,10 +33,26 @@ import type {
   RewardsProfile,
 } from "../packages/rewards/contracts.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import { parseDanceCaptureV2 } from "../packages/dance/capture-v2.ts";
+import { danceShapes } from "../packages/dance-chain/v2/wire-shapes.ts";
 import type { PublicReadPorts } from "./community-public.ts";
-import { keccak256, parseAbi, type Hex } from "viem";
+import {
+  decodeAbiParameters,
+  encodeAbiParameters,
+  keccak256,
+  parseAbi,
+  type Hex,
+} from "viem";
 import { withRewardRehearsal } from "../packages/rewards/rehearsal.ts";
 import { MAX_OFFER_RESULT_SOURCES } from "../packages/rewards/offers.ts";
+import type { DancePublicationSourceV2 } from "./dance-publication-source.ts";
+import { historicalDanceSong } from "./dance-reward-source.ts";
+import { parsePublicationReceipt } from "./publication-app-transport.ts";
+import { parseCommand, sourceId } from "./publication-command-contract.ts";
+import {
+  rewardDanceV2Reader,
+  type RewardDanceV2Proofs,
+} from "./reward-dance-v2-reader.ts";
 
 export interface RewardResultSource {
   schema: "pirate.reward-result-source/1";
@@ -408,6 +425,199 @@ export function categoricalRewardSources(
   input: CategoricalRewardSourcesInput,
 ): RewardSources {
   return composeRewardSources({ ...input, kind: "categorical-only" });
+}
+
+export interface DanceV2ManualRewardSourcesInput {
+  db: D1Database;
+  profile: RewardsProfile;
+  source: DancePublicationSourceV2;
+  installationId: string;
+  reads: PublicReadPorts &
+    Required<Pick<PublicReadPorts, "configurationHistory">>;
+}
+
+/** Server composition for the selected expanded installation. Only new offer
+ * attachments default to this source. The ledger still reads its frozen pins. */
+export function danceV2ManualRewardSources({
+  db,
+  profile,
+  source: selected,
+  installationId,
+  reads,
+}: DanceV2ManualRewardSourcesInput): RewardSources {
+  const source = structuredClone(selected),
+    posts = structuredClone(reads.profile);
+  const { client, transport } = reads,
+    { domain, pin, sourceHash } = source;
+  insist(
+    source.version === 2 &&
+      domain.chainId === 6343n &&
+      profile.chainId === 6343 &&
+      posts.address.toLowerCase() === pin.posts.toLowerCase() &&
+      posts.runtimeCodeHash === pin.postsRuntimeHash &&
+      typeof reads.configurationHistory === "function",
+    "dance_reward_source_unavailable",
+    503,
+  );
+  bytes32(installationId);
+  const sourcePinAbi = encodeAbiParameters([danceShapes.sourcePin], [pin]);
+  const authenticateSong = historicalDanceSong({
+    client,
+    posts,
+    transport,
+    history: reads.configurationHistory.bind(reads),
+  });
+  const retainedCapture: RewardDanceV2Proofs["retainedCapture"] = async (
+    requested,
+  ) => {
+    if (requested.sourceHash !== sourceHash) return null;
+    const captureId = bytes32(requested.captureId),
+      captureHash = bytes32(requested.captureHash);
+    // These are original immutable rows. A newer grant observation, current
+    // credential/role, or post-capture offer state cannot supply this evidence.
+    const row = await db
+      .prepare(
+        `SELECT c.account_id,c.capture_json,k.consent_json,
+      b.command_id,b.value_json AS binding_json,j.typed_json,j.digest,j.source_id,
+      j.request_id,j.nonce_hex,j.fence_generation,o.value_json AS observation_json
+      FROM dance_captures c JOIN dance_consents k ON k.capture_id=c.capture_id
+      JOIN dance_publication_bindings b ON b.community_id=c.community_id
+        AND b.capture_id=c.capture_id AND b.account_id=c.account_id
+        AND b.capture_hash=? AND b.purpose='dance-verdict'
+      JOIN publication_v1_commands j ON j.command_id=b.command_id
+        AND j.community_id=c.community_id AND j.account_id=c.account_id
+        AND j.purpose=b.purpose AND j.action='grant' AND j.phase='accepted'
+      JOIN publication_v1_observations o ON o.command_id=j.command_id
+        AND o.proof_hash=json_extract(b.value_json,'$.receiptSha256')
+      WHERE c.community_id=? AND c.capture_id=?`,
+      )
+      .bind(captureHash, domain.communityId, captureId)
+      .first<{
+        account_id: string;
+        capture_json: string;
+        consent_json: string;
+        command_id: string;
+        binding_json: string;
+        typed_json: string;
+        digest: string;
+        source_id: string;
+        request_id: string;
+        nonce_hex: string;
+        fence_generation: number;
+        observation_json: string;
+      }>();
+    if (!row) return null;
+    const stored = parseDanceCaptureV2({
+      ...object(JSON.parse(row.capture_json)),
+      consent: JSON.parse(row.consent_json),
+    });
+    if (
+      stored.publication.kind !== "publication-bound" ||
+      stored.canonical === null
+    )
+      return null;
+    const original = stored.publication.binding;
+    if (original.source.installationId !== installationId) return null;
+    insist(
+      stored.communityId === domain.communityId &&
+        stored.captureId === captureId &&
+        stored.captureHash === captureHash &&
+        stored.learner.accountId === row.account_id &&
+        stored.canonical.sourceHash === sourceHash &&
+        stored.canonical.domain.chainId === "6343" &&
+        stored.canonical.domain.verifier.toLowerCase() ===
+          domain.verifier.toLowerCase() &&
+        stored.canonical.sourcePinAbi === sourcePinAbi,
+      "dance_reward_original_capture_changed",
+      503,
+    );
+    const binding = object(JSON.parse(row.binding_json));
+    exact(binding, [
+      "schema",
+      "kind",
+      "captureId",
+      "captureHash",
+      "accountId",
+      "commandId",
+      "originalSha256",
+      "receiptSha256",
+      "boundAtMs",
+      "configurationRevision",
+      "ownerEpoch",
+      "actionHex",
+      "binding",
+    ]);
+    bytes32(binding.originalSha256);
+    insist(
+      canonical(binding) === row.binding_json &&
+        binding.schema === "pirate.dance-publication-binding/1" &&
+        binding.kind === "capture" &&
+        binding.captureId === captureId &&
+        binding.captureHash === captureHash &&
+        binding.accountId === row.account_id &&
+        binding.commandId === row.command_id &&
+        binding.commandId === stored.publication.publicationCommandId &&
+        binding.actionHex === null &&
+        binding.boundAtMs === stored.reservedAtMs &&
+        binding.configurationRevision ===
+          stored.expected.configurationRevision &&
+        binding.ownerEpoch === stored.expected.ownerEpoch &&
+        canonical(binding.binding) === canonical(original),
+      "dance_reward_original_binding_changed",
+      503,
+    );
+    const command = parseCommand(JSON.parse(row.typed_json));
+    insist(
+      canonical(command) === row.typed_json &&
+        command.action === "grant" &&
+        command.commandId === row.command_id &&
+        command.accountId === row.account_id &&
+        sourceId(command.source) === row.source_id &&
+        command.requestId === row.request_id &&
+        command.message.nonce === row.nonce_hex &&
+        command.localFenceGeneration === String(row.fence_generation) &&
+        command.digest === row.digest &&
+        command.digest === original.grantId &&
+        canonical(command.source) === canonical(original.source) &&
+        canonical(command.message) === canonical(original.grant) &&
+        command.localFenceGeneration === original.localFenceGeneration,
+      "dance_reward_original_command_changed",
+      503,
+    );
+    const receipt = parsePublicationReceipt(
+      JSON.parse(row.observation_json),
+      command,
+    );
+    insist(
+      receipt.state === "recorded" &&
+        canonical(receipt) === row.observation_json &&
+        hashJson(receipt) === binding.receiptSha256 &&
+        receipt.observed.timestampS === original.recordedAtS,
+      "dance_reward_original_observation_changed",
+      503,
+    );
+    const [capture] = decodeAbiParameters(
+      [danceShapes.capture],
+      stored.canonical.captureAbi,
+    );
+    return { accountId: stored.learner.accountId, capture };
+  };
+  return categoricalRewardSources({
+    profile,
+    reads: { client },
+    current: sourceHash,
+    defaults: [sourceHash],
+    categorical: new Map([
+      [
+        sourceHash,
+        rewardDanceV2Reader({
+          source,
+          client,
+          proofs: { retainedCapture, authenticateSong },
+        }),
+      ],
+    ]),
+  });
 }
 
 function composeRewardSources(

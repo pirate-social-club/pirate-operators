@@ -1,3 +1,5 @@
+import { nativePublicationLookupFetch } from "./linux-web2-publication.ts";
+import { publicationLookupPath } from "./native-publication-reference.ts";
 import { nativeApplicationOriginal, web2ApplicationOriginal } from "./application-native-readback.ts";
 import {
   communityFetch, communityQueue, communityScheduled,
@@ -11,7 +13,10 @@ import {nativeDigest} from "../packages/community/native-business-binding.ts";
 import { linuxWeb2KaraokeUpgrade, type NativeKaraokeSocketEnv } from "./linux-web2-karaoke-upgrade.ts";
 import { danceHostPrefix, nativeDanceAuthority, type NativeDanceEnv } from "./linux-web2-dance-authority.ts";
 
-export interface LinuxCommunityEnv extends CommunityEnv, NativeKaraokeSocketEnv, NativeDanceEnv {
+import { nativePostsCustodyPath } from "../packages/community/native-posts-custody.ts";
+import { bindNativePostsCustody, nativePostsCustody, type NativePostsEnv } from "./linux-web2-posts-custody.ts";
+
+export interface LinuxCommunityEnv extends CommunityEnv, NativeKaraokeSocketEnv, NativeDanceEnv, NativePostsEnv {
   COMMUNITY_DEPLOYMENT_PROFILE_JSON: string;
 }
 async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeploymentProfile){
@@ -19,7 +24,9 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
     const original=await web2ApplicationOriginal(env);
     insist(canonical(original.record.body.draft.deployment)===canonical(deployment),"web2_native_deployment_changed",503);
     const digest=nativeDigest(original),communityId=deployment.directoryProfile.communityId,origin=deployment.origin;
-    return {...env,async CATALOG_ACCOUNT_FENCE(accountId:string,wallet:string,authorId:string){
+    const postsFence = await bindNativePostsCustody(env, deployment, original);
+    return {...env, ...(postsFence ? { LOCAL_POSTS_EFFECT_FENCE: postsFence } : {}),
+      async CATALOG_ACCOUNT_FENCE(accountId:string,wallet:string,authorId:string){
       const row=await env.DB.withSession("first-primary").prepare(`SELECT a.account_id
         FROM community_accounts a JOIN credential_bindings b ON b.account_id=a.account_id
         JOIN application_identity i ON i.id=1 AND i.community_id=? AND i.community_origin=?
@@ -35,6 +42,8 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
 /** Explicit Linux composition. Missing/invalid server inputs never select First Song. */
 export default {
   async fetch(request:Request, env:LinuxCommunityEnv) {
+    if (new URL(request.url).pathname === publicationLookupPath)
+      return nativePublicationLookupFetch(request, env);
     let deployment: CommunityDeploymentProfile;
     try {
       deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);
@@ -43,6 +52,8 @@ export default {
         status: 503, headers: { "cache-control": "no-store" },
       });
     }
+    if (isWeb2Deployment(deployment) && new URL(request.url).pathname === nativePostsCustodyPath)
+      return nativePostsCustody(request, env, deployment);
     const bound=await installedOriginal(env,deployment);
     if (isWeb2Deployment(deployment)) {
       const path = new URL(request.url).pathname;

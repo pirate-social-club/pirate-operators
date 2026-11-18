@@ -1,4 +1,4 @@
-import { parseDanceCaptureV2, type PrivateCaptureV2, type StoredDanceCapture } from "../packages/dance/capture-v2.ts";
+import { parseDanceCaptureV2, type PrivateCaptureV2, type PublicationCaptureV2, type StoredDanceCapture } from "../packages/dance/capture-v2.ts";
 import { bytes32, canonical, exact, hashText, insist, object } from "../packages/community/common.ts";
 import type {
   MediaActor, MediaIntent, MediaRecord, PublishedMediaSong,
@@ -96,16 +96,19 @@ export class DanceSource3Bindings {
   readonly sourceHash: string | null;
   readonly ports: Omit<DancePorts, "media"> | null;
   readonly privateV2?: { current(actor: MediaActor, capture: PrivateCaptureV2): Promise<readonly DanceFence[]> };
+  readonly publicationV2?: { current(actor: MediaActor, capture: PublicationCaptureV2): Promise<readonly DanceFence[]> };
   constructor(input: {
     db: D1Database; communityId: string; sourceHash?: string;
     dance?: Omit<DancePorts, "media">;
     privateV2?: DanceSource3Bindings["privateV2"];
+    publicationV2?: DanceSource3Bindings["publicationV2"];
   }) {
     this.store = new DanceStore(input.db);
     this.communityId = input.communityId;
     this.sourceHash = input.sourceHash ? bytes32(input.sourceHash) : null;
     this.ports = input.dance ? Object.freeze({ ...input.dance }) : null;
     this.privateV2 = input.privateV2;
+    this.publicationV2 = input.publicationV2;
   }
   private async original(actor: MediaActor, requestId: string) {
     const row = await this.store.db.prepare(`SELECT capture_id,capture_hash,intent_json
@@ -129,20 +132,25 @@ export class DanceSource3Bindings {
     const stored = { ...JSON.parse(row.capture_json), consent: JSON.parse(row.consent_json) };
     if (stored.version === "pirate.dance/2") {
       const capture = parseDanceCaptureV2(stored);
-      insist(capture.publication.kind === "private" && this.privateV2,
-        "dance_source3_v2_admission_unavailable", 503);
       insist(capture.captureId === id && capture.communityId === this.communityId &&
         capture.learner.accountId === actor.accountId && capture.captureHash === bytes32(expectedHash),
         "dance_source3_capture_changed", 409);
-      const privateCapture = capture as PrivateCaptureV2;
-      const fences = [...await this.privateV2.current(actor, privateCapture), {
+      let selected: readonly DanceFence[];
+      if (capture.publication.kind === "private") {
+        insist(this.privateV2, "dance_source3_v2_admission_unavailable", 503);
+        selected = await this.privateV2.current(actor, capture as PrivateCaptureV2);
+      } else {
+        insist(this.publicationV2, "dance_source3_v2_admission_unavailable", 503);
+        selected = await this.publicationV2.current(actor, capture as PublicationCaptureV2);
+      }
+      const fences = [...selected, {
         sql: `EXISTS(SELECT 1 FROM dance_captures c JOIN dance_consents s ON s.capture_id=c.capture_id
           WHERE c.capture_id=? AND c.community_id=? AND c.account_id=? AND c.capture_json=? AND s.consent_json=?` +
           (reservation ? ` AND json_extract(c.capture_json,'$.expiresAtMs')>${DANCE_DB_NOW})` : ")"),
         values: [id, this.communityId, actor.accountId, row.capture_json, row.consent_json],
       }];
       insist(fences.length > 1, "dance_source3_v2_admission_unavailable", 503);
-      return { capture: privateCapture, fences };
+      return { capture, fences };
     }
     const capture: DanceCapture = stored;
     validateCapture(capture);

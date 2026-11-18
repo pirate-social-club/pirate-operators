@@ -12,6 +12,8 @@ export interface PublicationCommandApiV1 {
   /** Root-owned trusted installed or retained-source lookup, not HTTP input. */
   issuer: PublicationIssuerV1;
   selectedFee?: CapturedPublicationFeeV1;
+  /** The selected native owner supplies this for its fresh accept. */
+  assertAcceptCurrent?(authenticatedBody: unknown): Promise<void>;
   store: ResultStore;
   read: PublicationReadRpc;
   clock: () => number;
@@ -22,11 +24,13 @@ export async function publicationCommandFetch(request: Request, ports: Publicati
   const path = new URL(request.url).pathname;
   if (!["/publication/v1/fence","/publication/v1/accept","/publication/v1/reconcile"].includes(path))
     return null;
-  const value = await publicationIssuerBody(request,ports.issuer,ports.clock);
+  const assertAcceptCurrent = path === "/publication/v1/accept" ? ports.assertAcceptCurrent : undefined;
+  const value = await publicationIssuerBody(request, ports.issuer, ports.clock, assertAcceptCurrent);
   const reply = (body: unknown) => Response.json(body,{headers:{"cache-control":"no-store"}});
   if (path === "/publication/v1/fence")
     return reply(inhibitPublication(ports.store,value,ports.issuer));
   if (path === "/publication/v1/accept") {
+    if (assertAcceptCurrent) request.signal.throwIfAborted();
     const accepted = acceptPublicationCommand(ports.store,value,ports.issuer,ports.selectedFee);
     return reply(await reconcilePublicationCommand(ports.store,accepted.commandId,ports.read));
   }

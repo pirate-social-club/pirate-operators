@@ -88,6 +88,33 @@ test("a captured native Karaoke selection shares the retained Study budget and l
   assert.match(config, /durableObjectStorage=\(localDisk="actor-private-karaoke-operator"\)/);
 });
 
+test("publication configuration embeds distinct app capabilities after a separate cold admission", () => {
+  const g = graph(), served = () => renderFullNativeConfig(g, "serve", "7".repeat(64));
+  g.localActivitySocket = native.socket;
+  assert.doesNotMatch(served(), /PUBLICATION_(NATIVE|OPERATOR|RETAINED)/);
+  g.nativePublication = {
+    schema: "pirate.web2-native-publication-transport/1",
+    directory: "/private/publication-transport",
+    transportRef: "fixture-v5",
+    issuerCapabilityRef: "fixture-publication-issuer",
+    issuerAddress: "0x1111111111111111111111111111111111111111",
+    operatorAddress: "0x2222222222222222222222222222222222222222",
+  };
+  const serve = served(), cold = renderFullNativeConfig(g, "initialize");
+  assert.match(serve, /name="PUBLICATION_OPERATOR_HOST",service="web2-local-activities"/);
+  assert.match(serve, /name="PUBLICATION_NATIVE_MOUNT_JSON",text=embed "\/private\/publication-transport\/publication-native-mount.json"/);
+  assert.match(serve, /name="PUBLICATION_OPERATOR_HOST_AUTH",text=embed "\/private\/publication-transport\/host-reference.auth"/);
+  assert.match(serve, /name="PUBLICATION_RETAINED_LOOKUP_AUTH",text=embed "\/private\/publication-transport\/retained-lookup.auth"/);
+  assert.doesNotMatch(serve, /WEB2_PUBLICATION_INITIALIZATION_JSON/);
+  assert.match(cold, /name="WEB2_PUBLICATION_INITIALIZATION_JSON",text=embed "\/private\/publication-transport\/publication-initialization.json"/);
+  assert.doesNotMatch(cold, /PUBLICATION_(NATIVE|OPERATOR|RETAINED)/);
+  g.actors[0]!.bindings.push({ name: "PUBLICATION_RETAINED_LOOKUP_AUTH", file: "/private/other.auth" });
+  assert.throws(served, /prebound_native_publication_refused/);
+  g.actors[0]!.bindings.pop();
+  delete g.localActivitySocket;
+  assert.throws(served, /native_publication_requires_selected_activity_socket/);
+});
+
 test("the signed bootstrap cannot prebind or replace the native session gate", () => {
   assert.doesNotThrow(() => assertNoBootstrapNativeActivities(graph()));
   const prebound = graph();

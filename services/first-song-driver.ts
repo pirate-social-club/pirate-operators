@@ -210,7 +210,7 @@ export function firstSongDriver(
       if (operation.step === "publication") {
         await validateMedia(input);
         await authorizeOwner();
-        return preparePosting(operation, ports.posting);
+        return preparePosting(operation, ports.posting, job);
       }
       return {
         replay: {
@@ -261,10 +261,10 @@ export function firstSongDriver(
         };
         if (catalogOwner(ports.managed.configuration.policies.admission)) {
           insist(ports.catalog,"recognition_runtime_unconfigured",503);
-          return executePosting(operation,{...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}});
+          return executePosting(operation,{...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}},job);
         }
         await authorizeOwner();
-        return executePosting(operation, {...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await authorizeOwner();}});
+        return executePosting(operation, {...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await authorizeOwner();}},job);
       }
       return confirmed(
         await releasePin(

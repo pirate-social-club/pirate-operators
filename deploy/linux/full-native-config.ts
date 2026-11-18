@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { nativePublicationBindingNames, nativePublicationPaths, nativePublicationService,
+  type Web2NativePublicationGraph } from "./web2-publication-selection.ts";
 import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/shared-song-feed-settings.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
@@ -9,6 +11,9 @@ export interface NativeGraph {
   requiredRoles:string[];queueConfiguration:unknown;maintenanceConfiguration:unknown;
   directoryRuntimeBinding:string;allowedOrigins:string[];
   localActivitySocket?:string;
+  nativePublication?:Web2NativePublicationGraph;
+  /** Signed opt-in. The immutable registration still uses revision one. */
+  publicationExpansion?:"registry-revision-two/1";
   secretBindings:Array<{name:string;path:string}>;
   listenAddress:string;tls:{keyFile:string;certificateFile:string};
   migrationPlanFile:string;
@@ -110,6 +115,24 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
       !g.localActivitySocket.split("/").some(part => part === "." || part === ".."), "private_activity_socket_required");
     services.push('(name="web2-local-activities",external=(address='+q("unix:"+g.localActivitySocket)+',http=()))');
   }
+  const reservedPublication = new Set<string>(nativePublicationBindingNames);
+  assert(![...g.applicationBindings, ...g.secretBindings, ...g.actors.flatMap(actor => actor.bindings)]
+    .some(binding => reservedPublication.has(binding.name)), "prebound_native_publication_refused");
+  const publication = g.nativePublication;
+  assert(g.publicationExpansion === undefined ||
+    (g.publicationExpansion === "registry-revision-two/1" && publication && fixture),
+    "native_expanded_fixture_selection_required");
+  if (publication) {
+    assert(g.localActivitySocket && publication.schema === "pirate.web2-native-publication-transport/1",
+      "native_publication_requires_selected_activity_socket");
+  }
+  const publicationFiles = publication ? nativePublicationPaths(publication.directory) : undefined;
+  const publicationApp = publicationFiles ? [
+    binding({name:"PUBLICATION_NATIVE_MOUNT_JSON",file:publicationFiles.selector}),
+    binding({name:"PUBLICATION_OPERATOR_HOST",service:nativePublicationService}),
+    binding({name:"PUBLICATION_OPERATOR_HOST_AUTH",file:publicationFiles.request}),
+    binding({name:"PUBLICATION_RETAINED_LOOKUP_AUTH",file:publicationFiles.lookup}),
+  ] : [];
   const karaokeLease = g.applicationBindings.find(b => b.name === "KARAOKE_NATIVE_SESSION_CAPTURE");
   if (karaokeLease) {
     const operator = g.actors.find(a=>a.service==="private-karaoke-operator");
@@ -142,7 +165,8 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +'(name="COMMUNITY_DEPLOYMENT_PROFILE_JSON",text='+q(g.directoryRuntimeBinding)+'),'
     +(nativeOriginalFile?'(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+'),'
       +'(name="NATIVE_READBACK_KEY",text=embed '+q(g.readbackKeyFile)+'),':'')
-    +[...g.applicationBindings.map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')')].join(","),"",undefined,"egress"));
+    +[...g.applicationBindings.map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
+      ...publicationApp].join(","),"",undefined,"egress"));
   assert(g.stateRoots.readiness?.startsWith("/"),"persistent_handler_readback_root_required");
   services.push(disk("readback-storage",g.stateRoots.readiness!));
   services.push(worker("readiness","selected-handler-observer.worker.mjs",
@@ -154,10 +178,22 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +doBinding("BOOT_STATE","startup","BootAdmission"),ns("startup","BootAdmission","boot-admission-v1-"+scope),"readback-storage"));
   services.push(worker("gateway","full-gateway.worker.mjs",'(name="APPLICATION",service="application"),(name="STARTUP",service="startup"),(name="OBSERVER",service="readiness"),'
     +'(name="READBACK_KEY",text=embed '+q(g.readbackKeyFile)+')'));
+  const postsSelection = g.applicationBindings.filter(row => row.name === "POSTS_CUSTODY_SELECTION_JSON");
+  const postsRole = g.secretBindings.filter(row => row.name === "POSTS_CUSTODY_HOST_AUTH");
+  assert(postsSelection.length === postsRole.length && postsRole.length <= 1 &&
+    (!postsRole.length || (g.fixtureTransport && typeof postsSelection[0]!.file === "string" &&
+      postsSelection[0]!.text === undefined && postsSelection[0]!.file !== postsRole[0]!.path)),
+    "native_posts_initialization_binding_changed");
+  const postsInit = postsRole.length
+    ? ',' + binding(postsSelection[0]!) + ',' + '(name="POSTS_CUSTODY_HOST_AUTH",text=embed ' + q(postsRole[0]!.path) + ')'
+    : '';
   if(initialize)services.push(worker("initialize","maintenance.bootstrap.mjs",
     '(name="DB",wrapped=(moduleName="cloudflare-internal:d1-api",innerBindings=[(name="fetcher",service="d1-entry")])),(name="MEDIA",r2Bucket="media-entry"),'
     +'(name="MIGRATION_PLAN_JSON",text=embed '+q(g.migrationPlanFile)+')'
-    +(nativeOriginalFile?',(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+')':'')));
+    +(nativeOriginalFile?',(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+')':'')
+    +(mode==="initialize" ? postsInit : "")
+    +(publicationFiles && mode==="initialize" ? ","+binding({name:"WEB2_PUBLICATION_INITIALIZATION_JSON",
+      file:publicationFiles.initialization}) : "")));
   if(mode==="cold-reconcile") {
     assert(typeof g.coldPlanFile==="string" && g.coldPlanFile.startsWith("/"),"explicit_cold_reconciliation_plan_required");
     assert(g.stateRoots.reconciliation?.startsWith("/"),"reconciliation_durable_root_required");

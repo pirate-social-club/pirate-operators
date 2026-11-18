@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { nativeDigest } from "../../packages/community/native-business-binding.ts";
+import { assertStartAllowed } from "./maintenance-guard.ts";
+import { assertWeb2IngressUncreated, createWeb2ExpansionPreparation } from "./web2-expansion-preparation.ts";
+import { publishingAttachment } from "./web2-publishing-attachment.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   retainWeb2Record as retain,
@@ -56,6 +60,9 @@ import {
   web2ApplicationReleaseBody,
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
+import { stageNativePublication, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
+import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
+import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
 export interface Web2InstallationHostInputs {
@@ -72,6 +79,8 @@ export interface Web2InstallationHostInputs {
   hostFingerprint: string;
   nativeRuntimeDirectory: string;
   now: () => number;
+  publication?: Web2PublicationInstallationInputs;
+  posts?: Web2PostsInstallationInputs;
   signProfile(
     body: Web2InstallPlan,
     generation: number,
@@ -103,6 +112,16 @@ export async function createWeb2Installation(
     selected.release,
     selected.trust,
   );
+  const publication = input.publication;
+  assert(Boolean(release.graph.nativePublication) === Boolean(publication),
+    "native_publication_owner_unavailable");
+  const prepareExpansion = publication?.prepareExpansion?.bind(publication);
+  assert(!prepareExpansion || (release.graph.publicationExpansion === "registry-revision-two/1" && release.graph.fixtureTransport &&
+    ingress.tls.kind === "local-fixture-ca" && publication?.activateAfterStaging), "native_expansion_bootstrap_unadmitted");
+  const prepareOnce = createWeb2ExpansionPreparation(selected.planDirectory, lease);
+  const posts = input.posts;
+  assert(Boolean(postsSelectorPath(release.graph, selected.target)) === Boolean(posts),
+    "native_posts_install_owner_unavailable");
   assert(
     release.schema === "pirate.complete-linux-web2-release/1",
     "explicit_web2_release_required",
@@ -194,10 +213,31 @@ export async function createWeb2Installation(
       finish();
     }
   };
+  function nativeOriginal(record: SignedRecord<Web2InstallPlan>): Web2NativeOriginal {
+    return { schema: "pirate.web2-native-application-original/1", record,
+      release: selected.applicationRelease, trust: selected.trust, durableScope: release.graph.durableScope };
+  }
+  const currentHostAdmission = (draft: LinuxWeb2Draft, planId: string | undefined, retainedGeneration: number) =>
+    readWeb2HostAdmission({
+      path: selected.currentAdmissionFile,
+      trust: selected.trust,
+      now,
+      installationId: lease.installationId,
+      draft,
+      releaseArtifactDigest: release.artifactDigest,
+      targetDigest,
+      hostFingerprint: selected.hostFingerprint,
+      minimumGeneration: Math.max(
+        selected.minimumGeneration,
+        retainedGeneration,
+      ),
+      ...(planId ? { planId } : {}),
+    });
   async function authorize(
     draft: LinuxWeb2Draft,
     planId?: string,
     retainedGeneration = selected.minimumGeneration,
+    retained?: { record: SignedRecord<Web2InstallPlan>; starting: boolean },
   ) {
     await open();
     assert(
@@ -207,24 +247,14 @@ export async function createWeb2Installation(
       "installed_web2_deployment_changed",
     );
     await verifyInstalledRelease(selected.release, selected.trust);
-    const host = () =>
-      readWeb2HostAdmission({
-        path: selected.currentAdmissionFile,
-        trust: selected.trust,
-        now,
-        installationId: lease.installationId,
-        draft,
-        releaseArtifactDigest: release.artifactDigest,
-        targetDigest,
-        hostFingerprint: selected.hostFingerprint,
-        minimumGeneration: Math.max(
-          selected.minimumGeneration,
-          retainedGeneration,
-        ),
-        ...(planId ? { planId } : {}),
-      });
+    const host = () => currentHostAdmission(draft, planId, retainedGeneration);
     await host();
-    const evidence = await authenticateWeb2Enrollment(chain, draft);
+    const useExpansion = retained && release.graph.publicationExpansion &&
+      (retained.starting || await expandedPublicationApprovalExists(release.graph));
+    const expanded = useExpansion && retained
+      ? await readApprovedExpandedPublication({ graph: release.graph, original: nativeOriginal(retained.record), chain })
+      : undefined;
+    const evidence = expanded?.authority ?? await authenticateWeb2Enrollment(chain, draft);
     const admission = await host();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(
@@ -233,7 +263,11 @@ export async function createWeb2Installation(
     );
     await host();
     await open();
-    return { evidence, admission };
+    if (expanded && retained) {
+      const current = await readApprovedExpandedPublication({ graph: release.graph, original: nativeOriginal(retained.record), chain });
+      assert(current.selectionSha256 === expanded.selectionSha256, "native_expanded_publication_selection_changed");
+    }
+    return { evidence, admission, expanded };
   }
   async function load(selection: LinuxWeb2PlanSelection) {
     await open();
@@ -291,14 +325,14 @@ export async function createWeb2Installation(
   async function observation(
     selection: LinuxWeb2PlanSelection,
   ): Promise<LinuxWeb2Observation> {
-    const { body } = await load(structuredClone(selection));
+    const { body, record } = await load(structuredClone(selection));
     const base = { ...selectionFor(body), installationId: body.installationId };
     try {
-      await authorize(body.draft, body.planId, body.generation);
-      const state = await controller.inspect(AbortSignal.timeout(45000));
       const intent = await optionalRecord(
         join(selected.planDirectory, "web2-start-intent.json"),
       );
+      await authorize(body.draft, body.planId, body.generation, { record, starting: intent !== null });
+      const state = await controller.inspect(AbortSignal.timeout(45000));
       if (!intent) {
         assert(
           state.resources.every((r) => r.actual === null),
@@ -325,7 +359,7 @@ export async function createWeb2Installation(
         body.draft.enrollment.communityId,
         true,
       );
-      await authorize(body.draft, body.planId, body.generation);
+      await authorize(body.draft, body.planId, body.generation, { record, starting: true });
       assert(
         sameProcess(
           edge.identity,
@@ -343,11 +377,20 @@ export async function createWeb2Installation(
     }
   }
   const service: Web2InstalledService = {
+    verifyExpandedPublishing: (selection, draft) =>
+      exclusive(async () => {
+        if (release.graph.publicationExpansion === undefined) return undefined;
+        const { body, record } = await load(structuredClone(selection));
+        assert(canonicalDigest(body.draft) === canonicalDigest(linuxWeb2DraftFrom(draft)), "original_web2_draft_changed");
+        if (!await expandedPublicationApprovalExists(release.graph)) return undefined;
+        const admitted = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
+        assert(admitted.expanded, "native_expanded_publication_activation_unadmitted");
+        return "expanded";
+      }),
     prepare: (value) =>
       exclusive(async () => {
         const draft = linuxWeb2DraftFrom(value),
           planId = "web2-" + draft.enrollment.enrollmentId.slice(2);
-        const current = await authorize(draft, planId);
         const old =
           await optionalRecord<SignedRecord<Web2InstallPlan>>(originalPath);
         if (old) {
@@ -357,10 +400,11 @@ export async function createWeb2Installation(
             "original_web2_draft_changed",
           );
           await load(selectionFor(prior));
-          await authorize(draft, prior.planId, prior.generation);
+          await authorize(draft, prior.planId, prior.generation, { record: old, starting: false });
           await retain(selected.planDirectory, "web2-original", old);
           return summary(prior);
         }
+        const current = await authorize(draft, planId);
         const plan: Web2InstallPlan = {
           schema: "pirate.linux-web2-install-plan/1",
           planId,
@@ -397,12 +441,55 @@ export async function createWeb2Installation(
     apply: (selection) =>
       exclusive(async () => {
         const owned = structuredClone(selection),
-          { body } = await load(owned);
+          { body, record } = await load(owned);
         assert(!ingressFailure, "original_ingress_custody_unresolved");
+        const original = nativeOriginal(record);
+        if (prepareExpansion) {
+          const fields = release.graph.applicationBindings.filter(item => item.name === "WEB2_PUBLISHING_ATTACHMENT_JSON");
+          const text = fields[0]?.text;
+          assert(fields.length === 1 && text, "native_expansion_attachment_required");
+          const attachment = publishingAttachment(JSON.parse(text));
+          assert(attachment.digest === body.publishingAttachmentDigest, "native_expansion_attachment_changed");
+          async function assertLifetimeHeld() {
+            signal?.throwIfAborted();
+            await lease.assertHeld();
+            assert(canonicalDigest(await readPrivateJSON(originalPath)) === canonicalDigest(record), "native_expansion_original_changed");
+            await currentHostAdmission(body.draft, body.planId, body.generation);
+            await lease.assertHeld();
+            signal?.throwIfAborted();
+          }
+          async function assertCurrent() {
+            await open();
+            await assertStartAllowed(selected.target.maintenanceDirectory);
+            assert(!edge && !ingressFailure && !await optionalRecord(join(selected.planDirectory, "web2-start-intent.json")),
+              "native_expansion_installation_already_started");
+            const host = await controller.inspect(AbortSignal.timeout(45000));
+            assert(host.fingerprint === selected.hostFingerprint && host.resources.length === selected.target.containers.length &&
+              host.resources.every(resource => resource.actual === null), "native_expansion_application_already_created");
+            await assertWeb2IngressUncreated(ingress);
+            await assertLifetimeHeld();
+            await open();
+          }
+          await prepareOnce({
+            intent: { schema: "pirate.web2-expansion-bootstrap/1", installationId: body.installationId,
+              operationId: lease.operationId, nativeOriginalSha256: nativeDigest(original),
+              graphSha256: canonicalDigest(release.graph), attachmentSha256: attachment.digest },
+            async authorize() {
+              assert(!await expandedPublicationApprovalExists(release.graph), "native_expansion_bootstrap_requires_reconciliation");
+              await authorize(body.draft, body.planId, body.generation);
+            },
+            assertCurrent,
+            execute: () => prepareExpansion({ original: structuredClone(original), graph: structuredClone(release.graph),
+              attachment: structuredClone(attachment), assertCurrent, assertLifetimeHeld }),
+          });
+        }
+        const retained = { record, starting: true };
+        const admitted = await authorize(body.draft, body.planId, body.generation, retained);
         const current = async () => {
-          await authorize(body.draft, body.planId, body.generation);
+          const observed = await authorize(body.draft, body.planId, body.generation, retained);
+          assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256,
+            "native_expanded_publication_selection_changed");
         };
-        await current();
         const intent = {
           ...selectionFor(body),
           targetDigest,
@@ -411,6 +498,30 @@ export async function createWeb2Installation(
         const prior = await optionalRecord(
           join(selected.planDirectory, "web2-start-intent.json"),
         );
+        if (prior) {
+          assert(canonicalDigest(prior) === canonicalDigest(intent), "original_start_intent_changed");
+        }
+        if (posts) {
+          await stagePostsSelector({original, graph: release.graph, target: selected.target,
+            owner: posts, startRetained: prior !== null, assertCurrent: current});
+        }
+        if (publication && release.graph.nativePublication) {
+          const staged = await stageNativePublication({
+            original,
+            transport: release.graph.nativePublication,
+            ports: publication,
+            startRetained: prior !== null,
+            ...(admitted.expanded ? { expectedSelectionSha256: admitted.expanded.selectionSha256 } : {}),
+            assertCurrent: current,
+          });
+          if (publication.activateAfterStaging) {
+            assert(admitted.expanded, "native_expanded_publication_activation_unadmitted");
+            await current();
+            await publication.activateAfterStaging({ original, selection: staged.selection,
+              selectionSha256: admitted.expanded.selectionSha256, assertCurrent: current });
+            await current();
+          }
+        }
         await retain(selected.planDirectory, "web2-launch", {
           schema: "pirate.linux-web2-launch/1",
           release: selected.release,
@@ -422,10 +533,6 @@ export async function createWeb2Installation(
           maintenanceDirectory: selected.target.maintenanceDirectory,
         });
         if (prior) {
-          assert(
-            canonicalDigest(prior) === canonicalDigest(intent),
-            "original_start_intent_changed",
-          );
           // A lost create reply does not authorize creating/adopting missing resources.
           const state = await controller.inspect(AbortSignal.timeout(45000));
           assert(

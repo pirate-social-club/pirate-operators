@@ -6,7 +6,7 @@ import {
   parseWeb2ProfileDocument as parseProfile,
   web2ProfileDocument,
 } from "../../../packages/community/web2-directory.ts";
-import { validateWeb2Configuration } from "../../../packages/community/web2-config-manifest.ts";
+import { validateWeb2Configuration, type Web2CommunityConfig } from "../../../packages/community/web2-config-manifest.ts";
 import { preparePin } from "../../../packages/community/ipfs.ts";
 import { prepareWeb2Registration } from "../../../packages/community/web2-registration-chain.ts";
 import {
@@ -362,6 +362,47 @@ export async function createWeb2PublishingSetup(
       );
       await requireAuthorizedOwner(j.accepted,c.config,j.authorization.ownerWallet,undefined,c.verification);
       return publishingAttachment(j.attachment);
+    },
+    /** Post-registration recheck for the already-bound native owner grant.
+     * It is deliberately separate from browser prepare and attach. */
+    async retainedExpandedAttachment(draft: LinuxWeb2Draft, original: Web2PublishingAttachment,
+      readCurrent: () => Promise<Web2CommunityConfig>) {
+      insist(chain && input.publishing && input.publisher, "web2_publishing_authority_unavailable", 503);
+      await journal.reload();
+      const j = journal.value, captured = publishingAttachment(original);
+      insist(j?.attachment && j.accepted && !j.attachmentPending && canonical(j.attachment) === canonical(captured) &&
+        canonical(j.selection) === canonical(captured.selection) && canonical(j.accepted) === canonical(captured.authorization) &&
+        canonical(j.authorization) === canonical(captured.authorization.authorization) &&
+        j.selection.scope.communityId === draft.configuration.communityId &&
+        j.selection.scope.installationId === draft.configuration.installationId,
+        "web2_publishing_attachment_changed", 409);
+      const currentConfiguration = async () => {
+        const config = await readCurrent();
+        insist(config.configurationRevision === 2 && config.learningRecords !== draft.configuration.learningRecords &&
+          canonical({ ...config, configurationRevision: 1, learningRecords: draft.configuration.learningRecords }) ===
+            canonical(draft.configuration), "web2_expanded_publishing_scope_changed", 409);
+        return config;
+      };
+      const assertCustody = async () => {
+        const selected = await input.publisher!.selected();
+        insist(selected.address === draft.configuration.publisher &&
+          selected.custodyBindingDigest === captured.custodyBindingDigest, "publisher_custody_binding_changed", 409);
+      };
+      await assertCustody();
+      const observed = requireGrantObservation(
+        await input.publishing.grants.reconcile(captured.selection.selectionDigest), captured.selection);
+      insist(observed.state === "attached", "web2_managed_grant_admission_unavailable", 503);
+      const config = await currentConfiguration();
+      const authorization = await requireAuthorizedOwner(j.accepted, config, j.authorization.ownerWallet, undefined, {
+        client: chain.client, currentConfiguration, now: input.now, maxSafeBlockAgeSeconds: chain.maxSafeBlockAgeSeconds,
+      });
+      await assertCustody();
+      await journal.reload();
+      insist(canonical(journal.value) === canonical(j), "web2_publishing_attachment_changed", 409);
+      await currentConfiguration();
+      const now = input.now();
+      insist(now >= authorization.validFrom && now < authorization.expiresAt, "owner_authorization_outside_window", 403);
+      return captured;
     },
   };
 }

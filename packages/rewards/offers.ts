@@ -158,6 +158,13 @@ function offerSources(
   );
   return chosen;
 }
+/** Server-selected original for the expanded operator close-only mount. */
+export interface RewardManualClose {
+  readonly offerId: string;
+  readonly inputHash: string;
+  readonly sourceHash: string;
+}
+
 export class RewardOffers {
   readonly store: RewardStore;
   readonly source: RewardSources;
@@ -311,9 +318,28 @@ export class RewardOffers {
       };
     });
   }
-  async close(id: string) {
+  async close(id: string, selected?: RewardManualClose) {
+    const manual = selected && structuredClone(selected);
+    const checkManual = (row: OfferRow, offer: RewardOffer) => {
+      if (!manual) return;
+      insist(
+        row.offer_id === manual.offerId &&
+          row.input_hash === manual.inputHash &&
+          hashJson(offerInput(offer)) === manual.inputHash &&
+          offer.evidenceMode === "simulated" &&
+          (offer.state === "open" || offer.state === "closed") &&
+          offer.resultSources?.length === 1 &&
+          offer.resultSources[0] === manual.sourceHash &&
+          this.store.profile.rehearsal?.offerId === manual.offerId &&
+          requiresRewardClosure(row),
+        "reward_manual_offer_changed",
+        409,
+      );
+      assertRehearsalOffer(this.store.profile, offer);
+    };
     const stored = await this.store.offer(rewardId(id)),
       input = offerView(stored);
+    checkManual(stored, input);
     if (input.state !== "open") return input;
     insist(this.now() >= input.cutoffAt, "reward_cutoff_not_reached", 409);
     // The sources read are exactly those pinned when the offer was attached.
@@ -339,6 +365,7 @@ export class RewardOffers {
     );
     return this.store.atomic(async () => {
       const row = await this.store.offer(id);
+      if (manual) checkManual(row, offerView(row));
       if (row.state !== "open")
         return { value: offerView(row), statements: [] };
       insist(

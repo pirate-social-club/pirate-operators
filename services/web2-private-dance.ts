@@ -7,6 +7,7 @@ import type { PublicReadPorts } from "./community-public.ts";
 import type { DancePrivatePolicyV2 } from "./dance-private-catalogue.ts";
 import { communityPrivatePractice } from "./community-private-practice.ts";
 import { readCommunityDeploymentProfile } from "./community-deployment-profile.ts";
+import { dancePublicationMediaAccess } from "./dance-publication-media-access.ts";
 
 export async function selectedWeb2Dance(
   env: CommunityEnv,
@@ -56,6 +57,13 @@ export async function selectedWeb2Dance(
   insist(scan.caughtUp, "dance_publication_index_pending", 503);
   await current();
   checkSelection();
-  return createPrivatePracticeDance({ db, bucket, config, reads, policy, renderer, current,
+  const selectedPublication = env.WEB2_DANCE_PUBLICATION_INPUTS;
+  const publicationV2 = selectedPublication?.publication.db === db &&
+    config.schema === "pirate.community-config/4" ?
+      dancePublicationMediaAccess(selectedPublication, config, reads, () => {
+        checkSelection();
+        insist(env.WEB2_DANCE_PUBLICATION_INPUTS === selectedPublication, "dance_publication_source_changed", 409);
+      }) : undefined;
+  return createPrivatePracticeDance({ db, bucket, config, reads, policy, renderer, current, publicationV2,
     enqueue: async (job:PrivateMediaJob) => { await current(); checkSelection(); await jobs.send(job); checkSelection(); } });
 }

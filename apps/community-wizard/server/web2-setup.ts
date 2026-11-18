@@ -549,7 +549,18 @@ export async function createWeb2Setup(
               "web2_private_study_unavailable", 503);
           if (selection) draft.privatePractice = selection;
         }
-        await publishing.attachment(draft);
+        const retained = action !== "installation-prepare" ? journal.installPlan : null;
+        if (retained && action === "install")
+          insist(body.approved === true && body.planId === retained.planId && body.planDigest === retained.planDigest,
+            "web2_installation_review_changed", 409);
+        // Only the installed backend can verify the original grant after the
+        // signed revision-two transition. Initial preparation and all other
+        // paths keep the ordinary revision-one check.
+        const expanded = retained && input.installation.verifyExpandedPublishing
+          ? await input.installation.verifyExpandedPublishing({ planId: retained.planId, planDigest: retained.planDigest },
+              structuredClone(journal.installDraft ?? draft))
+          : undefined;
+        if (expanded !== "expanded") await publishing.attachment(draft);
         if (!journal.installDraft) journal.installDraft = draft;
         journal.revision++;
         journal.pending = action;
@@ -565,14 +576,6 @@ export async function createWeb2Setup(
         const p = journal.installPlan;
         checkInstallationPlan(p, journal.installDraft);
         const selection = { planId: p.planId, planDigest: p.planDigest };
-        if (action === "install")
-          insist(
-            body.approved === true &&
-              body.planId === p.planId &&
-              body.planDigest === p.planDigest,
-            "web2_installation_review_changed",
-            409,
-          );
         if (action !== "installation-prepare") {
           const observation =
             action === "install"
