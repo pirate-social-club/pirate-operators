@@ -40,7 +40,7 @@ test("selected installed grants fence both exact accounts and original D1 activa
     ...initial,
     source: { ...initial.source, chainId, communityId },
     profile: { ...initial.profile, chainId, communityId },
-    configuration: { ...initial.configuration, chainId, communityId },
+    configuration: { ...initial.configuration, chainId, communityId, publisher: initial.operator },
     fee: { ...initial.fee, chainId },
   };
   const context = release.configuration;
@@ -160,8 +160,9 @@ test("selected installed grants fence both exact accounts and original D1 activa
     sqlite.sqlite.exec("PRAGMA query_only=ON");
     try {
       await assert.rejects(prepare({...intent, grants:[
-        {...intent.grants[0], accountId:reviewer.accountId}, intent.grants[1],
-      ]}), /dance_installed_prepare/);
+        {...intent.grants[0], accountId:reviewer.accountId},
+        {...intent.grants[1], accountId:learner.accountId},
+      ]}), /dance_installed_prepare_grants_unavailable/);
       assert.equal(chainReads, 0);
       await assert.rejects(prepare(intent), /read-only D1 test attempted external access/);
       assert(chainReads > 0, "the exact D1 grants reach canonical receipt verification");
