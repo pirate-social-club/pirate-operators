@@ -42,27 +42,40 @@ jobs:
           callback_source = r"""
           #include <arpa/inet.h>
           #include <stdlib.h>
+          #include <stdio.h>
           #include <string.h>
           #include <unistd.h>
 
+          static void witness(const char *line) {
+              puts(line);
+              fflush(stdout);
+          }
+
           int main(int argc, char **argv) {
-              if (argc != 3) return 2;
+              if (argc != 3 || getuid() != 65534 || geteuid() != 65534) return 2;
+              witness("CHILD_ENTRY_NONROOT");
               struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(atoi(argv[2]))};
               if (inet_pton(AF_INET, argv[1], &address.sin_addr) != 1) return 3;
               int stream = socket(AF_INET, SOCK_STREAM, 0);
-              if (stream < 0 || connect(stream, (void *)&address, sizeof(address)) < 0) return 4;
+              if (stream < 0) return 4;
+              witness("CHILD_CONNECT_BEGIN");
+              if (connect(stream, (void *)&address, sizeof(address)) < 0) return 5;
+              witness("CHILD_CONNECTED");
               const char request[] = "synthetic-callback";
-              if (write(stream, request, sizeof(request)) != sizeof(request)) return 5;
+              if (write(stream, request, sizeof(request)) != sizeof(request)) return 6;
+              witness("CHILD_REQUEST_SENT");
               const char expected[] = "runner-callback-ok";
               char reply[sizeof(expected)];
               size_t received = 0;
               while (received < sizeof(reply)) {
                   ssize_t count = read(stream, reply + received, sizeof(reply) - received);
-                  if (count <= 0) return 6;
+                  if (count <= 0) return 7;
                   received += count;
               }
               close(stream);
-              return memcmp(reply, expected, sizeof(expected)) != 0;
+              if (memcmp(reply, expected, sizeof(expected))) return 8;
+              witness("CHILD_REPLY_MATCHED");
+              return 0;
           }
           """
 
@@ -184,6 +197,21 @@ jobs:
               ids = {}
               address = None
               checked_daemon = None
+              callback = {
+                  "archiveMode": None, "archiveUid": None, "startAcknowledged": False, "startedAtRecorded": False,
+                  "childEntryNonroot": False, "connectStarted": False, "childConnected": False, "childRequestSent": False,
+                  "hostAccepted": False, "hostRequestMatched": False, "hostReplySent": False,
+                  "childReplyMatched": False, "childExitCode": None, "childRunningBeforeTeardown": None,
+                  "failurePhase": None, "observationError": None,
+              }
+              child_markers = {
+                  "CHILD_ENTRY_NONROOT": "childEntryNonroot",
+                  "CHILD_CONNECT_BEGIN": "connectStarted",
+                  "CHILD_CONNECTED": "childConnected",
+                  "CHILD_REQUEST_SENT": "childRequestSent",
+                  "CHILD_REPLY_MATCHED": "childReplyMatched",
+              }
+              phase = "docker_identity"
               try:
                   daemon_socket = Path("/run/docker.sock")
                   original = daemon_socket.stat()
@@ -192,50 +220,102 @@ jobs:
                   context = root / "context"
                   context.mkdir(mode=0o700)
                   (context / "callback.c").write_text(callback_source)
+                  phase = "synthetic_compile"
                   output("cc", "-static", "-Os", "-s", str(context / "callback.c"), "-o", str(context / "callback"))
                   image_tar = root / "synthetic-callback.tar"
+                  phase = "archive_permissions"
                   with tarfile.open(image_tar, "w") as archive:
-                      archive.add(context / "callback", arcname="callback")
+                      member = archive.gettarinfo(str(context / "callback"), arcname="callback")
+                      member.mode, member.uid, member.gid = 0o755, 0, 0
+                      member.uname = member.gname = ""
+                      with (context / "callback").open("rb") as payload:
+                          archive.addfile(member, payload)
+                  with tarfile.open(image_tar) as archive:
+                      member, = archive.getmembers()
+                      assert member.name == "callback" and member.isfile() and member.mode == 0o755
+                      assert (member.uid, member.gid) == (0, 0)
+                      callback["archiveMode"] = oct(member.mode)
+                      callback["archiveUid"] = member.uid
+                  phase = "image_import"
                   docker("import", "--change", 'ENTRYPOINT ["/callback"]',
                       "--change", "LABEL " + label, str(image_tar), image, timeout=45)
                   ids["image"] = docker("image", "inspect", "--format", "{{.Id}}", image)
+                  phase = "internal_network"
                   ids["network"] = docker("network", "create", "--internal", "--label", label, name)
                   network = json.loads(docker("network", "inspect", ids["network"]))[0]
                   assert network["Internal"] and network["Driver"] == "bridge"
                   gateway = network["IPAM"]["Config"][0]["Gateway"]
+                  phase = "host_listen"
                   with socket.socket() as listener:
                       listener.bind((gateway, 0))
                       listener.listen(1)
                       listener.settimeout(18)
                       address = listener.getsockname()
+                      phase = "docker_create"
                       ids["container"] = docker(
                           "create", "--name", name, "--label", label, "--network", name,
                           "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
                           "--pids-limit=32", "--user=65534:65534", image, gateway, str(address[1]),
                       )
-                      with subprocess.Popen(
-                          ["/usr/bin/docker", "--host", "unix:///run/docker.sock", "start", "--attach", ids["container"]],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                      ) as attached:
-                          try:
-                              conn, peer = listener.accept()
-                              with conn:
-                                  conn.settimeout(5)
-                                  with conn.makefile("rb") as channel:
-                                      request = channel.read(len(b"synthetic-callback\0"))
-                                  assert request == b"synthetic-callback\0", "callback input mismatch"
-                                  expected_peer = docker("inspect", "--format",
-                                      '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', ids["container"])
-                                  assert peer[0] == expected_peer != gateway, "callback peer did not match container"
-                                  conn.sendall(b"runner-callback-ok\0")
-                              assert attached.wait(timeout=12) == 0, "callback response not accepted"
-                          finally:
-                              if attached.poll() is None:
-                                  attached.terminate()
-                                  attached.wait(timeout=5)
-                  results["docker_to_host"] = True
+                      phase = "docker_start"
+                      start = subprocess.run(
+                          ["/usr/bin/docker", "--host", "unix:///run/docker.sock", "start", ids["container"]],
+                          text=True, capture_output=True, timeout=15,
+                      )
+                      if start.returncode:
+                          reason = start.stderr.lower()
+                          if "permission denied" in reason:
+                              raise RuntimeError("synthetic container executable permission denied")
+                          if "exec format error" in reason:
+                              raise RuntimeError("synthetic container executable format error")
+                          raise RuntimeError(f"docker start exited {start.returncode}")
+                      assert start.stdout.strip() == ids["container"]
+                      callback["startAcknowledged"] = True
+                      phase = "host_accept"
+                      conn, peer = listener.accept()
+                      callback["hostAccepted"] = True
+                      with conn:
+                          phase = "peer_identity"
+                          expected = docker("inspect", "--format",
+                              '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', ids["container"])
+                          assert peer[0] == expected != gateway, "callback peer did not match container"
+                          phase = "host_handshake_read"
+                          conn.settimeout(5)
+                          with conn.makefile("rb") as channel:
+                              request = channel.read(len(b"synthetic-callback\0"))
+                          assert request == b"synthetic-callback\0", "callback input mismatch"
+                          callback["hostRequestMatched"] = True
+                          phase = "host_handshake_reply"
+                          conn.sendall(b"runner-callback-ok\0")
+                          callback["hostReplySent"] = True
+                      phase = "child_exit"
+                      assert docker("wait", ids["container"], timeout=12) == "0", "synthetic callback returned nonzero"
               except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                  callback["failurePhase"] = phase
                   error["docker_to_host"] = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
+              finally:
+                  if "container" in ids:
+                      try:
+                          state = json.loads(docker("inspect", "--format", "{{json .State}}", ids["container"]))
+                          callback["startedAtRecorded"] = not state["StartedAt"].startswith("0001-")
+                          callback["childRunningBeforeTeardown"] = state["Running"]
+                          if callback["startedAtRecorded"] and not state["Running"]:
+                              callback["childExitCode"] = state["ExitCode"]
+                          logs = docker("logs", ids["container"]).splitlines()
+                          for line in logs:
+                              if line in child_markers:
+                                  callback[child_markers[line]] = True
+                      except (AssertionError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                          callback["observationError"] = type(exc).__name__
+              required = ("startAcknowledged", "startedAtRecorded", "childEntryNonroot", "connectStarted",
+                  "childConnected", "childRequestSent", "hostAccepted", "hostRequestMatched", "hostReplySent", "childReplyMatched")
+              results["docker_to_host"] = (
+                  callback["failurePhase"] is None and callback["observationError"] is None
+                  and callback["childExitCode"] == 0 and all(callback[key] for key in required)
+              )
+              if not results["docker_to_host"] and "docker_to_host" not in error:
+                  callback["failurePhase"] = "child_evidence"
+                  error["docker_to_host"] = "incomplete callback stage evidence"
 
               try:
                   if not shutil.which("xwininfo"):
@@ -276,7 +356,9 @@ jobs:
               except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                   error["same_host_teardown"] = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
 
-              print("SMOKE_RESULT " + json.dumps({"capabilities": results, "failures": error}, sort_keys=True), flush=True)
+              print("SMOKE_RESULT " + json.dumps({
+                  "capabilities": results, "failures": error, "dockerCallback": callback,
+              }, sort_keys=True), flush=True)
               return 0 if all(results.values()) else 1
 
           if __name__ == "__main__":
