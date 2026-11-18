@@ -201,10 +201,13 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
     get(target, property, receiver) {
       if (property === "getBlockNumber") return async () => chain.state.safeNumber + 1n;
       if (property === "getCode")
-        return async (query: { address: Hex }) => chain.state.codes.get(query.address);
+        return async (query: Parameters<typeof target.getCode>[0]) =>
+          query.address === pin.posts && query.blockNumber !== undefined
+            ? chain.state.codes.get(query.address)
+            : target.getCode(query);
       if (property === "readContract")
-        return async (query: { address: Hex; functionName: string; args?: [Hex, Hex] }) => {
-          assert.equal(query.address, pin.posts);
+        return async (query: Parameters<typeof target.readContract>[0]) => {
+          if (query.address !== pin.posts) return target.readContract(query);
           if (query.functionName === "directory") return pin.directory;
           assert.equal(query.functionName, "getPost");
           assert.deepEqual(query.args, [domain.communityId, post.postId]);
@@ -228,7 +231,6 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
           query.hash === postTx
             ? {
                 status: "success",
-                transactionHash: postTx,
                 blockNumber: postBlock.number,
                 blockHash: postBlock.hash,
                 transactionHash: postTx,

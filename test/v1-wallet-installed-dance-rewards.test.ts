@@ -228,11 +228,13 @@ test("an earlier Directory revision song qualifies against its ordinary Dance of
     request(attach + "/" + f.offer.offerId + "/settle", op, {}),
     /reward_route_not_found/,
   );
-  assert.equal(
-    (await f.store.offer(f.offer.offerId)).purchase_evidence,
-    pinned.purchase_evidence,
-  );
+  const saved = await f.store.offer(f.offer.offerId);
+  assert.equal(saved.purchase_evidence, pinned.purchase_evidence);
+  assert.deepEqual(JSON.parse(saved.entries_json ?? "null"), closed.entries);
   assert.equal(f.db.count("reward_closure_snapshots"), 1);
+  const snapshot = f.db.sqlite.prepare("SELECT snapshot_json FROM reward_closure_snapshots WHERE offer_id=?")
+    .get(f.offer.offerId);
+  assert.equal(JSON.parse(String(snapshot?.snapshot_json)).entriesHash, hashJson(closed.entries));
   assert.equal(f.db.count("reward_credits"), 0);
   assert.equal(f.db.count("reward_payments"), 0);
   assert.equal(f.db.count("reward_payment_attempts"), 0);

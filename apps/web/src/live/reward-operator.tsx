@@ -147,7 +147,7 @@ export function LiveRewardOperator(props: {
           {notice()}
         </Type>
       </Show>
-      <Show when={view()?.installedDanceOfferId && view()}>
+      <Show when={Boolean(view()?.installedDanceOfferId) && view()}>
         {(current) => (
           <RewardOfferPanel
             view={current()}

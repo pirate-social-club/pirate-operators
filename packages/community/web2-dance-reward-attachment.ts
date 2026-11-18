@@ -52,7 +52,12 @@ export function web2DanceRewardSource(value: unknown, communityId: Hex): DancePu
   exact(row, ["verifier", "sourcePinAbi", "sourceHash", "capturePolicy", "capturePolicyRuntimeHash"]);
   const bytes = hexBytes(row.sourcePinAbi);
   const [decoded] = decodeAbiParameters(sourcePinAbi, bytes);
-  const pin = { ...decoded, directory: address(decoded.directory), posts: address(decoded.posts), consentRegistry: address(decoded.consentRegistry) };
+  const pin = {
+    ...decoded,
+    directory: address(decoded.directory.toLowerCase()),
+    posts: address(decoded.posts.toLowerCase()),
+    consentRegistry: address(decoded.consentRegistry.toLowerCase()),
+  };
   const domain = { chainId: 6343n, verifier: address(row.verifier), communityId: bytes32(communityId) };
   const sourceHash = bytes32(row.sourceHash);
   insist(sourceHash === danceSourceHash(domain, pin) &&

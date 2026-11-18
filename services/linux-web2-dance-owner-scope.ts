@@ -39,7 +39,7 @@ export function linuxWeb2DanceOwnerScopeReader(input: Inputs): InstalledDanceOwn
     const sourceBytes = canonical(web2DanceRewardSourceDocument(reward.source));
     const rewardProfile = canonical(reward.profile), rewardOfferId = reward.offerId, rewardConfiguration = reward.configurationHash;
     const attachmentDigest = reward.attachmentDigest, releaseInput = structuredClone(deployment);
-    function assertBindings() {
+    const assertBindings = () => {
       insist(input.readRecord === readRecord && input.readFreshConfiguration === readFreshConfiguration &&
         readRecord.call(input) === raw && lookup.readRetainedAttempt === readRetained && env.DB === db &&
         env.NATIVE_APPLICATION_ORIGINAL_JSON === nativeBytes && env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === rewardBytes &&
@@ -49,7 +49,7 @@ export function linuxWeb2DanceOwnerScopeReader(input: Inputs): InstalledDanceOwn
         reward.configurationHash === rewardConfiguration && canonical(reward.profile) === rewardProfile &&
         canonical(web2DanceRewardSourceDocument(reward.source)) === sourceBytes,
         "linux_web2_dance_retained_bindings_changed", 503);
-    }
+    };
 
     assertBindings();
     const original = await web2ApplicationOriginal(env);
