@@ -45,6 +45,7 @@ export interface CommunityPagesProps {
   composer?: () => JSX.Element;
   pendingSongs?: () => JSX.Element;
   pendingSongCount?: number;
+  sharedSongs?: () => JSX.Element;
   onSignIn: () => void;
   onSignOut: () => void;
   onRefresh: () => void;
@@ -183,6 +184,7 @@ export function CommunityPages(props: CommunityPagesProps) {
               ? props.composer
               : undefined
           }
+          feedSupplement={props.sharedSongs}
           feedLeadCount={props.pendingSongCount ?? 0}
           feedLead={
             (props.pendingSongCount ?? 0) > 0 ||

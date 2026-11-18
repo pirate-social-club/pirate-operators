@@ -673,6 +673,32 @@ test("feed error is not an empty community and retains the source retry control"
   ).toBeVisible();
 });
 
+test("signed-out mobile Home keeps local emptiness alongside available or unavailable shared songs", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await serve(page, false, false, false, "strict-origin", { sharedSongFeed: true });
+  await page.goto(origin);
+  const localEmpty = page.getByText("No posts in this community yet.", { exact: true });
+  const shared = page.getByRole("region", { name: "Shared songs", exact: true });
+  const toggle = shared.getByRole("button", { name: "Shared songs", exact: true });
+  await expect(localEmpty).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true }).first()).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(state.events.filter(event => event.path === "/api/public/shared-feed")).toHaveLength(0);
+
+  await toggle.click();
+  const peer = shared.getByRole("link", { name: /A shared fixture song/ });
+  await expect(peer).toContainText("Fixture peer");
+  await expect(peer).toHaveAttribute("href", /^\/api\/public\/shared-feed\/0x[0-9a-f]{64}\/0x[0-9a-f]{64}\/open$/);
+  await expect(localEmpty).toBeVisible();
+
+  state.sharedFeedOutage(true);
+  await toggle.click();
+  await toggle.click();
+  await expect(shared.getByText("Shared songs are temporarily unavailable.", { exact: true })).toBeVisible();
+  await expect(localEmpty).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again", exact: true })).toHaveCount(0);
+});
+
 test("Study opens from Your songs with bare chrome, and resumes the same lesson through back, forward and reload", async ({
   page,
 }) => {

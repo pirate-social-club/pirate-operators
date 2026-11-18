@@ -1035,15 +1035,16 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               canSignIn={capabilities()?.signIn === true}
               rewards={capabilities()?.rewards === true}
               offers={rewardOffers()}
+              sharedSongs={
+                view() === "home" &&
+                capabilities()?.sharedSongFeed === true &&
+                !props.integrations?.publicFeed
+                  ? () => <SharedSongFeed />
+                  : undefined
+              }
               integrations={{
                 ...props.integrations,
                 version: 1,
-                publicFeed: props.integrations?.publicFeed ??
-                  (() => (
-                    <Show when={view() === "home" && capabilities()?.sharedSongFeed === true}>
-                      <SharedSongFeed />
-                    </Show>
-                  )),
                 postAuthors: authors,
                 danceNavigation: danceNavigation(),
                 communityMembership: shellMembership(),

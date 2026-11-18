@@ -80,6 +80,7 @@ export async function serveCommunity(
     songs?: boolean;
     rewards?: boolean;
     feedOutage?: boolean;
+    sharedSongFeed?: boolean;
     profile?: "loaded" | "unavailable";
     joined?: boolean;
     membership?: boolean;
@@ -102,6 +103,7 @@ export async function serveCommunity(
     stems: 0,
   };
   let feedDown = !!options.feedOutage,
+    sharedFeedDown = false,
     exposePublished = true,
     loseMasterAck = true;
   const catalogBytes = wav();
@@ -203,12 +205,20 @@ export async function serveCommunity(
         policyVersion: policy,
         rewards: !!options.rewards,
         study: false,
+        ...(options.sharedSongFeed ? { sharedSongFeed: true } : {}),
         ...(options.membership === undefined ? {} : {membership: options.membership}),
       });
     if (path === "/api/feed")
       return feedDown
         ? json({ error: "fixture_feed_unavailable" }, 503)
         : json(feed());
+    if (path === "/api/public/shared-feed" && options.sharedSongFeed)
+      return sharedFeedDown
+        ? json({ error: "shared_song_feed_unavailable" }, 503)
+        : json({ schema: "pirate.shared-song-feed/1", songs: [{
+            communityId: "0x" + "e".repeat(64), communityName: "Fixture peer",
+            postId: catalogPostId, title: "A shared fixture song",
+          }] });
     if (path === "/api/rewards/offers") return json({ offers: [] });
     // Membership is independent of the Study/publication behavior under test.
     // Only its authenticated read is simulated; no join or name write is accepted.
@@ -544,6 +554,9 @@ export async function serveCommunity(
     },
     feedOutage(value: boolean) {
       feedDown = value;
+    },
+    sharedFeedOutage(value: boolean) {
+      sharedFeedDown = value;
     },
     feed,
     releases: () =>
