@@ -198,6 +198,7 @@ export interface CommunityDanceCapabilityV2 {
 }
 export type CommunityDanceCapability = CommunityDanceCapabilityV1 | CommunityDanceCapabilityV2;
 export type CommunityCapabilities = BaseCommunityCapabilities & {
+  sharedSongFeed?: true;
   dance?: CommunityDanceCapability;
 };
 export function selectedDanceCapability(

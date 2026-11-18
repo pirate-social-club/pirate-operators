@@ -77,11 +77,16 @@ import {
   type FirstSongRuntimeEnv,
 } from "./first-song-runtime.ts";
 import {
+  publicCatalogSongProof,
   firstSongPublicReady,
   publicSongViews,
   publicSongResource,
   type PublicReadPorts,
 } from "./community-public.ts";
+import {
+  remoteCatalogSongReady, sharedSongFeedPath, sharedSongFeedResponse,
+} from "./shared-song-feed.ts";
+import { parseSharedSongFeed } from "./shared-song-feed-settings.ts";
 import { runCommunityJob, recoverCommunityJobs } from "./community-jobs.ts";
 import type { ProviderTransport } from "../packages/moderation/provider-http.ts";
 import {
@@ -159,6 +164,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
   /** Pirate's provider key for the one forced alignment per lyric revision. */
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
+  /** Selects the bounded Web2 shared song feed with exact remote catalog proof origins. */
+  COMMUNITY_SHARED_SONG_FEED_JSON?: string;
   REWARDS_PROFILE_JSON?: string;
   REWARDS_RESULT_SOURCE_JSON?: string;
   /** Result sources appended after the original, in order; absent before V4. */
@@ -420,6 +427,32 @@ async function communityFetchBusiness(
         config.postsContract === deployment.posts.address, "community_configuration_changed", 503);
       return config;
     };
+    const sharedFeed = web2 && env.COMMUNITY_SHARED_SONG_FEED_JSON !== undefined
+      ? parseSharedSongFeed(env.COMMUNITY_SHARED_SONG_FEED_JSON)
+      : undefined;
+    if (url.pathname === sharedSongFeedPath || url.pathname.startsWith(sharedSongFeedPath + "/")) {
+      insist(isWeb2Deployment(deployment) && sharedFeed, "not_found", 404);
+      return sharedSongFeedResponse(request, {
+        client: publicReads.client,
+        directory: parseWeb2ProfileDocument(deployment.directoryProfile),
+        posts: publicPostsProfile(deployment),
+        policy: {
+          now: () => BigInt(Math.floor((ports.now ?? Date.now)() / 1000)),
+          maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
+        },
+        transport: publicReads.transport,
+        catalogReady: async (record, origin, issued, signal) => {
+          const now = Math.floor((ports.now ?? Date.now)() / 1000);
+          const approved = sharedFeed.recognition;
+          if (!approved || canonical(issued.policies.recognition ?? null) !== canonical(approved)) return false;
+          if (record.post.communityId === context.communityId && origin === context.origin) {
+            await publicCatalogSongProof(env.DB, record, issued, approved, now);
+            return true;
+          }
+          return remoteCatalogSongReady(sharedFeed.origins, origin, record, approved, now, signal);
+        },
+      });
+    }
     if (url.pathname === canonicalPath) {
       insist(web2, "not_found", 404);
       const config = await configuration(true), runtime = ports.releaseRuntime?.(config) ??
@@ -878,7 +911,10 @@ async function communityFetchBusiness(
         publication: releaseReady,
         policyVersion: config.policies.admission.version,
       };
-      return reply(capabilities);
+      return reply({
+        ...capabilities,
+        ...(sharedFeed ? { sharedSongFeed: true } : {}),
+      });
     }
     if (request.method === "GET" && url.pathname === "/api/public/community")
       return reply({
@@ -903,6 +939,9 @@ async function communityFetchBusiness(
       env.DB,
       config,
       publicReads,
+      sharedFeed?.recognition
+        ? { profile: sharedFeed.recognition, now: () => Math.floor((ports.now ?? Date.now)() / 1000) }
+        : undefined,
     );
     if (publicResource) {
       publicResource.headers.set("server-timing", timing.header());

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/shared-song-feed-settings.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
   installationId:string;durableScope:string;releaseRoot:string;schemaPath:string;stateRoots:Record<string,string>;socket:string;
@@ -38,6 +39,18 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   assert(g.listenAddress.length>0 && g.tls.keyFile.startsWith("/") && g.tls.certificateFile.startsWith("/"));
   assert(g.applicationBindings.every(publicText),"public_release_contains_secret_binding");
   assert(g.secretBindings.every(x=>/^[A-Z][A-Z0-9_]*$/.test(x.name) && x.path.startsWith("/")));
+  const sharedFeeds = g.applicationBindings.filter(input => input.name === sharedSongFeedBinding);
+  assert(sharedFeeds.length <= 1 && !g.secretBindings.some(input => input.name === sharedSongFeedBinding),
+    "shared_song_feed_binding_changed");
+  const sharedFeed = sharedFeeds[0];
+  if (sharedFeed) {
+    assert(sharedFeed.text !== undefined && !sharedFeed.service && !sharedFeed.file && !sharedFeed.durable,
+      "shared_song_feed_profile_text_required");
+    const { origins } = parseSharedSongFeed(sharedFeed.text);
+    assert([...origins].every(origin => g.allowedOrigins.includes(origin) &&
+      (!g.fixtureTransport || g.fixtureTransport.routes.some(route => route.origin === origin))),
+      "shared_song_feed_origin_egress_missing");
+  }
   const scope=g.durableScope,roles=new Set(["application","database","objects","jobs","scheduler","assets",...g.actors.map(x=>x.role)]);
   assert((g.queueConfiguration as {scope?:string}).scope===scope && (g.maintenanceConfiguration as {scope?:string}).scope===scope,"original_durable_scope_binding_required");
   assert(g.requiredRoles.every(x=>roles.has(x)),"selected_service_graph_incomplete");

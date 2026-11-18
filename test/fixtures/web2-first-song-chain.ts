@@ -37,6 +37,8 @@ import {
   CATALOG_OWNER_POLICY_VERSION,
 } from "../../packages/community/owner-policy.ts";
 
+import { localDirectoryListingOwner } from "./web2-directory-listing.ts";
+
 export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Other = privateKeyToAccount(`0x${"52".repeat(32)}`),
   web2Controller = privateKeyToAccount(`0x${"41".repeat(32)}`),
@@ -218,6 +220,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       }
     }
     assert.ok(ready, "actual owned Anvil must become ready");
+    const genesisHash = (await client.getBlock({ blockNumber: 0n })).hash;
+    assert.ok(genesisHash, "owned Anvil genesis required");
     gateway.listen(0, "127.0.0.1");
     await once(gateway, "listening");
     gatewayStarted = true;
@@ -345,11 +349,14 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       },
       profile,
     );
+    let adminCustody: "idle" | "verification" | "listing" | "reconcile" = "idle";
     async function write(
       functionName: string,
       args: readonly unknown[],
       admin = false,
     ) {
+      if (admin) assert.ok(adminCustody === "idle" || adminCustody === "verification",
+        "local Directory admin custody held by listing");
       const hash = await (admin ? adminWallet : wallet).writeContract({
         address: directory.address,
         abi: directoryArtifact.abi,
@@ -417,7 +424,20 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       },
       freshness: { maxSafeBlockAgeSeconds: "600" },
     };
+    const withDirectoryListing = localDirectoryListingOwner({
+      client, fixtureProfile: profile, signer: web2Admin, genesisHash,
+      assertLive: () => assert.ok(!closed && child.exitCode === null && child.signalCode === null, "local fixture closed"),
+      takeListingCustody() {
+        assert.ok(!closed && adminCustody === "idle", "local Directory admin busy or held");
+        adminCustody = "listing";
+        return outcome => {
+          assert.equal(adminCustody, "listing");
+          adminCustody = outcome === "clear" ? "idle" : "reconcile";
+        };
+      },
+    });
     return {
+      withDirectoryListing,
       client,
       profile,
       deployment,
@@ -465,30 +485,38 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         await rpc("anvil_mine", ["0x40", "0x0"]);
       },
       async expireDiscovery() {
-        await write(
-          "setVerificationRoles",
-          [web2Admin.address, web2Admin.address, web2Admin.address],
-          true,
-        );
-        const block = await client.getBlock();
-        await write(
-          "verifyWeb2",
-          [
-            config.communityId,
-            0n,
-            {
-              originRevision: 1n,
-              controllerRevision: 1n,
-              observedAt: block.timestamp,
-              validUntil: block.timestamp + 20n,
-              evidenceSha256: hashText(
-                "explicit fixture HTTP verification evidence",
-              ),
-            },
-          ],
-          true,
-        );
-        await rpc("anvil_mine", ["0x40", "0x0"]);
+        assert.ok(!closed && adminCustody === "idle", "local Directory admin busy or held");
+        adminCustody = "verification";
+        try {
+          await write(
+            "setVerificationRoles",
+            [web2Admin.address, web2Admin.address, web2Admin.address],
+            true,
+          );
+          const block = await client.getBlock();
+          await write(
+            "verifyWeb2",
+            [
+              config.communityId,
+              0n,
+              {
+                originRevision: 1n,
+                controllerRevision: 1n,
+                observedAt: block.timestamp,
+                validUntil: block.timestamp + 20n,
+                evidenceSha256: hashText(
+                  "explicit fixture HTTP verification evidence",
+                ),
+              },
+            ],
+            true,
+          );
+          await rpc("anvil_mine", ["0x40", "0x0"]);
+          adminCustody = "idle";
+        } catch (error) {
+          adminCustody = "reconcile";
+          throw error;
+        }
       },
     };
   } catch (error) {

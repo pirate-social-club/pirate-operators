@@ -35,6 +35,7 @@ import { LiveRewardOperator } from "./reward-operator.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
 import type { KaraokeWallet, LearningActions } from "../karaoke/page.tsx";
 
+import { SharedSongFeed } from "./shared-song-feed.tsx";
 import { CommunityAppShell } from "./app-shell.tsx";
 import {
   appView,
@@ -1037,6 +1038,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               integrations={{
                 ...props.integrations,
                 version: 1,
+                publicFeed: props.integrations?.publicFeed ??
+                  (() => (
+                    <Show when={view() === "home" && capabilities()?.sharedSongFeed === true}>
+                      <SharedSongFeed />
+                    </Show>
+                  )),
                 postAuthors: authors,
                 danceNavigation: danceNavigation(),
                 communityMembership: shellMembership(),

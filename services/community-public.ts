@@ -16,6 +16,9 @@ import {
   indexedPublicPosts,
 } from "../packages/community/post-index.ts";
 import type { PostsProfile } from "../packages/community/post-chain.ts";
+import type { RecognitionProfile } from "../packages/recognition/intent.ts";
+import type { PostManifest } from "../packages/community/post-manifest.ts";
+import { catalogSongPublicProof, type CatalogSongRecord, type RetainedCatalogSongProof } from "./catalog-song-public-proof.ts";
 
 export interface PublicReadPorts {
   client: PublicClient;
@@ -56,18 +59,44 @@ export async function publicSongs(
   );
   const visible:typeof records=[];
   for(const record of records) {
-    if(record.post.schema==="pirate.community-post/4") {
-      const r=record.post.recognition;
-      const ack=await db.withSession("first-primary").prepare(`SELECT o.state FROM publication_catalog_obligations o
-        JOIN publication_jobs j ON j.job_id=o.job_id JOIN media_submissions s ON s.submission_id=j.submission_id
-        WHERE o.reservation_id=? AND o.intent_sha256=? AND o.state='complete' AND o.promotion_receipt_json IS NOT NULL
-        AND j.phase='published' AND s.post_id=? AND json_extract(o.intent_json,'$.communityId')=?`)
-        .bind(r!.reservationId,r!.intentSha256,record.post.postId,record.post.communityId).first<{state:string}>();
-      if(!ack) {if(postId) insist(false,"catalog_pending",503);continue;}
+    if (!await catalogSongPromoted(db, record.post)) {
+      if (postId) insist(false, "catalog_pending", 503);
+      continue;
     }
     visible.push(record);
   }
   return visible;
+}
+const completedCatalogSong = `FROM publication_catalog_obligations o
+  JOIN publication_jobs j ON j.job_id=o.job_id JOIN media_submissions s ON s.submission_id=j.submission_id
+  WHERE o.reservation_id=? AND o.intent_sha256=? AND o.state='complete' AND o.promotion_receipt_json IS NOT NULL
+  AND j.phase='published' AND s.post_id=? AND json_extract(o.intent_json,'$.communityId')=?`;
+
+function catalogSongKeys(post: PostManifest) {
+  const r = post.recognition!;
+  return [r.reservationId, r.intentSha256, post.postId, post.communityId] as const;
+}
+
+/** /4 becomes visible only after the installation retains the promotion receipt. */
+async function catalogSongPromoted(db: D1Database, post: PostManifest) {
+  return post.schema !== "pirate.community-post/4" ||
+    !!await db.withSession("first-primary").prepare("SELECT o.state " + completedCatalogSong)
+      .bind(...catalogSongKeys(post)).first<{ state: string }>();
+}
+
+export async function publicCatalogSongProof(
+  db: D1Database, record: CatalogSongRecord, config: CommunityConfig, approved: RecognitionProfile, now: number,
+) {
+  const { post } = record;
+  insist(post.schema === "pirate.community-post/4" && post.recognition && config.policies.recognition &&
+    config.communityId === post.communityId && config.postsContract === post.postsContract &&
+    config.configurationRevision === post.configurationRevision &&
+    canonical(config.policies.recognition) === canonical(approved), "public_catalog_song_not_found", 404);
+  const row = await db.withSession("first-primary").prepare(
+    "SELECT o.posting_json, o.chain_receipt_json, o.promotion_receipt_json " + completedCatalogSong,
+  ).bind(...catalogSongKeys(post)).first<RetainedCatalogSongProof>();
+  insist(row && row.posting_json && row.chain_receipt_json && row.promotion_receipt_json, "catalog_pending", 503);
+  return catalogSongPublicProof(row, { record, profile: approved, now });
 }
 type PublicPost = Awaited<ReturnType<typeof publicSongs>>[number]["post"];
 /** A published post's pinned lyric manifest, bound to that exact post. */
@@ -139,9 +168,10 @@ export async function publicSongResource(
   db: D1Database,
   config: CommunityConfig,
   ports: PublicReadPorts,
+  catalogProof?: { profile: RecognitionProfile; now(): number },
 ) {
   const url = new URL(request.url),
-    match = /^\/api\/public\/posts\/(0x[0-9a-f]{64})\/(audio|proof)$/.exec(
+    match = /^\/api\/public\/posts\/(0x[0-9a-f]{64})\/(audio|proof|catalog-proof)$/.exec(
       url.pathname,
     );
   if (!match) return null;
@@ -150,6 +180,8 @@ export async function publicSongResource(
     "method_not_allowed",
     405,
   );
+  if (match[2] === "catalog-proof")
+    insist(catalogProof && request.method === "GET", "public_catalog_song_not_found", 404);
   const records = await publicSongs(db, config, ports, match[1]);
   insist(records.length === 1, "public_song_not_found", 404);
   const record = records[0]!,
@@ -163,6 +195,24 @@ export async function publicSongResource(
       { schema: "pirate.community-publication-proof/1", ...record },
       { headers },
     );
+  if (match[2] === "catalog-proof") {
+    const history = ports.configurationHistory ? await ports.configurationHistory() : [config];
+    const issued = history.find(item => item.configurationRevision === record.post.configurationRevision);
+    insist(issued, "publication_configuration_missing", 503);
+    const blockNumber = BigInt(record.blockNumber);
+    const before = await ports.client.getBlock({ blockNumber });
+    insist(before.hash, "catalog_public_receipt_changed", 503);
+    const proof = await publicCatalogSongProof(db, { ...record, blockHash: before.hash },
+      issued, catalogProof!.profile, catalogProof!.now());
+    const [after, receipt] = await Promise.all([
+      ports.client.getBlock({ blockNumber }),
+      ports.client.getTransactionReceipt({ hash: record.transactionHash }),
+    ]);
+    insist(after.hash === before.hash && receipt.status === "success" && receipt.blockHash === after.hash &&
+      receipt.blockNumber === blockNumber && receipt.transactionHash === record.transactionHash,
+      "catalog_public_receipt_changed", 503);
+    return Response.json(proof, { headers });
+  }
   const audio = record.post.media.find((m) => m.role === "audio")!,
     { bytes } = await fetchPublicIpfs(
       audio.uri,
