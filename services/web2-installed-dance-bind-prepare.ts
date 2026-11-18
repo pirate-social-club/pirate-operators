@@ -6,7 +6,10 @@ import { DANCE_DB_NOW } from "../packages/dance/store.ts";
 import { digest } from "../packages/protocol/index.ts";
 import { consentAddress, consentDigest, consentUint64 } from "../packages/protocol/publication-consent.ts";
 import type { ConsentCommandReceiptV1 } from "../packages/protocol/publication-runtime-v1.ts";
-import { prepareDanceV2ParticipantBindings, type DanceV2PrivateParticipant } from "./dance-v2-participant-bindings.ts";
+import {
+  prepareDanceV2ParticipantBindings, verifyDanceV2BindingProgress,
+  type DanceV2BindingOriginal, type DanceV2PrivateParticipant,
+} from "./dance-v2-participant-bindings.ts";
 import type { DancePublicationSourceV2 } from "./dance-publication-source.ts";
 import { publicationOriginalFingerprint, PUBLICATION_PENDING_WITHDRAWAL } from "./publication-app-activation.ts";
 import { publicationOriginal } from "./publication-app-request.ts";
@@ -120,16 +123,31 @@ async function canonicalGrant(
   insist(again.hash === block.hash && again.timestamp === timestamp &&
     safeAgain.hash === safe.hash && safeAgain.timestamp === safe.timestamp,
   "dance_installed_prepare_receipt_reorg", 503);
+  return transaction.nonce;
 }
 
-/** Call only from an already authenticated private owner mount. The owner
- * must retain the complete first response before admitting any signed work. */
-export async function prepareInstalledDanceBindings(input: {
+interface InstalledDanceBindingProofInput {
   publication: PublicationApplicationPorts;
   source: DancePublicationSourceV2;
   intent: InstalledDanceBindIntent;
   assertOwnerCurrent(): Promise<void>;
-}) {
+}
+
+interface InstalledRecordedGrantOriginal {
+  commandId: Hex;
+  commandHash: Hex;
+  target: Address;
+  data: Hex;
+  nonce: number;
+  hash: Hex;
+}
+type VerifyGrantOriginal = (position: 0 | 1, grant: Readonly<InstalledRecordedGrantOriginal>) => Promise<void>;
+
+async function proveInstalledDanceBindings(
+  input: InstalledDanceBindingProofInput, originalPrefix: readonly DanceV2BindingOriginal[],
+  verifyGrantOriginal?: VerifyGrantOriginal,
+) {
+  const prefix = structuredClone(originalPrefix);
   const { publication: ports, assertOwnerCurrent } = input;
   const { db, installation, client, catalog } = ports;
   const clock = { ...ports.clock }, intent = ownIntent(input.intent), selected = structuredClone(input.source);
@@ -242,14 +260,23 @@ export async function prepareInstalledDanceBindings(input: {
   }
 
   const originals = await grants();
-  await Promise.all(originals.map(grant => canonicalGrant(client, grant, current)));
+  const nonces = await Promise.all(originals.map(grant => canonicalGrant(client, grant, current)));
+  const verifyRetainedGrants = async () => {
+    if (!verifyGrantOriginal) return;
+    for (const position of [0, 1] as const) {
+      const { job, receipt } = originals[position], nonce = nonces[position]!;
+      await verifyGrantOriginal(position, { commandId: job.command.commandId, commandHash: job.command.digest,
+        target: job.command.source.registry, data: job.data, nonce, hash: receipt.transactionHash });
+    }
+  };
+  await verifyRetainedGrants();
   const participants = [originals[0].member, originals[1].member] as const;
   const intentSha256 = digest(intent);
   const idFor = (position: 0 | 1) => digest({
     schema: "pirate.installed-dance-bind-command/1", intentSha256, position,
     appCommandId: intent.grants[position].commandId, grantId: originals[position].member.grantId,
   });
-  const prepared = await prepareDanceV2ParticipantBindings({
+  const bindingInput: Parameters<typeof verifyDanceV2BindingProgress>[0] = {
     client, profile, config, selected, caller: config.publisher,
     owner: { epoch: consentUint64(intent.ownerEpoch), wallet: intent.ownerWallet },
     clock, afterAwait: current, participants, commandIds: [idFor(0), idFor(1)],
@@ -262,9 +289,12 @@ export async function prepareInstalledDanceBindings(input: {
         insist(block.hash === receipt.observed.blockHash && block.timestamp === BigInt(receipt.observed.timestampS),
           "dance_installed_prepare_receipt_reorg", 503);
       }
+      await verifyRetainedGrants();
       await current();
     },
-  });
+  };
+  const prepared = verifyGrantOriginal ? await verifyDanceV2BindingProgress(bindingInput, prefix)
+    : await prepareDanceV2ParticipantBindings(bindingInput);
   const entry = (position: 0 | 1) => {
     const item = prepared[position];
     insist(item, "dance_installed_prepare_plan_missing", 503);
@@ -280,4 +310,24 @@ export async function prepareInstalledDanceBindings(input: {
   };
   return Object.freeze({ schema: "pirate.installed-dance-bind-prepare/1" as const, intentSha256,
     plans: Object.freeze([entry(0), entry(1)] as const) });
+}
+
+export type InstalledDanceBindPrepared = Awaited<ReturnType<typeof proveInstalledDanceBindings>>;
+
+/** Call only from an already authenticated private owner mount. The owner
+ * must retain the complete first response before admitting any signed work. */
+export function prepareInstalledDanceBindings(input: InstalledDanceBindingProofInput) {
+  return proveInstalledDanceBindings(input, []);
+}
+
+/** Safe readback for an independently admitted effect. The original Prepare
+ * bytes and both recorded grants must still describe the same operation. */
+export async function verifyInstalledDanceBindingExecution(input: InstalledDanceBindingProofInput & {
+  prepared: InstalledDanceBindPrepared;
+  originalPrefix: readonly DanceV2BindingOriginal[];
+  verifyGrantOriginal: VerifyGrantOriginal;
+}) {
+  const expected = canonical(input.prepared);
+  const current = await proveInstalledDanceBindings(input, input.originalPrefix, input.verifyGrantOriginal);
+  insist(canonical(current) === expected, "dance_installed_binding_prepare_changed", 409);
 }

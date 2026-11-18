@@ -119,29 +119,65 @@ async function open(input: ParticipantAuthority) {
   return { authority, reader, pair, finish, reviewerRoleEpoch: ownerReviewer ? currentOwnerEpoch : reviewerEpoch };
 }
 
+type BindingProgressInput = ParticipantAuthority & { commandIds: readonly [Hex, Hex] };
+
 /** Prepare only new singleton commands. The host still owns durable signing
  * and exact submission. An unavailable, nonempty or merged state refuses. */
-export async function prepareDanceV2ParticipantBindings(input: ParticipantAuthority & { commandIds: readonly [Hex, Hex] }) {
+export function prepareDanceV2ParticipantBindings(input: BindingProgressInput) {
+  return readBindingProgress(input);
+}
+
+/** Recheck the ordered prefix of this operation. Neither an existing identity
+ * nor somebody else's transaction may satisfy the first position. */
+export function verifyDanceV2BindingProgress(
+  input: BindingProgressInput, originalPrefix: readonly DanceV2BindingOriginal[],
+) {
+  return readBindingProgress(input, originalPrefix);
+}
+
+async function readBindingProgress(input: BindingProgressInput, originalPrefix?: readonly DanceV2BindingOriginal[]) {
   const ids = structuredClone(input.commandIds);
-  insist(consentDigest(ids[0]) !== consentDigest(ids[1]), "dance_v2_duplicate_binding_command");
+  const saved = structuredClone(originalPrefix ?? []);
+  insist(saved.length <= 2 && consentDigest(ids[0]) !== consentDigest(ids[1]),
+    "dance_v2_duplicate_binding_command");
+  const client = input.client;
   const { authority, reader, pair, finish } = await open(input);
-  const initial = await Promise.all(pair.map(async p => {
-    const { accountCommitment, groupId } = commitment(authority.source, p);
-    return Promise.all([
-      input.client.readContract({ ...reader, functionName: "identities", args: [accountCommitment] }),
-      input.client.readContract({ ...reader, functionName: "groups", args: [groupId] }),
-    ]);
-  }));
-  insist(initial.every(([i, g]) => same(i[0], zeroAddress) && i[1] === 0n && i[2] === zeroHash && i[3] === 0n && !i[4]
-    && g[0] === 0n && g[1] === 0n && g[2] === 0n && g[3] === zeroHash && !g[4]),
-    "dance_v2_initial_identity_already_bound", 409);
-  await finish();
-  return pair.map((subject, n) => {
+  const results = await Promise.all(([0, 1] as const).map(async n => {
+    const subject = pair[n];
     const plan = Object.freeze({ accountId: subject.accountId, wallet: subject.wallet,
       publisher: authority.config.publisher, sourceHash: authority.source.sourceHash, ownerEpoch: authority.owner[0],
-      configurationRevision: BigInt(authority.config.configurationRevision), commandId: ids[n]! });
-    return { plan, command: command(authority.source, plan) };
-  });
+      configurationRevision: BigInt(authority.config.configurationRevision), commandId: ids[n] });
+    const expected = command(authority.source, plan);
+    const { accountCommitment, groupId } = commitment(authority.source, subject);
+    const [i, g, r] = await Promise.all([
+      client.readContract({ ...reader, functionName: "identities", args: [accountCommitment] }),
+      client.readContract({ ...reader, functionName: "groups", args: [groupId] }),
+      originalPrefix && client.readContract({ ...reader, functionName: "commandReceipts", args: [plan.publisher, plan.commandId] }),
+    ]);
+    const original = saved[n];
+    if (original) {
+      const prior = original.plan;
+      insist(prior.accountId === plan.accountId && prior.wallet === plan.wallet && prior.publisher === plan.publisher
+        && prior.sourceHash === plan.sourceHash && prior.ownerEpoch === plan.ownerEpoch
+        && prior.configurationRevision === plan.configurationRevision && prior.commandId === plan.commandId,
+      "dance_v2_binding_original_changed", 409);
+      const receipt = await readDanceV2BindingOriginal({ client, source: authority.source, original });
+      insist(receipt.blockNumber <= authority.anchor.number && same(i[0], plan.wallet)
+        && i[1] === 1n && i[2] === groupId && i[3] === 1n && i[4]
+        && g[0] === 1n && g[1] === 1n && g[2] === 0n && g[3] === zeroHash && g[4]
+        && r && r[0] === expected.hash && r[1] === expected.operation && r[2] === receipt.resourceId
+        && r[3] === 1n && r[4] === receipt.timestamp,
+      "dance_v2_preceding_binding_unavailable", 409);
+    } else {
+      insist(same(i[0], zeroAddress) && i[1] === 0n && i[2] === zeroHash && i[3] === 0n && !i[4]
+        && g[0] === 0n && g[1] === 0n && g[2] === 0n && g[3] === zeroHash && !g[4]
+        && (!r || (r[0] === zeroHash && r[1] === 0 && r[2] === zeroHash && r[3] === 0n && r[4] === 0n)),
+      "dance_v2_initial_identity_already_bound", 409);
+    }
+    return { plan, command: expected };
+  }));
+  await finish();
+  return [results[0]!, results[1]!] as const;
 }
 
 /** Current admission only. Historical receipt validation below can survive
@@ -168,11 +204,20 @@ function legacy(raw: Hex): asserts raw is TransactionSerializedLegacy {
   insist(/^0x(?:[0-9a-f]{2})+(?![\s\S])/.test(raw) && getSerializedTransactionType(raw) === "legacy",
     "dance_v2_binding_original_changed");
 }
-export async function verifyDanceV2BindingOriginal(input: {
+interface OriginalBindingInput {
   client: PublicClient;
   source: DancePublicationSourceV2;
   original: DanceV2BindingOriginal;
-}) {
+}
+
+export async function verifyDanceV2BindingOriginal(input: OriginalBindingInput) {
+  const receipt = await readDanceV2BindingOriginal(input);
+  return { resourceId: receipt.resourceId, resourceEpoch: receipt.resourceEpoch,
+    transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
+    commandId: receipt.commandId, commandHash: receipt.commandHash };
+}
+
+async function readDanceV2BindingOriginal(input: OriginalBindingInput) {
   const { client } = input, source = structuredClone(input.source), saved = structuredClone(input.original);
   const { domain, pin } = source, { plan, hash, raw, nonce } = saved;
   insist(source.version === 2 && domain.chainId === 6343n && plan.sourceHash === source.sourceHash
@@ -224,5 +269,6 @@ export async function verifyDanceV2BindingOriginal(input: {
     && (currentSafe.number !== safe.number || currentSafe.hash === safe.hash),
     "dance_v2_binding_receipt_reorg", 503);
   return { resourceId: accountCommitment, resourceEpoch: epoch, transactionHash: hash,
-    blockNumber: block.number, blockHash: block.hash, commandId: expected.id, commandHash: expected.hash };
+    blockNumber: block.number, blockHash: block.hash, timestamp: block.timestamp,
+    commandId: expected.id, commandHash: expected.hash };
 }
