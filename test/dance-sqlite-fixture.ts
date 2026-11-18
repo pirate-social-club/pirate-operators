@@ -41,7 +41,8 @@ export class SqliteStatement {
     };
   }
   async run() {
-    return this.db.sqlite.prepare(this.sql).run(...this.values);
+    const result = this.db.sqlite.prepare(this.sql).run(...this.values);
+    return { ...result, meta: { changes: Number(result.changes) } };
   }
 }
 export class MemorySqliteD1 {
