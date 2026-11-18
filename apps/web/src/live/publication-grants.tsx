@@ -3,7 +3,8 @@ import type { Hex } from "viem";
 import type { PublicationPurpose } from "../../../../packages/protocol/publication-consent.ts";
 import { Button, Type } from "../ui.ts";
 import { CommunityRequestError, get, type CommunitySessionView } from "./api.ts";
-import { publicationGrant, publicationGrantAuthorizationLost, publicationWalletRequest, type PublicationGrantStatus } from "./publication-grant.ts";
+import { publicationGrant, publicationGrantAuthorizationLost, PublicationGrantSignatureError, publicationWalletRequest,
+  type PublicationGrantStatus } from "./publication-grant.ts";
 
 const purposes = {
   "study-results": ["Study results", "Allow publication of eligible Study results."],
@@ -21,6 +22,8 @@ const labels = {
   refused: "Review a new grant",
   recorded: "Review a new grant",
   unavailable: "Check the original request",
+  "prepare-observation": "Check the original request",
+  "submit-observation": "Retry the same signed request",
 } satisfies Record<Exclude<PublicationGrantStatus["kind"], "review">, string>;
 const documents = [["terms", "Terms"], ["disclosure", "Disclosure"], ["privacy", "Privacy"], ["retention", "Retention"]] as const;
 type Sign = (wallet: string, data: ReturnType<typeof publicationWalletRequest>, current: () => void) => Promise<Hex | null>;
@@ -104,6 +107,8 @@ function GrantPurpose(props: {
       if (publicationGrantAuthorizationLost(error)) {
         setStatus({ kind: "unavailable" });
         setNotice("Sign in again to check the original publication request.");
+      } else if (error instanceof PublicationGrantSignatureError) {
+        setNotice("MOSS could not sign the original request. Check your wallet and try again.");
       } else setNotice("The request was interrupted. Check the original request or try the same step again.");
     } finally {
       if (active) setBusy(false);
@@ -112,7 +117,7 @@ function GrantPurpose(props: {
   onSettled(() => { void run(controller.check); });
   function next(kind: Exclude<PublicationGrantStatus["kind"], "review">) {
     if (kind === "pending" || kind === "unavailable") return controller.check;
-    if (kind === "signed") return () => controller.submit();
+    if (kind === "signed" || kind === "submit-observation") return () => controller.submit();
     return () => controller.prepare(["expired", "recorded", "refused"].includes(kind));
   }
   return (
@@ -120,6 +125,9 @@ function GrantPurpose(props: {
       <Type as="p">{purposes[props.purpose][1]}</Type>
       <Show when={status().kind === "recorded"}><Type as="p" role="status">Publication grant recorded.</Type></Show>
       <Show when={status().kind === "pending"}><Type as="p" role="status">Waiting for the original grant to be recorded.</Type></Show>
+      <Show when={status().kind === "prepare-observation" || status().kind === "submit-observation"}>
+        <Type as="p" role="status">Waiting for the chain to confirm the original publication request.</Type>
+      </Show>
       <Show when={status().kind === "refused" || status().kind === "expired"}>
         <Type as="p" role="status">The original grant is no longer available.</Type>
       </Show>

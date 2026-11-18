@@ -85,6 +85,8 @@ for (const actor of [
     expect(body.purpose).toEqual(purpose);
     requests.push(body.requestId);
     if (requests.length === 1) return route.abort();
+    if (requests.length === 2)
+      return route.fulfill({ status: 503, json: { error: "publication_observation_pending" } });
     return route.fulfill({ json: original(body.requestId, body.requestId !== requests[0]) });
   });
   await page.route(prefix + `commands/${word(actor.command)}`, (route) => {
@@ -111,8 +113,12 @@ for (const actor of [
   await choose();
   await page.getByRole("button", { name: "Continue preparing" }).click();
   const sign = page.getByRole("button", { name: "Sign publication grant in MOSS" });
+  await expect(page.getByText("Waiting for the chain to confirm the original publication request.")).toBeVisible();
+  await expect(sign).toHaveCount(0);
+  expect(prompts).toEqual([]);
+  await page.getByRole("button", { name: "Check the original request" }).click();
   await expect(sign).toBeVisible();
-  expect(requests).toEqual([requests[0], requests[0]]);
+  expect(requests).toEqual([requests[0], requests[0], requests[0]]);
   authorizationLost = true;
   await sign.click();
   await expect(page.getByText("Sign in again to check the original publication request.")).toBeVisible();
@@ -124,7 +130,7 @@ for (const actor of [
   await choose();
   await page.getByRole("button", { name: "Review original request" }).click();
   await expect(sign).toBeVisible();
-  expect(requests).toEqual([requests[0], requests[0], requests[0]]);
+  expect(requests).toEqual([requests[0], requests[0], requests[0], requests[0]]);
   await sign.click();
   await expect(page.getByRole("status").filter({ hasText: "The request was interrupted" })).toBeVisible();
   await page.reload();
@@ -137,7 +143,7 @@ for (const actor of [
   expect(submissions).toEqual(["0x7d"]);
   await page.getByRole("button", { name: "Review a new grant" }).click();
   await expect(sign).toBeVisible();
-  expect(requests).toHaveLength(4);
-  expect(requests[3]).not.toEqual(requests[0]);
+  expect(requests).toHaveLength(5);
+  expect(requests[4]).not.toEqual(requests[0]);
   expect(prompts).toHaveLength(1);
 });

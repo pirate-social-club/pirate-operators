@@ -43,8 +43,11 @@ export function publicationWalletRequest(command: Grant) {
   };
 }
 export type PublicationGrantStatus =
-  | { kind: "empty" | "prepare" | "resume" | "signed" | "pending" | "recorded" | "unavailable" | "refused" | "expired" }
+  | { kind: "empty" | "prepare" | "resume" | "signed" | "pending" | "recorded" | "unavailable" | "refused" | "expired" |
+      "prepare-observation" | "submit-observation" }
   | { kind: "review"; review: PublicationGrantReview };
+
+export class PublicationGrantSignatureError extends Error {}
 
 type Ports = {
   csrf(): string;
@@ -117,6 +120,8 @@ export function publicationGrant(scope: Readonly<PublicationGrantScope>, ports: 
   }
   async function exactError(attempt: PublicationGrantAttempt, error: unknown): Promise<PublicationGrantStatus> {
     ports.current();
+    if (error instanceof CommunityRequestError && error.code === "publication_observation_pending")
+      return { kind: attempt.signature ? "submit-observation" : "prepare-observation" };
     if (!(error instanceof CommunityRequestError) || error.code !== "publication_original_window_expired") throw error;
     await publicationGrantAttempt(key, { requestId: attempt.requestId, commandId: attempt.commandId, terminal: "expired" });
     return { kind: "expired" };
@@ -191,12 +196,17 @@ export function publicationGrant(scope: Readonly<PublicationGrantScope>, ports: 
             JSON.stringify(command) !== JSON.stringify(review.command))
             throw Error("Review the original publication request before signing.");
           ports.current();
-          const signature = await ports.sign(review);
+          const signature = await ports.sign(review).catch(() => {
+            ports.current();
+            throw new PublicationGrantSignatureError();
+          });
           ports.current();
           if (signature === null) return { kind: "review", review };
-          if (!signedBytes.test(signature)) throw Error("MOSS did not return a valid signature.");
+          if (!signedBytes.test(signature)) throw new PublicationGrantSignatureError();
           attempt = { ...attempt, signature };
-          // A lost response can replay the exact accepted bytes without another wallet prompt.
+          // A lost Submit reply can replay exact bytes. If the browser closes
+          // before the journal commits, it may need to show the wallet again
+          // for this same prepared command. No Submit has started at that point.
           await publicationGrantAttempt(key, attempt);
         }
         const accepted = await exchange(`commands/${commandId}/submit`, { signature: attempt.signature });
