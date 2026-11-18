@@ -6,7 +6,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { canonical, bytes32, exact, hashJson, hashText, insist, integer, object, text } from "../community/common.ts";
 import { address, httpsOrigin } from "../community/manifest-core.ts";
 import { catalogOwner } from "../community/owner-policy.ts";
-import { validateOwnerGrant, claimOwnerWindow, ownerBudgetKey, ownerBudgetCeiling, ownerLimitsDigest, requireOwnerGrantTime, type OwnerBudgetGrant, type OwnerBudgetAsset } from "./owner-grant.ts";
+import { validateOwnerGrant, claimOwnerWindow, ownerBudgetKey, ownerBudgetCeiling, ownerLimitsDigest, ownerWindowCondition, prepareOwnerWindowClaim, requireOwnerGrantTime, type OwnerBudgetGrant, type OwnerBudgetAsset } from "./owner-grant.ts";
 import { installationReference } from "../../deploy/linux/backend-state.ts";
 import { verifyRecord, type SignedRecord, type TrustAnchor } from "../../deploy/linux/installed-records.ts";
 import type { ConfiguredGrantSelection, GrantAttachmentObservation, OwnerGrantScope } from "../../deploy/linux/web2-operator-inputs.ts";
@@ -210,14 +210,93 @@ export class ManagedPublishingJournal {
       state: row.state === "attached" ? "attached" : row.state === "prepared" ? "absent" : "unknown" };
   }
 }
+/** The same ledger predicate is used for primary observations and inside the first write. */
+export const managedPublishingEmptyLedgerSQL = `NOT EXISTS(SELECT 1 FROM managed_publishing_installation)
+  AND NOT EXISTS(SELECT 1 FROM managed_publishing_registrations)
+  AND NOT EXISTS(SELECT 1 FROM managed_publishing_admissions)
+  AND NOT EXISTS(SELECT 1 FROM managed_admissions)
+  AND NOT EXISTS(SELECT 1 FROM curated_admissions)
+  AND NOT EXISTS(SELECT 1 FROM owner_budget_windows)
+  AND NOT EXISTS(SELECT 1 FROM spending_budgets)
+  AND NOT EXISTS(SELECT 1 FROM spending_reservations)
+  AND NOT EXISTS(SELECT 1 FROM owner_releases)
+  AND NOT EXISTS(SELECT 1 FROM managed_releases)
+  AND NOT EXISTS(SELECT 1 FROM funded_pins)
+  AND NOT EXISTS(SELECT 1 FROM funded_registrations)
+  AND NOT EXISTS(SELECT 1 FROM moderation_request_nonces)
+  AND NOT EXISTS(SELECT 1 FROM moderation_provider_calls)
+  AND NOT EXISTS(SELECT 1 FROM transaction_guards)`;
+
+const managedOwnerAssets: readonly OwnerBudgetAsset[] = ["songs", "pin_adds", "pin_bytes", "recognition_requests", "post_fee_wei"];
+
+interface ManagedPublishingFirstInitialization {
+  kind: "initialize-empty";
+  operationId: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+async function initializeManagedPublishing(
+  db: D1Database, c: ManagedPublishingConfiguration, trust: TrustAnchor,
+  now: number, approval: ManagedPublishingFirstInitialization,
+) {
+  insist(c.registrations.length === 1 &&
+    /^[A-Za-z0-9_-]{1,128}(?![\s\S])/.test(approval.operationId) &&
+    Number.isSafeInteger(approval.issuedAt) && Number.isSafeInteger(approval.expiresAt) &&
+    approval.issuedAt <= now && now < approval.expiresAt,
+    "managed_initialization_approval_invalid", 403);
+  const signed = c.registrations[0]!;
+  const r = authenticatedManagedRegistration(signed, trust);
+  insist(!c.disabledAdmissionReferences.includes(r.admissionReference), "managed_admission_revoked", 403);
+  requireOwnerGrantTime(r.grant, now);
+  const original = canonical(signed);
+  const guard = "managed-init:" + approval.operationId;
+  const start = Math.max(approval.issuedAt, r.grant.validFrom);
+  const end = Math.min(approval.expiresAt, r.grant.expiresAt);
+  const live = "unixepoch()>=? AND unixepoch()<?";
+  const { key, statements } = prepareOwnerWindowClaim(db, r.grant);
+  const window = ownerWindowCondition(r.grant);
+  const ceiling = "EXISTS(SELECT 1 FROM spending_budgets WHERE scope=? AND period=? AND asset=? AND ceiling=? AND reserved='0' AND spent='0' AND version=0)";
+  // A false condition writes valid=0, which fails the existing CHECK and
+  // rolls back this batch. No marker or partial accounting is committed.
+  const batch = [
+    db.prepare(`INSERT INTO transaction_guards(guard_id,valid)
+      VALUES(?,CASE WHEN ${managedPublishingEmptyLedgerSQL} AND ${live} THEN 1 ELSE 0 END)`).bind(guard, start, end),
+    db.prepare("INSERT INTO managed_publishing_installation(origin,epoch,restore_anchor_sha256) VALUES(?,?,?)")
+      .bind(c.origin, c.journal.epoch, c.journal.restoreAnchorSha256),
+    db.prepare("INSERT INTO managed_publishing_registrations(admission_reference,original_id,record_json,state) VALUES(?,?,?,'provisioning')")
+      .bind(r.admissionReference, r.scope.enrollmentId, original),
+    ...statements,
+    db.prepare(`UPDATE transaction_guards SET valid=CASE WHEN ${live} AND ${window.clause}
+      AND (SELECT COUNT(*) FROM spending_budgets WHERE scope=? AND period=?)=?
+      AND ${managedOwnerAssets.map(() => ceiling).join(" AND ")}
+      THEN 1 ELSE 0 END WHERE guard_id=?`).bind(start, end, ...window.binds, key.scope, key.period, managedOwnerAssets.length,
+      ...managedOwnerAssets.flatMap(asset => [key.scope, key.period, asset, ownerBudgetCeiling(r.grant, asset)]), guard),
+    db.prepare("UPDATE managed_publishing_registrations SET state='active' WHERE admission_reference=? AND state='provisioning'")
+      .bind(r.admissionReference),
+    db.prepare("DELETE FROM transaction_guards WHERE guard_id=?").bind(guard),
+  ];
+  const results = await db.batch(batch);
+  insist(results.length === batch.length && results.every(result => result.success), "managed_initialization_unconfirmed", 503);
+  await new ManagedPublishingJournal(db, c).registration(r);
+  return { origin: c.origin, admitted: [r.admissionReference], journal: c.journal };
+}
+
 /** Manual, callable provisioning producer. Only the Pirate provisioning process
  * supplies the signed originals/trust; this is never invoked by request traffic.
  * It claims existing owner windows and cannot reset counters or reactivate rows. */
 export async function provisionManagedPublishingInputs(db: D1Database, input: ManagedPublishingConfiguration, trust: TrustAnchor,
-  now = Math.floor(Date.now() / 1000)) {
+  now = Math.floor(Date.now() / 1000), installation?: { kind: "existing" } | ManagedPublishingFirstInitialization) {
   const c = managedPublishingConfiguration(input, trust);
-  await db.prepare(`INSERT INTO managed_publishing_installation(origin,epoch,restore_anchor_sha256) VALUES(?,?,?) ON CONFLICT DO NOTHING`)
-    .bind(c.origin, c.journal.epoch, c.journal.restoreAnchorSha256).run();
+  if (installation?.kind === "initialize-empty") return initializeManagedPublishing(db, c, trust, now, installation);
+  // The private operator's existing mode can never recreate a missing marker.
+  // Callers without an explicit selection keep their original behavior.
+  if (installation === undefined) {
+    await db.prepare(`INSERT INTO managed_publishing_installation(origin,epoch,restore_anchor_sha256) VALUES(?,?,?) ON CONFLICT DO NOTHING`)
+      .bind(c.origin, c.journal.epoch, c.journal.restoreAnchorSha256).run();
+  } else {
+    insist(installation.kind === "existing", "managed_installation_mode_invalid");
+  }
   const journal = new ManagedPublishingJournal(db, c); await journal.installation();
   for (const record of c.registrations) {
     const r = authenticatedManagedRegistration(record, trust);
@@ -231,13 +310,13 @@ export async function provisionManagedPublishingInputs(db: D1Database, input: Ma
     if (inserted.meta.changes !== 1) {
       // A retry may confirm an already acquired window, but cannot reconstruct
       // missing counters after an interrupted/unknown provisioning attempt.
-      const key = ownerBudgetKey(r.grant, "songs"), assets: readonly OwnerBudgetAsset[] = ["songs", "pin_adds", "pin_bytes", "recognition_requests", "post_fee_wei"],
+      const key = ownerBudgetKey(r.grant, "songs"),
         window = await db.withSession("first-primary").prepare("SELECT valid_from,expires_at,limits_sha256 FROM owner_budget_windows WHERE scope=?")
           .bind(key.scope).first<{ valid_from: number; expires_at: number; limits_sha256: string }>(),
         budgets = await db.withSession("first-primary").prepare("SELECT asset,ceiling FROM spending_budgets WHERE scope=? AND period=?")
           .bind(key.scope, key.period).all<{ asset: string; ceiling: string }>();
       insist(window?.valid_from === r.grant.validFrom && window.expires_at === r.grant.expiresAt && window.limits_sha256 === ownerLimitsDigest(r.grant) &&
-        budgets.results.length === assets.length && assets.every(asset => budgets.results.some(row => row.asset === asset && row.ceiling === ownerBudgetCeiling(r.grant, asset))),
+        budgets.results.length === managedOwnerAssets.length && managedOwnerAssets.every(asset => budgets.results.some(row => row.asset === asset && row.ceiling === ownerBudgetCeiling(r.grant, asset))),
         "managed_provisioning_unknown", 503);
     }
     // Same window claims always retain every original ceiling and counter.
