@@ -85,8 +85,11 @@ export async function serveCommunity(
     profile?: "loaded" | "unavailable";
     joined?: boolean;
     membership?: boolean;
+    sessionIdentity?: { authorId: string; wallet: string };
   } = {},
 ) {
+  const fixtureAuthorId = options.sessionIdentity?.authorId ?? ownerAuthorId;
+  const wallet = options.sessionIdentity?.wallet ?? "0x" + "2".repeat(40);
   const accountId = randomUUID(),
     releases: Release[] = [],
     byKey = new Map<string, Release>();
@@ -127,7 +130,7 @@ export async function serveCommunity(
     manifest: {
       schema: "pirate.community-post/3",
       postId: release.postId,
-      authorId: ownerAuthorId,
+      authorId: fixtureAuthorId,
       title: release.body.title,
       language: release.body.language,
       rating: release.body.rating,
@@ -156,7 +159,7 @@ export async function serveCommunity(
     communityId,
     authorId,
     revision: 1,
-    displayName: authorId === ownerAuthorId ? "Fixture member" : null,
+    displayName: authorId === fixtureAuthorId ? "Fixture member" : null,
     bio: null,
     avatarRef: null,
     coverRef: null,
@@ -237,8 +240,8 @@ export async function serveCommunity(
       return authenticated
         ? json({
             authenticated: true,
-            authorId: ownerAuthorId,
-            mossAddress: "0x" + "2".repeat(40),
+            authorId: fixtureAuthorId,
+            mossAddress: wallet,
             csrf: "fixture-csrf",
             creator: null,
             pendingConnection: null,
@@ -254,7 +257,7 @@ export async function serveCommunity(
         schema: "pirate.community-profile-owner/1",
         communityId,
         accountId,
-        profile: profile(ownerAuthorId),
+        profile: profile(fixtureAuthorId),
         capabilities: { metadata: true, handles: false, publicMedia: false },
       });
     }
@@ -266,7 +269,7 @@ export async function serveCommunity(
       return json({
         schema: "pirate.community-profile-list/1",
         communityId,
-        profiles: ids.includes(ownerAuthorId) ? [profile(ownerAuthorId)] : [],
+        profiles: ids.includes(fixtureAuthorId) ? [profile(fixtureAuthorId)] : [],
       });
     }
     const author =

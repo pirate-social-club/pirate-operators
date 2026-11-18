@@ -5,7 +5,7 @@ import { createCommunityProfileIntegration } from "../shell/profiles/integration
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
-import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, lazy, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -58,6 +58,8 @@ import type {
   ShellIntegrations,
 } from "../shell/interfaces.ts";
 
+const PublicationGrants = lazy(() => import("./publication-grants.tsx")
+  .then(({ PublicationGrants }) => ({ default: PublicationGrants })));
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
   await mega.initialise({
@@ -68,6 +70,23 @@ async function moss() {
   });
   return mega;
 }
+const signPublicationGrant: Parameters<typeof PublicationGrants>[0]["sign"] = async (wallet, data, current) => {
+  const mega = await moss();
+  current();
+  const connected = await mega.connect();
+  current();
+  const sameWallet = (value: { status: string; address?: string }) =>
+    value.status === "connected" && value.address?.toLowerCase() === wallet;
+  if (!sameWallet(connected)) throw Error("Connect the wallet used to sign in.");
+  const result = await mega.signData({ data });
+  current();
+  if (!sameWallet(await mega.status())) throw Error("The connected wallet changed.");
+  current();
+  if (result.status === "cancelled") return null;
+  if (result.status !== "success" || !result.signature || !result.signature.startsWith("0x"))
+    throw Error("MOSS did not sign the publication grant.");
+  return result.signature.toLowerCase() as `0x${string}`;
+};
 /** The learner's consent, signed by their MOSS account. */
 const mossWallet: KaraokeWallet = {
   async signConsent(request) {
@@ -230,6 +249,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     session: settling() ? null : session(),
     songs: feed()?.posts ?? [],
   });
+  const publicationSettingsKey = () => {
+    const scope = featureContext();
+    return capabilities()?.publicationPermissions === true && scope.communityId && scope.session
+      ? JSON.stringify([scope.communityId, scope.session.authorId, scope.session.mossAddress, scope.session.csrf])
+      : null;
+  };
   const danceNavigation = () => boot() ? {
     postHref: (postId: string) => danceUrl(
       new URL(location.href), boot()!.communityId, { kind: "post", postId },
@@ -1047,9 +1072,14 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               : savedStudyHistory.available()
                 ? savedStudyHistory.download
                 : undefined,
-            publicResults: props.integrations?.accountSettings
-              ? () => props.integrations!.accountSettings!(featureContext())
-              : undefined,
+            publicResults: () => (
+              <>
+                {props.integrations?.accountSettings?.(featureContext())}
+                <Show when={publicationSettingsKey()} keyed>
+                  {() => <PublicationGrants communityId={boot()!.communityId} session={session} sign={signPublicationGrant} />}
+                </Show>
+              </>
+            ),
             // No default recording deletion or Telegram management port.
           }}
           privateDance={() =>

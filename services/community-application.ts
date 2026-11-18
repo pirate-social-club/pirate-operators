@@ -1214,6 +1214,8 @@ async function communityFetchBusiness(
       return reply({
         ...capabilities,
         ...(privateDance && rewards?.danceRewardDiscovery ? { danceRewardOffers: true } : {}),
+        ...(web2 && env.NATIVE_APPLICATION_ORIGINAL_JSON && env.PUBLICATION_NATIVE_MOUNT_JSON
+          ? { publicationPermissions: true } : {}),
         ...(sharedFeed ? { sharedSongFeed: true } : {}),
       });
     }
