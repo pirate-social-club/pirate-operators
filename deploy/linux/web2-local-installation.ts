@@ -61,7 +61,10 @@ import {
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
 import { stageNativePublication, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
-import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
+import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
+import {
+  assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, web2OriginalStartIntent,
+} from "./web2-trusted-revision-two.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
@@ -81,6 +84,7 @@ export interface Web2InstallationHostInputs {
   now: () => number;
   publication?: Web2PublicationInstallationInputs;
   posts?: Web2PostsInstallationInputs;
+  recheckTrustedPublishing?(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>): Promise<void>;
   signProfile(
     body: Web2InstallPlan,
     generation: number,
@@ -112,6 +116,11 @@ export async function createWeb2Installation(
     selected.release,
     selected.trust,
   );
+  const graph = release.graph;
+  assertTrustedRevisionTwoTarget(graph, ingress);
+  const trusted = graph.publicationExpansion === trustedRevisionTwo;
+  const recheckTrustedPublishing = input.recheckTrustedPublishing?.bind(input);
+  assert(!trusted || recheckTrustedPublishing, "trusted_revision_two_owner_publishing_required");
   const publication = input.publication;
   assert(Boolean(release.graph.nativePublication) === Boolean(publication),
     "native_publication_owner_unavailable");
@@ -249,13 +258,21 @@ export async function createWeb2Installation(
     await verifyInstalledRelease(selected.release, selected.trust);
     const host = () => currentHostAdmission(draft, planId, retainedGeneration);
     await host();
-    const useExpansion = retained && release.graph.publicationExpansion &&
-      (retained.starting || await expandedPublicationApprovalExists(release.graph));
-    const expanded = useExpansion && retained
-      ? await readApprovedExpandedPublication({ graph: release.graph, original: nativeOriginal(retained.record), chain })
-      : undefined;
+    const useExpansion = retained && graph.publicationExpansion &&
+      ((!trusted && retained.starting) || await expandedPublicationApprovalExists(graph));
+    let approvalSha256: string | undefined;
+    const read = async () => {
+      assert(retained, "trusted_revision_two_original_required");
+      const approved = await readApprovedWeb2Transition({ graph, original: nativeOriginal(retained.record), chain, now });
+      if (trusted) {
+        approvalSha256 ??= approved.approvalSha256;
+        assert(approved.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
+      }
+      return approved;
+    };
+    const expanded = useExpansion ? await read() : undefined;
     const evidence = expanded?.authority ?? await authenticateWeb2Enrollment(chain, draft);
-    const admission = await host();
+    let admission = await host();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(
       actual.supported && actual.fingerprint === selected.hostFingerprint,
@@ -263,9 +280,22 @@ export async function createWeb2Installation(
     );
     await host();
     await open();
-    if (expanded && retained) {
-      const current = await readApprovedExpandedPublication({ graph: release.graph, original: nativeOriginal(retained.record), chain });
-      assert(current.selectionSha256 === expanded.selectionSha256, "native_expanded_publication_selection_changed");
+    if (expanded) {
+      if (trusted) {
+        requireTrustedRevisionTwoResources(selected.target.containers.length, actual.resources);
+        await recheckTrustedPublishing!(async () => (await read()).configuration);
+      }
+      const current = await read();
+      assert(current.selectionSha256 === expanded.selectionSha256 &&
+        (!trusted || current.approvalSha256 === expanded.approvalSha256),
+        "native_expanded_publication_selection_changed");
+    } else if (trusted) {
+      assert(!await expandedPublicationApprovalExists(graph), "trusted_revision_two_approval_changed");
+      await authenticateWeb2Enrollment(chain, draft);
+    }
+    if (trusted) {
+      admission = await host();
+      await open();
     }
     return { evidence, admission, expanded };
   }
@@ -487,20 +517,20 @@ export async function createWeb2Installation(
         const admitted = await authorize(body.draft, body.planId, body.generation, retained);
         const current = async () => {
           const observed = await authorize(body.draft, body.planId, body.generation, retained);
-          assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256,
+          assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256 &&
+            (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256),
             "native_expanded_publication_selection_changed");
         };
-        const intent = {
-          ...selectionFor(body),
-          targetDigest,
-          installationId: body.installationId,
-        };
+        const intent = web2OriginalStartIntent(body);
         const prior = await optionalRecord(
           join(selected.planDirectory, "web2-start-intent.json"),
         );
+        if (trusted && admitted.expanded)
+          assert(prior, "trusted_revision_two_original_start_required");
         if (prior) {
           assert(canonicalDigest(prior) === canonicalDigest(intent), "original_start_intent_changed");
         }
+        if (trusted && admitted.expanded) await current();
         if (posts) {
           await stagePostsSelector({original, graph: release.graph, target: selected.target,
             owner: posts, startRetained: prior !== null, assertCurrent: current});
@@ -511,11 +541,11 @@ export async function createWeb2Installation(
             transport: release.graph.nativePublication,
             ports: publication,
             startRetained: prior !== null,
-            ...(admitted.expanded ? { expectedSelectionSha256: admitted.expanded.selectionSha256 } : {}),
+            ...(admitted.expanded?.selectionSha256 ? { expectedSelectionSha256: admitted.expanded.selectionSha256 } : {}),
             assertCurrent: current,
           });
           if (publication.activateAfterStaging) {
-            assert(admitted.expanded, "native_expanded_publication_activation_unadmitted");
+            assert(admitted.expanded?.selectionSha256, "native_expanded_publication_activation_unadmitted");
             await current();
             await publication.activateAfterStaging({ original, selection: staged.selection,
               selectionSha256: admitted.expanded.selectionSha256, assertCurrent: current });

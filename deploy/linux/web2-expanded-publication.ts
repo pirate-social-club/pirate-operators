@@ -10,11 +10,17 @@ import type { PublicationInstallationSpec } from "../../services/publication-ins
 import type { NativeGraph } from "./full-native-config.ts";
 import { canonicalDigest, readPrivateJSON, verifyRecord, type SignedRecord } from "./installed-records.ts";
 import { publishingAttachment } from "./web2-publishing-attachment.ts";
-import { authenticateWeb2ExpandedEnrollment, type Web2ChainAuthority, type Web2InstallPlan } from "./web2-profile-authority.ts";
+import { authenticateWeb2ExpandedEnrollment, ownWeb2ChainAuthority, readWeb2HostAdmission, type Web2ChainAuthority, type Web2InstallPlan } from "./web2-profile-authority.ts";
 import { publicationMountFor, type Web2NativePublicationMount } from "./web2-publication-selection.ts";
 import type { Web2RuntimeBindingInputs } from "./web2-runtime-binding.ts";
 import type { Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
-import type { FullRelease } from "./installed-release.ts";
+import { verifyInstalledRelease, verifyWeb2BootstrapRelease, type FullRelease } from "./installed-release.ts";
+import { publicIngressFrom } from "./public-ingress.ts";
+import { createLocalController } from "./local-target-controller.ts";
+import {
+  assertTrustedRevisionTwoTarget, readApprovedTrustedRevisionTwo, requireTrustedRevisionTwoResources,
+  trustedRevisionTwo, trustedRevisionTwoApprovalPath,
+} from "./web2-trusted-revision-two.ts";
 
 /** Canonical Directory evidence retained with the initial publication mount. */
 export interface Web2ExpandedPublicationProof {
@@ -67,8 +73,10 @@ function approvalPath(graph: BoundGraph) {
 
 export async function expandedPublicationApprovalExists(graph: BoundGraph) {
   if (graph.publicationExpansion === undefined) return false;
+  const path = graph.publicationExpansion === trustedRevisionTwo
+    ? trustedRevisionTwoApprovalPath(graph) : approvalPath(graph);
   try {
-    await readPrivateJSON(approvalPath(graph));
+    await readPrivateJSON(path);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -132,19 +140,28 @@ export async function readApprovedExpandedPublication(input: {
     evidence, ownerWallet, approvalSha256: canonicalDigest(entry) };
 }
 
+export function readApprovedWeb2Transition(
+  input: Parameters<typeof readApprovedTrustedRevisionTwo>[0],
+): Promise<
+  Awaited<ReturnType<typeof readApprovedTrustedRevisionTwo>> |
+  Awaited<ReturnType<typeof readApprovedExpandedPublication>>
+> {
+  return input.graph.publicationExpansion === trustedRevisionTwo
+    ? readApprovedTrustedRevisionTwo(input) : readApprovedExpandedPublication(input);
+}
+
 export type Web2ExpandedBinding = Pick<Web2RuntimeBindingInputs, "policy" | "trust" | "lease" | "bootstrap" | "chain">;
 
-export async function readExpandedPublicationBinding(binding: Web2ExpandedBinding) {
+async function readRetainedTransitionBinding(binding: Web2ExpandedBinding) {
   const { lease, trust, chain } = binding;
   const policy = verifyRecord(binding.policy, trust);
-  approvalPath(policy.graph);
   const policySha256 = canonicalDigest(binding.policy), bootstrapSha256 = canonicalDigest(binding.bootstrap);
   assert(lease.installationId === policy.installationId, "native_expanded_fixture_selection_required");
   await lease.assertHeld();
   const [bound, record] = await Promise.all([
     readPrivateJSON<{
       schema: string;
-      intent: { schema: string; policyDigest: string; bootstrapDigest: string };
+      intent: { schema: string; policyDigest: string; bootstrapDigest: string; release?: FullRelease };
       release: SignedRecord<FullRelease>;
       applicationRelease: Web2NativeOriginal["release"];
     }>(join(policy.bindingDirectory, "web2-bound-runtime.json"), 16 * 1024 ** 2),
@@ -155,13 +172,72 @@ export async function readExpandedPublicationBinding(binding: Web2ExpandedBindin
     bound.intent.policyDigest === policySha256 && bound.intent.bootstrapDigest === bootstrapSha256 &&
     release.graph.installationId === lease.installationId && release.graph.durableScope === policy.graph.durableScope &&
     release.graph.publicationExpansion === policy.graph.publicationExpansion &&
-    canonicalDigest(release.graph.nativePublication) === canonicalDigest(policy.graph.nativePublication) &&
+    canonicalDigest(release.graph.nativePublication ?? null) === canonicalDigest(policy.graph.nativePublication ?? null) &&
     canonicalDigest(verifyRecord(bound.applicationRelease, trust)) === canonicalDigest(web2ApplicationReleaseBody(release)),
     "native_expanded_bound_runtime_changed");
   const original: Web2NativeOriginal = { schema: "pirate.web2-native-application-original/1", record,
     release: bound.applicationRelease, trust, durableScope: release.graph.durableScope };
+  return { original, release, retainedRelease: bound.release, intent: bound.intent, policy, chain };
+}
+
+export async function readExpandedPublicationBinding(binding: Web2ExpandedBinding) {
+  approvalPath(verifyRecord(binding.policy, binding.trust).graph);
+  const { original, release, chain } = await readRetainedTransitionBinding(binding);
   const approved = await readApprovedExpandedPublication({ graph: release.graph, original, chain });
+  await binding.lease.assertHeld();
+  return { original, release, approved };
+}
+
+/** Host-only election for the managed producer. It never advances Directory
+ * state or writes/supersedes either issuer's original record. */
+export async function readTrustedRevisionTwoBinding(binding: Web2ExpandedBinding & Pick<Web2RuntimeBindingInputs, "now">) {
+  const { lease, now } = binding;
+  const selected = {
+    ...structuredClone({ policy: binding.policy, bootstrap: binding.bootstrap, trust: binding.trust }),
+    lease, chain: ownWeb2ChainAuthority(binding.chain),
+  };
+  const { original, release, retainedRelease, intent, policy, chain } = await readRetainedTransitionBinding(selected);
+  const bootstrap = await verifyWeb2BootstrapRelease(selected.bootstrap, selected.trust);
+  await verifyInstalledRelease(retainedRelease, selected.trust);
+  assert(intent.release && canonicalDigest(intent.release) === canonicalDigest(release) &&
+    policy.bootstrapArtifactDigest === bootstrap.artifactDigest &&
+    policy.bootstrapSourceDigest === bootstrap.sourceDigest &&
+    release.artifactDigest === bootstrap.artifactDigest && release.sourceDigest === bootstrap.sourceDigest &&
+    release.graph.stateRoots.configuration === policy.bindingDirectory,
+    "trusted_revision_two_binding_release_changed");
+  const plan = original.record.body;
+  const ingress = publicIngressFrom(policy.ingress);
+  assertTrustedRevisionTwoTarget(release.graph, ingress);
+  const live = () => {
+    const checkedAt = now();
+    assert(Number.isSafeInteger(checkedAt) &&
+      policy.issuedAt <= checkedAt && checkedAt < policy.expiresAt &&
+      ingress.origin === original.record.body.draft.origin &&
+      policy.installationId === original.record.body.installationId,
+      "trusted_revision_two_binding_policy_changed");
+  };
+  live();
+  const admission = () => readWeb2HostAdmission({
+    path: policy.currentAdmissionFile, trust: selected.trust, now,
+    installationId: policy.installationId, draft: plan.draft, releaseArtifactDigest: bootstrap.artifactDigest,
+    targetDigest: plan.targetDigest, hostFingerprint: policy.hostFingerprint,
+    minimumGeneration: Math.max(policy.generation, plan.generation), planId: plan.planId,
+  });
+  await admission();
+  const read = () => readApprovedTrustedRevisionTwo({ graph: release.graph, original, chain, now });
+  const approved = await read();
+  const controller = await createLocalController(policy.target, lease);
+  try {
+    const host = await controller.inspectHost(AbortSignal.timeout(45000));
+    assert(host.supported && host.fingerprint === policy.hostFingerprint, "web2_binding_host_changed");
+    requireTrustedRevisionTwoResources(policy.target.containers.length, host.resources);
+  } finally {
+    await controller.dispose();
+  }
+  assert((await read()).approvalSha256 === approved.approvalSha256, "trusted_revision_two_approval_changed");
+  await admission();
   await lease.assertHeld();
+  live();
   return { original, release, approved };
 }
 

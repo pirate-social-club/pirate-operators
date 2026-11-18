@@ -41,13 +41,17 @@ import {
   authenticateWeb2Enrollment,
   ownWeb2ChainAuthority,
   readWeb2HostAdmission,
+  web2TargetDigest,
   type Web2ChainAuthority,
   type Web2HostAdmission,
   type Web2InstallPlan,
 } from "./web2-profile-authority.ts";
 import type { NativeGraph } from "./full-native-config.ts";
 import { nativePublicationBindingNames } from "./web2-publication-selection.ts";
-import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
+import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
+import {
+  assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, trustedRevisionTwoPolicyName,
+} from "./web2-trusted-revision-two.ts";
 import type { Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { postsSelectorPath, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 import {
@@ -177,11 +181,7 @@ export async function optionalWeb2Record<T>(path: string): Promise<T | null> {
     throw error;
   }
 }
-export const web2TargetDigest = (
-  target: InstalledTarget,
-  ingress: PublicIngress,
-  nativeRuntimeDirectory: string,
-) => canonicalDigest({ target, ingress, nativeRuntimeDirectory });
+export { web2TargetDigest };
 
 export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   const {
@@ -223,9 +223,14 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   const publication = input.publication;
   assert(Boolean(policy.graph.nativePublication) === Boolean(publication), "native_publication_owner_unavailable");
   assert(policy.graph.publicationExpansion === undefined ||
+    policy.graph.publicationExpansion === trustedRevisionTwo ||
     policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.nativePublication &&
     policy.graph.fixtureTransport && policy.ingress.tls.kind === "local-fixture-ca",
     "native_expanded_fixture_selection_required");
+  const ingress = publicIngressFrom(policy.ingress);
+  assertTrustedRevisionTwoTarget(policy.graph, ingress);
+  assert(policy.graph.publicationExpansion !== trustedRevisionTwo || input.publishing,
+    "trusted_revision_two_owner_publishing_required");
   const posts = input.posts;
   assert(Boolean(postsSelectorPath(policy.graph, policy.target)) === Boolean(posts),
     "native_posts_install_owner_unavailable");
@@ -245,7 +250,6 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     hostInstallationId:policy.installationId,publisher:input.publishing.publisher,
     publishing:{chain,grants:input.publishing.grants},now:()=>Math.floor(now()/1000),
   }) : null;
-  const ingress = publicIngressFrom(policy.ingress);
   assert(
     ingress.origin === policy.origin &&
       !Object.hasOwn(policy.graph, "directoryRuntimeBinding"),
@@ -286,7 +290,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       "web2_binding_policy_expired",
     );
   }
-  type ExpansionRead = () => ReturnType<typeof readApprovedExpandedPublication>;
+  type ExpansionRead = () => ReturnType<typeof readApprovedWeb2Transition>;
   async function authenticate(draft: LinuxWeb2Draft, expanded?: ExpansionRead) {
     live();
     await lease.assertHeld();
@@ -301,6 +305,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         host.supported && host.fingerprint === policy.hostFingerprint,
         "web2_binding_host_changed",
       );
+      if (expanded && policy.graph.publicationExpansion === trustedRevisionTwo)
+        requireTrustedRevisionTwoResources(policy.target.containers.length, host.resources);
     } finally {
       await controller.dispose();
     }
@@ -352,7 +358,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     return owned;
   }
   function graphFor(draft: LinuxWeb2Draft, attachment?: Web2PublishingAttachment): NativeGraph {
-    if (ownerOnly(draft.configuration.policies.admission)) assert(attachment,"web2_publishing_attachment_required");
+    if (ownerOnly(draft.configuration.policies.admission) || policy.graph.publicationExpansion === trustedRevisionTwo)
+      assert(attachment,"web2_publishing_attachment_required");
     if (attachment) {
       const a = publishingAttachment(attachment), scope = a.selection.scope, c = draft.configuration;
       assert(scope.enrollmentId === draft.enrollment.enrollmentId && scope.hostInstallationId === policy.installationId &&
@@ -425,20 +432,39 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     );
     let expanded: ExpansionRead | undefined;
     const graph = bound.intent.release.graph;
-    if (await expandedPublicationApprovalExists(graph)) {
+    const trusted = graph.publicationExpansion === trustedRevisionTwo;
+    const hasApproval = await expandedPublicationApprovalExists(graph);
+    if (hasApproval) {
       const record = await readPrivateJSON<SignedRecord<Web2InstallPlan>>(join(policy.bindingDirectory, "web2-original.json"));
       assert(canonicalDigest(record.body.draft) === canonicalDigest(draft), "native_expanded_bound_draft_changed");
       const original: Web2NativeOriginal = { schema: "pirate.web2-native-application-original/1", record,
         release: bound.applicationRelease, trust: captured.trust, durableScope: graph.durableScope };
-      expanded = () => readApprovedExpandedPublication({ graph, original, chain });
+      let approvalSha256: string | undefined;
+      expanded = async () => {
+        const approved = await readApprovedWeb2Transition({ graph, original, chain, now });
+        if (trusted) {
+          approvalSha256 ??= approved.approvalSha256;
+          assert(approved.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
+        }
+        return approved;
+      };
     }
     await authenticate(draft, expanded);
-    if (bound.intent.publishingAttachment) {
-      assert(publishing,"web2_publishing_authority_unavailable");
-      const retained = expanded
-        ? await publishing.retainedExpandedAttachment(draft, bound.intent.publishingAttachment, async () => (await expanded!()).configuration)
-        : await publishing.attachment(draft);
-      assert(canonical(retained) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
+    async function recheckExpandedAttachment(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>) {
+      if (trusted) live();
+      const attachment = bound.intent.publishingAttachment;
+      assert(publishing && attachment, "web2_publishing_authority_unavailable");
+      const retained = await publishing.retainedExpandedAttachment(draft, attachment, readCurrent);
+      assert(canonical(retained) === canonical(attachment), "web2_publishing_attachment_changed");
+      if (trusted) live();
+    }
+    if (expanded) {
+      const read = expanded;
+      await recheckExpandedAttachment(async () => (await read()).configuration);
+    } else if (bound.intent.publishingAttachment) {
+      assert(publishing, "web2_publishing_authority_unavailable");
+      const retained = await publishing.attachment(draft);
+      assert(canonical(retained) === canonical(bound.intent.publishingAttachment), "web2_publishing_attachment_changed");
     }
     if (draft.privatePractice) await authenticate(draft, expanded);
     await retainWeb2Record(
@@ -479,6 +505,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       hostFingerprint: policy.hostFingerprint,
       minimumGeneration: policy.generation,
     });
+    if (trusted) {
+      assert(hasApproval === await expandedPublicationApprovalExists(graph), "trusted_revision_two_approval_changed");
+      await authenticate(draft, expanded);
+      if (!hasApproval)
+        await retainWeb2Record(policy.bindingDirectory, trustedRevisionTwoPolicyName, captured.policy);
+    }
     return {
       release: bound.release,
       applicationRelease: bound.applicationRelease,
@@ -495,6 +527,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       now,
       ...(publication ? { publication } : {}),
       ...(posts ? { posts } : {}),
+      ...(trusted ? { recheckTrustedPublishing: recheckExpandedAttachment } : {}),
       signProfile: async (body,generation) => {
         assert(!expanded, "native_expanded_signed_plan_replacement_refused");
         if (bound.intent.publishingAttachment) {
@@ -530,7 +563,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         let intent = await optionalWeb2Record<BindingIntent>(intentPath);
         if (intent) validateIntent(intent, draft);
         else {
-          const attachment = ownerOnly(draft.configuration.policies.admission)
+          const attachment = (ownerOnly(draft.configuration.policies.admission) ||
+            policy.graph.publicationExpansion === trustedRevisionTwo)
             ? (assert(publishing,"web2_publishing_authority_unavailable"), await publishing.attachment(draft)) : undefined;
           const graph = graphFor(draft, attachment);
           intent = {

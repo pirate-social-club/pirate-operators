@@ -13,7 +13,7 @@ export interface NativeGraph {
   localActivitySocket?:string;
   nativePublication?:Web2NativePublicationGraph;
   /** Signed opt-in. The immutable registration still uses revision one. */
-  publicationExpansion?:"registry-revision-two/1";
+  publicationExpansion?:"registry-revision-two/1"|"retained-registry-revision-two/1";
   secretBindings:Array<{name:string;path:string}>;
   listenAddress:string;tls:{keyFile:string;certificateFile:string};
   migrationPlanFile:string;
@@ -35,8 +35,11 @@ const binding=(v:NativeBinding)=>{
 };
 /** Actual native services, not the diagnostic ledger. Unknown selected actors
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
-export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket) {
+export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket, requireRetainedWeb2=false) {
   const initialize=mode!=="serve";
+  assert(!requireRetainedWeb2 || mode==="initialize" && nativeOriginalFile &&
+    g.publicationExpansion==="retained-registry-revision-two/1" && !g.fixtureTransport && !g.nativePublication,
+    "trusted_revision_two_retained_initialization_required");
   assert(runtimeSocket===g.socket || runtimeSocket.startsWith("/run/") && !runtimeSocket.split("/").includes(".."),"private_per_boot_control_socket_required");
   assert(initialize || (typeof bootId==="string" && /^[a-f0-9]{64}$/.test(bootId)),"fresh_actual_process_boot_identity_required");
   assert(g.installationId.length>0 && !/[\x00-\x1f\x7f]/.test(g.installationId) && /^[a-f0-9]{64}$/.test(g.durableScope) && g.releaseRoot.startsWith("/") && g.socket.startsWith("/"));
@@ -120,7 +123,8 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     .some(binding => reservedPublication.has(binding.name)), "prebound_native_publication_refused");
   const publication = g.nativePublication;
   assert(g.publicationExpansion === undefined ||
-    (g.publicationExpansion === "registry-revision-two/1" && publication && fixture),
+    (g.publicationExpansion === "registry-revision-two/1" && publication && fixture) ||
+    (g.publicationExpansion === "retained-registry-revision-two/1" && !publication && !g.fixtureTransport),
     "native_expanded_fixture_selection_required");
   if (publication) {
     assert(g.localActivitySocket && publication.schema === "pirate.web2-native-publication-transport/1",
@@ -192,6 +196,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +'(name="MIGRATION_PLAN_JSON",text=embed '+q(g.migrationPlanFile)+')'
     +(nativeOriginalFile?',(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+')':'')
     +(mode==="initialize" ? postsInit : "")
+    +(requireRetainedWeb2 ? ',(name="WEB2_REQUIRE_RETAINED_STATE",text="1")' : '')
     +(publicationFiles && mode==="initialize" ? ","+binding({name:"WEB2_PUBLICATION_INITIALIZATION_JSON",
       file:publicationFiles.initialization}) : "")));
   if(mode==="cold-reconcile") {

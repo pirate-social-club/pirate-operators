@@ -31,6 +31,7 @@ import {
   prepareWeb2Registration,
 } from "../../packages/community/web2-registration-chain.ts";
 import { validateWeb2Configuration } from "../../packages/community/web2-config-manifest.ts";
+import { learningResultsV5Build } from "../../packages/protocol/generated/learning-results-v5.ts";
 import type { RecognitionProfile } from "../../packages/recognition/intent.ts";
 import {
   CATALOG_OWNER_POLICY_HASH,
@@ -404,7 +405,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
     await client.waitForTransactionReceipt({ hash: original.transactionHash });
     await rpc("anvil_mine", ["0x40", "0x0"]);
     const enrolled = await observeWeb2Registration(client, original);
-    assert.equal(enrolled.status, "consumed");
+    assert.ok(enrolled.status === "consumed");
+    const registrationReceipt = enrolled.receipt;
     const deployment = {
       schema: "pirate.community-deployment/2" as const,
       origin: config.app.origin,
@@ -458,19 +460,23 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       unavailable: (value: boolean) => {
         unavailable = value;
       },
-      async nextRevision() {
+      async nextRevision(kind: "label" | "learning-registry" = "label") {
+        if (kind === "learning-registry") assert.equal(config.configurationRevision, 1);
+        const registry = kind === "learning-registry"
+          ? await deploy(await artifact(learningResultsV5Build.contract), [profile.directory, profile.directoryCodeHash, profile.communityId])
+          : undefined;
         config = validateWeb2Configuration(
           {
             ...config,
             configurationRevision: config.configurationRevision + 1,
-            app: { ...config.app, label: "Updated title" },
+            ...(registry ? { learningRecords: registry.address } : { app: { ...config.app, label: "Updated title" } }),
           },
           profile,
         );
         const bytes = new TextEncoder().encode(canonical(config)),
           reference = await preparePin(bytes, "application/json");
         contents.set(reference.uri.slice(7), bytes);
-        await write("configure", [
+        const transition = await write("configure", [
           config.communityId,
           BigInt(config.configurationRevision - 1),
           {
@@ -483,6 +489,14 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
           },
         ]);
         await rpc("anvil_mine", ["0x40", "0x0"]);
+        if (!registry) return;
+        const [safe, code] = await Promise.all([
+          client.getBlock({ blockTag: "safe" }),
+          client.getCode({ address: registry.address, blockNumber: transition.blockNumber }),
+        ]);
+        assert(safe.hash && safe.number >= transition.blockNumber && code && code !== "0x");
+        return { transition, safe, genesisHash, registrationReceipt,
+          registry: registry.address, registryRuntimeHash: keccak256(code), configuration: config };
       },
       async expireDiscovery() {
         assert.ok(!closed && adminCustody === "idle", "local Directory admin busy or held");

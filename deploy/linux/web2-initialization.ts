@@ -55,7 +55,7 @@ export async function initializeWeb2Schema(
   db: D1Database,
   input: Web2SchemaPlan,
   releaseSha256: string,
-  options: { postsCustody?: boolean; publicationConsent?: boolean } = {},
+  options: { postsCustody?: boolean; publicationConsent?: boolean; requireRetained?: boolean } = {},
 ) {
   const plan = structuredClone(input);
   if (
@@ -95,6 +95,14 @@ export async function initializeWeb2Schema(
     ...(publicationConsent ? { publicationConsent: true } : {}),
   } : plan;
   const manifestSha256 = await digest(JSON.stringify(selected));
+  if (options.requireRetained) {
+    const matched = await db.prepare(`SELECT singleton FROM _pirate_web2_schema
+      WHERE (SELECT count(*) FROM _pirate_web2_schema)=1 AND singleton=1
+      AND manifest_sha256=? AND release_sha256=? AND schema_json=${schemaDocument}`)
+      .bind(manifestSha256, releaseSha256).first();
+    if (!matched) throw Error("web2_retained_schema_changed");
+    return { manifestSha256, alreadyInitialized: true };
+  }
   const existing = await db
     .prepare(
       "SELECT name FROM sqlite_schema WHERE lower(name)='_pirate_web2_schema'",

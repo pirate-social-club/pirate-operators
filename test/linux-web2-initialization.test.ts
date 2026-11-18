@@ -289,3 +289,27 @@ test(
     assert.deepEqual(await schemaRows(f.db), installed);
   },
 );
+
+test("trusted reopen requires the exact retained Web2 ledger without rebuilding empty or partial D1", { timeout: 30000 }, async t => {
+  const f = await nativeProducerFixture(false);
+  t.after(f.dispose);
+  const plan = await sourcePlan();
+  const release = "ab".repeat(32);
+  const blank = await schemaRows(f.db);
+  await assert.rejects(initializeWeb2Schema(f.db, plan, release, { requireRetained: true }), /no such table/);
+  assert.deepEqual(await schemaRows(f.db), blank);
+
+  const initial = await initializeWeb2Schema(f.db, plan, release);
+  assert.equal(initial.alreadyInitialized, false);
+  const before = await schemaRows(f.db);
+  const ledger = await f.db.prepare("SELECT * FROM _pirate_web2_schema").first();
+  const reopened = await initializeWeb2Schema(f.db, plan, release, { requireRetained: true });
+  assert.deepEqual(reopened, { manifestSha256: initial.manifestSha256, alreadyInitialized: true });
+  assert.deepEqual(await schemaRows(f.db), before);
+  assert.deepEqual(await f.db.prepare("SELECT * FROM _pirate_web2_schema").first(), ledger);
+
+  await f.db.prepare("DELETE FROM _pirate_web2_schema WHERE singleton=1").run();
+  await assert.rejects(initializeWeb2Schema(f.db, plan, release, { requireRetained: true }), /web2_retained_schema_changed/);
+  assert.deepEqual(await schemaRows(f.db), before);
+  assert.equal(await f.db.prepare("SELECT * FROM _pirate_web2_schema").first(), null);
+});

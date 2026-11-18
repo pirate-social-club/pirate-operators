@@ -37,6 +37,15 @@ import {
   type TrustAnchor,
 } from "./installed-records.ts";
 
+import type { InstalledTarget } from "./local-target-controller.ts";
+import type { PublicIngress } from "./public-ingress.ts";
+
+export const web2TargetDigest = (
+  target: InstalledTarget,
+  ingress: PublicIngress,
+  nativeRuntimeDirectory: string,
+) => canonicalDigest({ target, ingress, nativeRuntimeDirectory });
+
 /** Host-issued admission, stored privately. Never accepted from a browser. */
 export interface Web2HostAdmission {
   schema: "pirate.linux-web2-host-admission/1";
@@ -135,6 +144,7 @@ export interface Web2ExpandedEnrollmentExpectation {
   configuration: Web2CommunityConfig;
   configurationHash: Hex;
   configurationBlockHash: Hex;
+  configurationBlock?: string;
   admittedSafeBlock: string;
   admittedSafeBlockHash: Hex;
   genesisHash: Hex;
@@ -251,6 +261,7 @@ async function authenticateEnrollment(
       canonical({ ...selected, configurationRevision: 1, learningRecords: revisionOne.learningRecords }) === canonical(revisionOne) &&
       transition?.args.revision === 2n && transition.transactionHash === expanded.configurationHash &&
       transition.blockHash === expanded.configurationBlockHash &&
+      (expanded.configurationBlock === undefined || String(transition.blockNumber) === expanded.configurationBlock) &&
       current.blockNumber >= BigInt(expanded.admittedSafeBlock),
       "install_expanded_configuration_changed", 409);
     const [initial, admitted, genesis, registry] = await Promise.all([
