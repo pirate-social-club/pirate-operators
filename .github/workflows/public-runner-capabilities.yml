@@ -1,0 +1,293 @@
+name: Public runner capability smoke
+
+on:
+  push:
+    branches: [ops/public-runner-capabilities-20261118]
+    paths: [.github/workflows/public-runner-capabilities.yml]
+
+permissions: {}
+
+jobs:
+  capabilities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Check synthetic callback, headed browser and teardown
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          scratch=$(mktemp -d "$RUNNER_TEMP/pirate-public-smoke.XXXXXXXX")
+          trap 'rm -rf -- "$scratch"' EXIT
+          cat > "$scratch/smoke.py" <<'PY'
+          import contextlib
+          import http.server
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import select
+          import shlex
+          import shutil
+          import signal
+          import socket
+          import subprocess
+          import sys
+          import tarfile
+          import threading
+          import time
+
+          root = Path(__file__).resolve().parent
+          title = "Pirate synthetic headed capability"
+          callback_source = r"""
+          #include <arpa/inet.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <unistd.h>
+
+          int main(int argc, char **argv) {
+              if (argc != 3) return 2;
+              struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(atoi(argv[2]))};
+              if (inet_pton(AF_INET, argv[1], &address.sin_addr) != 1) return 3;
+              int stream = socket(AF_INET, SOCK_STREAM, 0);
+              if (stream < 0 || connect(stream, (void *)&address, sizeof(address)) < 0) return 4;
+              const char request[] = "synthetic-callback";
+              if (write(stream, request, sizeof(request)) != sizeof(request)) return 5;
+              const char expected[] = "runner-callback-ok";
+              char reply[sizeof(expected)];
+              size_t received = 0;
+              while (received < sizeof(reply)) {
+                  ssize_t count = read(stream, reply + received, sizeof(reply) - received);
+                  if (count <= 0) return 6;
+                  received += count;
+              }
+              close(stream);
+              return memcmp(reply, expected, sizeof(expected)) != 0;
+          }
+          """
+
+          def docker(*args, timeout=25):
+              return output("/usr/bin/docker", "--host", "unix:///run/docker.sock", *args, timeout=timeout)
+
+          def output(*args, timeout=25):
+              result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+              if result.returncode:
+                  raise RuntimeError(f"{Path(args[0]).name} exited {result.returncode}")
+              return result.stdout.strip()
+
+          def closed(address):
+              with socket.socket() as probe:
+                  probe.settimeout(1)
+                  return probe.connect_ex(address) != 0
+
+          def stop_process(process):
+              if process.poll() is None:
+                  os.killpg(process.pid, signal.SIGTERM)
+                  try:
+                      process.wait(timeout=8)
+                  except subprocess.TimeoutExpired:
+                      os.killpg(process.pid, signal.SIGKILL)
+                      process.wait(timeout=5)
+              for retry in range(40):
+                  active = []
+                  for p in Path("/proc").iterdir():
+                      if not p.name.isdigit():
+                          continue
+                      try:
+                          fields = (p / "stat").read_text().rsplit(")", 1)[1].split()
+                      except (OSError, IndexError):
+                          continue
+                      if int(fields[2]) == process.pid and fields[0] != "Z":
+                          active.append(p.name)
+                  if not active:
+                      return
+                  if retry == 20:
+                      os.killpg(process.pid, signal.SIGKILL)
+                  time.sleep(.1)
+              raise RuntimeError("owned process group still active")
+
+          def headed():
+              assert os.isatty(0) and os.isatty(1)
+              assert os.tcgetpgrp(0) == os.getpgrp(), "foreground PTY is required"
+              chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+              assert chrome and shutil.which("Xvfb") and shutil.which("xwininfo"), "browser tools unavailable"
+              loaded = threading.Event()
+
+              class Page(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      if self.path != "/synthetic":
+                          self.send_error(404)
+                          return
+                      page = f"<!doctype html><title>{title}</title><p>Public synthetic input</p>".encode()
+                      self.send_response(200)
+                      self.send_header("Content-Length", str(len(page)))
+                      self.send_header("Content-Type", "text/html")
+                      self.end_headers()
+                      self.wfile.write(page)
+                      loaded.set()
+                  def log_message(self, *_args):
+                      pass
+
+              display_reader, display_writer = os.pipe()
+              with contextlib.ExitStack() as cleanup:
+                  cleanup.callback(os.close, display_reader)
+                  try:
+                      xvfb = subprocess.Popen(
+                          ["Xvfb", "-displayfd", str(display_writer), "-screen", "0", "1280x720x24", "-nolisten", "tcp", "-ac"],
+                          pass_fds=(display_writer,), start_new_session=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      )
+                  finally:
+                      os.close(display_writer)
+                  cleanup.callback(stop_process, xvfb)
+                  assert select.select([display_reader], [], [], 12)[0], "Xvfb did not report a display"
+                  display = os.read(display_reader, 64).decode().strip()
+                  assert display.isdecimal(), "Xvfb display not available"
+                  server = cleanup.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page))
+                  serving = threading.Thread(target=server.serve_forever, daemon=True)
+                  serving.start()
+                  cleanup.callback(server.shutdown)
+                  browser = subprocess.Popen(
+                      [chrome, "--no-sandbox", "--no-first-run", "--no-default-browser-check",
+                          "--disable-background-networking", "--disable-breakpad", "--disable-crash-reporter", "--no-proxy-server",
+                          "--disable-sync", "--ozone-platform=x11", "--window-size=1024,600",
+                          f"--user-data-dir={root / 'synthetic-browser-profile'}",
+                          f"http://127.0.0.1:{server.server_port}/synthetic"],
+                      env={**os.environ, "DISPLAY": ":" + display},
+                      start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                  )
+                  cleanup.callback(stop_process, browser)
+                  assert loaded.wait(25), "headed browser did not load synthetic page"
+                  deadline = time.monotonic() + 20
+                  while True:
+                      tree = output("xwininfo", "-display", ":" + display, "-root", "-tree", timeout=5)
+                      matched = next((line for line in tree.splitlines() if title in line), None)
+                      if matched:
+                          window = re.search(r"0x[0-9a-f]+", matched).group()
+                          details = output("xwininfo", "-display", ":" + display, "-id", window, timeout=5)
+                          if "Map State: IsViewable" in details:
+                              break
+                      assert browser.poll() is None and time.monotonic() < deadline, "no viewable Chromium window"
+                      time.sleep(.25)
+              assert closed(server.server_address), "headed synthetic listener still open"
+              print("FOREGROUND_PTY_AND_VIEWABLE_X11_WINDOW_PROVED", flush=True)
+
+          def main():
+              results = {"docker_to_host": False, "headed_xvfb_pty": False, "same_host_teardown": False}
+              error = {}
+              browser_cleanup_proved = False
+              suffix = os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
+              assert re.fullmatch(r"[0-9]+-[0-9]+", suffix)
+              name = "pirate-public-smoke-" + suffix
+              label = "org.pirate.synthetic-run=" + suffix
+              image = name + ":callback"
+              ids = {}
+              address = None
+              checked_daemon = None
+              try:
+                  daemon_socket = Path("/run/docker.sock")
+                  original = daemon_socket.stat()
+                  checked_daemon = docker("info", "--format", "{{.ID}}"), original.st_dev, original.st_ino
+                  assert checked_daemon[0]
+                  context = root / "context"
+                  context.mkdir(mode=0o700)
+                  (context / "callback.c").write_text(callback_source)
+                  output("cc", "-static", "-Os", "-s", str(context / "callback.c"), "-o", str(context / "callback"))
+                  image_tar = root / "synthetic-callback.tar"
+                  with tarfile.open(image_tar, "w") as archive:
+                      archive.add(context / "callback", arcname="callback")
+                  docker("import", "--change", 'ENTRYPOINT ["/callback"]',
+                      "--change", "LABEL " + label, str(image_tar), image, timeout=45)
+                  ids["image"] = docker("image", "inspect", "--format", "{{.Id}}", image)
+                  ids["network"] = docker("network", "create", "--internal", "--label", label, name)
+                  network = json.loads(docker("network", "inspect", ids["network"]))[0]
+                  assert network["Internal"] and network["Driver"] == "bridge"
+                  gateway = network["IPAM"]["Config"][0]["Gateway"]
+                  with socket.socket() as listener:
+                      listener.bind((gateway, 0))
+                      listener.listen(1)
+                      listener.settimeout(18)
+                      address = listener.getsockname()
+                      ids["container"] = docker(
+                          "create", "--name", name, "--label", label, "--network", name,
+                          "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                          "--pids-limit=32", "--user=65534:65534", image, gateway, str(address[1]),
+                      )
+                      with subprocess.Popen(
+                          ["/usr/bin/docker", "--host", "unix:///run/docker.sock", "start", "--attach", ids["container"]],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      ) as attached:
+                          try:
+                              conn, peer = listener.accept()
+                              with conn:
+                                  conn.settimeout(5)
+                                  with conn.makefile("rb") as channel:
+                                      request = channel.read(len(b"synthetic-callback\0"))
+                                  assert request == b"synthetic-callback\0", "callback input mismatch"
+                                  expected_peer = docker("inspect", "--format",
+                                      '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', ids["container"])
+                                  assert peer[0] == expected_peer != gateway, "callback peer did not match container"
+                                  conn.sendall(b"runner-callback-ok\0")
+                              assert attached.wait(timeout=12) == 0, "callback response not accepted"
+                          finally:
+                              if attached.poll() is None:
+                                  attached.terminate()
+                                  attached.wait(timeout=5)
+                  results["docker_to_host"] = True
+              except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                  error["docker_to_host"] = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
+
+              try:
+                  if not shutil.which("xwininfo"):
+                      output("sudo", "-n", "apt-get", "-qq", "update", timeout=70)
+                      output("sudo", "-n", "apt-get", "-qq", "install", "-y", "--no-install-recommends", "x11-utils", timeout=55)
+                  actor = output("id", "-un")
+                  command = shlex.join([sys.executable, str(root / "smoke.py"), "headed"])
+                  result = subprocess.run(
+                      ["sudo", "-n", "unshare", "--net", "--", "/bin/bash", "-ceu",
+                          'ip link set lo up; exec runuser -u "$1" -- script -qefc "$2" /dev/null </dev/null',
+                          "smoke", actor, command], text=True, capture_output=True, timeout=95,
+                  )
+                  if result.returncode:
+                      diagnostic = re.search(r"^SMOKE_HEADED_FAILURE ([a-zA-Z0-9 -]+)$", result.stdout, re.MULTILINE)
+                      raise RuntimeError(diagnostic.group(1) if diagnostic else f"isolated foreground PTY exited {result.returncode}")
+                  assert "FOREGROUND_PTY_AND_VIEWABLE_X11_WINDOW_PROVED" in result.stdout
+                  results["headed_xvfb_pty"] = True
+                  browser_cleanup_proved = True
+              except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                  error["headed_xvfb_pty"] = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
+
+              try:
+                  assert checked_daemon is not None, "Docker identity unavailable"
+                  listener_closed = address is None or closed(address)
+                  filters = ["--filter", "label=" + label, "--quiet", "--no-trunc"]
+                  # The filter also finds an owned resource if its create reply was interrupted.
+                  for kind in ("container", "network", "image"):
+                      found = docker(kind, "ls", *(["--all"] if kind == "container" else []), *filters).splitlines()
+                      assert len(found) <= 1 and (kind not in ids or found == [ids[kind]]), "resource custody changed"
+                      for identity in found:
+                          docker(kind, "rm", *(["--force"] if kind == "container" else []), identity)
+                      assert not docker(kind, "ls", *(["--all"] if kind == "container" else []), *filters)
+                  after = Path("/run/docker.sock").stat()
+                  assert (docker("info", "--format", "{{.ID}}"), after.st_dev, after.st_ino) == checked_daemon
+                  assert listener_closed, "callback listener still open"
+                  assert browser_cleanup_proved, "browser teardown unconfirmed"
+                  results["same_host_teardown"] = True
+              except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                  error["same_host_teardown"] = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
+
+              print("SMOKE_RESULT " + json.dumps({"capabilities": results, "failures": error}, sort_keys=True), flush=True)
+              return 0 if all(results.values()) else 1
+
+          if __name__ == "__main__":
+              if sys.argv[1:] == ["headed"]:
+                  try:
+                      headed()
+                  except (AssertionError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                      reason = str(exc) if isinstance(exc, (AssertionError, RuntimeError)) else type(exc).__name__
+                      print("SMOKE_HEADED_FAILURE " + (reason or "foreground PTY assertion"), flush=True)
+                      sys.exit(1)
+              else:
+                  sys.exit(main())
+          PY
+          python3 -B "$scratch/smoke.py"
