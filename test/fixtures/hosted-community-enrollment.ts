@@ -3,6 +3,7 @@ import { spawn, execFile } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { readFileSync } from "node:fs";
 import { once } from "node:events";
+import { createInterface } from "node:readline";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -140,35 +141,80 @@ function compile() {
   );
   return artifacts;
 }
-export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean } = {}) {
-  const compiled = compile(),
-    portReservation = createServer();
-  portReservation.listen(0, "127.0.0.1");
-  await once(portReservation, "listening");
-  const portAddress = portReservation.address();
-  assert(portAddress && typeof portAddress !== "string");
-  const port = portAddress.port;
-  await new Promise<void>((resolve) => portReservation.close(() => resolve()));
+async function launchHostedAnvil(timestamp: number) {
   const child = spawn(
     "anvil",
     [
       "--host",
       "127.0.0.1",
       "--port",
-      String(port),
+      "0",
       "--chain-id",
       "31337",
       "--timestamp",
-      String(options.packaged ? Math.floor(Date.now() / 1000) - 30 : 1800000000),
+      String(timestamp),
       "--slots-in-an-epoch",
       "1",
-      "--silent",
     ],
-    { stdio: ["ignore", "ignore", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"] },
   );
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  async function stop() {
+    if (child.pid && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    await closed;
+  }
   let errors = "";
   child.stderr.on("data", (data) => {
-    errors += String(data);
+    errors = (errors + String(data)).slice(-8192);
+  });
+  const lines = createInterface({ input: child.stdout });
+  try {
+    const port = await new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => finish(Error("Anvil did not report its bound address")), 5000);
+      const onError = (error: Error) => finish(error);
+      const onExit = () => finish(Error(errors || "Anvil exited before binding"));
+      const onLine = (line: string) => {
+        const match = /^Listening on 127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(line);
+        if (match) finish(Number(match[1]));
+      };
+      function finish(result: number | Error) {
+        clearTimeout(timeout);
+        child.off("error", onError);
+        child.off("exit", onExit);
+        lines.off("line", onLine);
+        if (typeof result === "number") resolve(result);
+        else reject(result);
+      }
+      child.once("error", onError);
+      child.once("exit", onExit);
+      lines.on("line", onLine);
+    });
+    return { child, port, stop };
+  } catch (error) {
+    await stop();
+    throw error;
+  } finally {
+    // Consume the remaining diagnostic output without logging the dev accounts.
+    lines.close();
+    child.stdout.resume();
+  }
+}
+export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean } = {}) {
+  const compiled = compile();
+  const journal = options.packaged ? await mkdtemp(join(tmpdir(), "hosted-worker-journal-")) : undefined;
+  const mf = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('unused fixture')}}",
+    compatibilityDate: "2026-08-06",
+    d1Databases: { DB: "hosted-fixture" },
+    ...(journal ? { d1Persist: journal } : {}),
+  });
+  // Port zero leaves allocation with the kernel until this exact child owns it.
+  const { child, port, stop } = await launchHostedAnvil(
+    options.packaged ? Math.floor(Date.now() / 1000) - 30 : 1800000000,
+  ).catch(async (error: unknown) => {
+    await mf.dispose();
+    throw error;
   });
   const url = `http://127.0.0.1:${port}`,
     rpc = async (method: string, params: unknown[] = []) => {
@@ -187,14 +233,6 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
   const local = createPublicClient({
     transport: http(url, { retryCount: 0 }),
     chain: foundry,
-  });
-  const journal = options.packaged ? await mkdtemp(join(tmpdir(), "hosted-worker-journal-")) : undefined;
-  const mf = new Miniflare({
-    modules: true,
-    script: "export default {fetch(){return new Response('unused fixture')}}",
-    compatibilityDate: "2026-08-06",
-    d1Databases: { DB: "hosted-fixture" },
-    ...(journal ? { d1Persist: journal } : {}),
   });
   const pins = new Map<string, Uint8Array>(),
     state = {
@@ -259,7 +297,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
   try {
     let ready = false;
     for (let i = 0; i < 100; i++) {
-      if (child.exitCode !== null) throw Error(errors);
+      if (child.exitCode !== null || child.signalCode !== null) throw Error("Anvil exited before serving RPC");
       try {
         await local.getChainId();
         ready = true;
@@ -606,23 +644,23 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       enrollment,
       funding,
       async close() {
-        proxy.closeAllConnections();
-        await new Promise<void>((resolve) => proxy.close(() => resolve()));
-        await mf.dispose();
-        await evidence("cleanup", { anvilPid: child.pid, pidMeaning: "runner namespace-local, not host ID", proxyClosed: true, miniflareDisposed: true, journalRetained: journal });
-        if (child.exitCode === null) {
-          child.kill("SIGTERM");
-          await once(child, "exit");
+        try {
+          proxy.closeAllConnections();
+          await new Promise<void>((resolve) => proxy.close(() => resolve()));
+          await mf.dispose();
+        } finally {
+          await stop();
         }
+        await evidence("cleanup", { anvilPid: child.pid, pidMeaning: "runner namespace-local, not host ID", proxyClosed: true, miniflareDisposed: true, journalRetained: journal });
       },
     };
   } catch (error) {
-    proxy.closeAllConnections();
-    proxy.close();
-    await mf.dispose();
-    if (child.exitCode === null) {
-      child.kill("SIGTERM");
-      await once(child, "exit");
+    try {
+      proxy.closeAllConnections();
+      proxy.close();
+      await mf.dispose();
+    } finally {
+      await stop();
     }
     throw error;
   }
