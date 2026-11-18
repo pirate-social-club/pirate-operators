@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -250,6 +250,7 @@ test("trusted revision two holds without signed proof and reopens the same initi
     const admissionBytes = JSON.stringify(sign(admission)) + "\n";
     await writeFile(policy.currentAdmissionFile, admissionBytes, { mode: 0o600 });
     const controlRoot = join(root, "producer-control");
+    await mkdir(controlRoot, { mode: 0o700 });
     const control = await acquireWeb2ServiceControl(controlRoot, installationId);
     let openControl = control, inspections = 0, signatures = 0;
     let actual = resources;
