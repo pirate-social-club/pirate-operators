@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hashJson, hashText } from "../packages/community/common.ts";
-import { rewardChain } from "../packages/rewards/chain.ts";
+import {
+  CommunityError,
+  hashJson,
+  hashText,
+} from "../packages/community/common.ts";
+import { mediaSubmissionReceipt } from "../packages/community-media/submission.ts";
+import { PRIVATE_RETENTION_MS } from "../packages/community-media/validation.ts";
+import { RewardClaims } from "../packages/rewards/claims.ts";
+import { RewardOffers } from "../packages/rewards/offers.ts";
 import type {
   RewardAvailableOffers,
   RewardOffer,
@@ -17,9 +24,9 @@ import {
   type InstalledDanceRewards,
 } from "../services/web2-installed-dance-rewards.ts";
 import { rewardDanceV2ManualFixture } from "./fixtures/reward-dance-v2-manual.ts";
-import { word } from "./fixtures/reward-dance-v2.ts";
+import { accountB, word } from "./fixtures/reward-dance-v2.ts";
 
-test("an earlier Directory revision song qualifies against its ordinary Dance offer and V2 verdict", async (t) => {
+test("an earlier Directory revision Dance verdict survives video expiry, close, settlement and unpaid claim", async (t) => {
   // Uses production song projection, Posts evidence and manual-close logic with
   // scripted chain reads and SQLite. The native installer is qualified separately.
   const f = await rewardDanceV2ManualFixture(t);
@@ -77,11 +84,19 @@ test("an earlier Directory revision song qualifies against its ordinary Dance of
     "4".repeat(64),
   );
   const never = async (): Promise<never> =>
-    assert.fail("verification is outside selected rewards");
+    assert.fail("external verification or payment chain is outside this test");
   const ports = {
     db: f.input.db,
     profile,
-    chain: rewardChain(),
+    chain: {
+      guard: never,
+      balance: never,
+      position: never,
+      confirmedPosition: never,
+      transfer: never,
+      incoming: never,
+      outgoing: never,
+    },
     verification: { open: never, subject: never },
     sources: danceV2ManualRewardSources(f.input),
     now: f.now,
@@ -212,16 +227,84 @@ test("an earlier Directory revision song qualifies against its ordinary Dance of
     null,
   );
 
-  const capture = f.retainCapture(pinned.input_hash);
-  assert.deepEqual(capture?.offer, projected.song.offer);
+  const sourceVideo = "synthetic private Dance source";
+  const accepted = {
+    id: "11111111-1111-4111-8111-111111111120",
+    recordingSha256: hashText(sourceVideo),
+    revision: 4,
+  };
+  const capture = f.retainCapture(pinned.input_hash, undefined, accepted);
+  assert.ok(capture);
+  assert.deepEqual(capture.offer, projected.song.offer);
+  const canonical = f.chain.events.at(-1)!;
+  assert.equal(canonical.capture.captureId, capture.captureId);
+  assert.equal(canonical.verdict.withinFrozenOfferWindow, true);
+  const media = f.seedAcceptedMedia(capture, accepted, sourceVideo);
+  const receipt = await mediaSubmissionReceipt(
+    media.repository,
+    capture.captureId,
+  );
+  const deadline = receipt.trustedSubmittedAtMs + PRIVATE_RETENTION_MS;
+  assert.equal(receipt.reviewDeadlineMs, deadline);
+  assert.equal(canonical.submission.reviewDeadlineMs, BigInt(deadline));
+  assert.equal(canonical.submission.mediaExpiresAtMs, BigInt(deadline));
+  assert.equal(
+    receipt.bindingCommitment,
+    canonical.submission.mediaBindingHash,
+  );
+
+  const proof = () =>
+    f.db.sqlite
+      .prepare(
+        `SELECT c.capture_json, k.consent_json,
+    b.value_json AS binding, j.typed_json AS command, o.value_json AS observation
+    FROM dance_captures c JOIN dance_consents k ON k.capture_id=c.capture_id
+    JOIN dance_publication_bindings b ON b.capture_id=c.capture_id
+    JOIN publication_v1_commands j ON j.command_id=b.command_id
+    JOIN publication_v1_observations o ON o.command_id=j.command_id
+      AND o.proof_hash=json_extract(b.value_json,'$.receiptSha256')
+    WHERE c.capture_id=?`,
+      )
+      .get(capture.captureId);
+  const originalProof = proof();
+  assert.ok(originalProof);
   await assert.rejects(request(close, op, {}), /reward_cutoff_not_reached/);
-  f.afterCutoff();
+
+  f.afterCutoff(deadline - 1);
+  assert.equal((await media.head())?.status, 200);
+  await media.service.recover();
+  assert.equal((await media.repository.get(accepted.id)).state, "ready");
+  assert.equal(media.objects.size, 2);
+
+  f.afterCutoff(deadline);
+  assert.equal((await media.head())?.status, 410);
+  await media.service.recover();
+  const tombstone = await media.repository.get(accepted.id);
+  assert.equal(tombstone.state, "expired");
+  assert.equal(tombstone.expiresAt, deadline);
+  assert.equal(tombstone.erasePending, false);
+  assert.equal(tombstone.sourceKey, undefined);
+  assert.equal(tombstone.renditionKey, undefined);
+  assert.equal(media.objects.size, 0);
+  assert.equal((await media.head())?.status, 410);
+  assert.deepEqual(
+    await mediaSubmissionReceipt(media.repository, capture.captureId),
+    receipt,
+  );
+  assert.deepEqual(proof(), originalProof);
+
+  f.afterCutoff(deadline + 1);
   assert.deepEqual((await loadOffers()).offers, []);
   const closed = await readOffer(await request(close, op, {}));
   assert.equal(closed.state, "closed");
   assert.equal(closed.entries?.length, 1);
   assert.equal(closed.entries?.[0]?.accountId, f.principal.accountId);
   assert.equal(closed.entries?.[0]?.wallet, f.principal.wallet);
+  assert.equal(
+    closed.entries?.[0]?.completedAt,
+    Number(canonical.verdict.committedAtSeconds * 1000n),
+  );
+  assert.deepEqual(proof(), originalProof);
   assert.match(closed.entries?.[0]?.evidenceHash ?? "", /^0x[0-9a-f]{64}$/);
   assert.deepEqual(await readOffer(await request(close, op, {})), closed);
   await assert.rejects(
@@ -238,14 +321,111 @@ test("an earlier Directory revision song qualifies against its ordinary Dance of
   assert.equal(f.db.count("reward_credits"), 0);
   assert.equal(f.db.count("reward_payments"), 0);
   assert.equal(f.db.count("reward_payment_attempts"), 0);
-  t.diagnostic(JSON.stringify({
-    schema: "pirate.synthetic-dance-qualification-receipt/1",
-    publishedRevision: f.post.configurationRevision,
-    activeRevision: f.configuration.configurationRevision,
-    offerId: closed.offerId,
-    inputHash: saved.input_hash,
-    qualifier: closed.entries?.[0],
-    closureSnapshotHash: snapshot?.snapshot_hash,
-    newPayments: 0,
-  }));
+  // The selected HTTP mount remains close-only. Exercise the already
+  // established manual settlement service on the same disposable ledger.
+  const offers = new RewardOffers(f.store, ports.sources, f.now);
+  const settled = await offers.settle(f.offer.offerId);
+  assert.equal(settled.state, "settled");
+  assert.equal(settled.evidenceMode, "simulated");
+  assert.deepEqual(settled.entries, closed.entries);
+  assert.equal(settled.payoutAtomic, "30000000000000000");
+  assert.deepEqual(await offers.settle(f.offer.offerId), settled);
+  assert.deepEqual(proof(), originalProof);
+  const [credit] = await f.store.credits(f.principal.accountId);
+  assert.ok(credit);
+  assert.equal(credit.offer_id, f.offer.offerId);
+  assert.equal(credit.amount_atomic, "30000000000000000");
+  assert.equal(credit.paid_atomic, "0");
+  assert.equal(credit.payment_id, null);
+  assert.equal(credit.claim_state, "unclaimed");
+
+  // Fixture-only original verified binding. Neither claim call opens Very
+  // or prepares a payment, and the accepted credit still has its owner.
+  f.db.sqlite
+    .prepare(
+      "INSERT INTO reward_subjects(program_id,account_id,wallet,subject_hash,verified_at) VALUES(?,?,?,?,?)",
+    )
+    .run(
+      f.store.program,
+      f.principal.accountId,
+      f.principal.wallet,
+      word(5914),
+      f.now(),
+    );
+  const claims = new RewardClaims(f.store, ports.verification, f.now);
+  await assert.rejects(
+    claims.claim({ ...f.principal, accountId: accountB }, credit.credit_id),
+    /reward_credit_not_found/,
+  );
+  const acceptedClaim = await claims.claim(f.principal, credit.credit_id);
+  assert.equal(acceptedClaim.outcome, "accepted");
+
+  f.afterCutoff(deadline + PRIVATE_RETENTION_MS);
+  await media.service.recover();
+  assert.deepEqual(
+    await claims.claim(f.principal, credit.credit_id),
+    acceptedClaim,
+  );
+  const [unpaid] = await f.store.credits(f.principal.accountId);
+  assert.ok(unpaid);
+  assert.equal(unpaid.credit_id, credit.credit_id);
+  assert.equal(unpaid.offer_id, credit.offer_id);
+  assert.equal(unpaid.claim_state, "accepted");
+  assert.equal(unpaid.paid_atomic, "0");
+  assert.equal(unpaid.payment_id, null);
+  assert.deepEqual(proof(), originalProof);
+  assert.deepEqual(
+    await mediaSubmissionReceipt(media.repository, capture.captureId),
+    receipt,
+  );
+  assert.equal(media.objects.size, 0);
+  assert.equal(f.db.count("reward_credits"), 1);
+  assert.equal(f.db.count("reward_subjects"), 1);
+  assert.equal(f.db.count("reward_funding"), 0);
+  assert.equal(f.db.count("reward_verification_intents"), 0);
+  assert.equal(f.db.count("reward_payments"), 0);
+  assert.equal(f.db.count("reward_payment_attempts"), 0);
+
+  t.diagnostic(
+    JSON.stringify({
+      schema: "pirate.synthetic-dance-qualification-receipt/1",
+      publishedRevision: f.post.configurationRevision,
+      activeRevision: f.configuration.configurationRevision,
+      offerId: closed.offerId,
+      inputHash: saved.input_hash,
+      qualifier: closed.entries?.[0],
+      closureSnapshotHash: snapshot?.snapshot_hash,
+      expiredBeforeClose: true,
+      settledWithUnpaidAcceptedCredit: true,
+      newPayments: 0,
+    }),
+  );
+});
+
+test("an active V2 verdict without its retained capture refuses whole-offer close", async (t) => {
+  const f = await rewardDanceV2ManualFixture(t);
+  const offers = new RewardOffers(
+    f.store,
+    danceV2ManualRewardSources(f.input),
+    f.now,
+  );
+  const attached = await offers.attach(f.withoutPins);
+  const original = await f.store.offer(attached.offerId);
+  f.retainCapture(original.input_hash, "missing-capture");
+  f.afterCutoff();
+  await assert.rejects(
+    offers.close(attached.offerId, {
+      offerId: attached.offerId,
+      inputHash: original.input_hash,
+      sourceHash: f.chain.source.sourceHash,
+    }),
+    (error: unknown) =>
+      error instanceof CommunityError &&
+      error.status === 503 &&
+      error.code === "dance_v2_retained_capture_unverified",
+  );
+  assert.deepEqual(await f.store.offer(attached.offerId), original);
+  assert.equal(f.db.count("reward_closure_snapshots"), 0);
+  assert.equal(f.db.count("reward_credits"), 0);
+  assert.equal(f.db.count("reward_payments"), 0);
 });

@@ -5,7 +5,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { TestContext } from "node:test";
 import { encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
-import { canonical, hashJson, hashText } from "../../packages/community/common.ts";
+import {
+  canonical,
+  hashJson,
+  hashText,
+} from "../../packages/community/common.ts";
 import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import { preparePin } from "../../packages/community/ipfs.ts";
 import {
@@ -36,12 +40,20 @@ import {
   sourceId,
 } from "../../services/publication-command-contract.ts";
 import { MemorySqliteD1 } from "../dance-sqlite-fixture.ts";
+import {
+  MEDIA_VERSION,
+  type MediaRecord,
+} from "../../packages/community-media/contracts.ts";
+import { MediaRepository } from "../../packages/community-media/repository.ts";
+import { CommunityMedia } from "../../services/community-media.ts";
+import { communityMediaApi } from "../../services/community-media-api.ts";
 import { rewardTestProfile } from "../manual-rewards-fixture.ts";
 import {
   accountA,
   address,
   rewardDanceV2Fixture,
   word,
+  type RewardDanceAcceptedMedia,
 } from "./reward-dance-v2.ts";
 
 type Fault =
@@ -59,6 +71,7 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
     "0002_first_song",
     "0011_manual_rewards",
     "0014_reward_closure_snapshots",
+    "0015_community_media",
     "0016_dance",
     "0020_publication_consent",
   ])
@@ -292,7 +305,11 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
 
   let now = offer.opensAt - 1000;
   chain.state.safeNumber = 10n;
-  function retainCapture(inputHash: string, broken?: Fault) {
+  function retainCapture(
+    inputHash: string,
+    broken?: Fault,
+    acceptedMedia?: RewardDanceAcceptedMedia,
+  ) {
     fault = broken;
     const source: ConsentSourceV1 = {
       schema: "pirate.publication-source/1",
@@ -329,6 +346,7 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
       "0x",
     );
     const verdict = chain.add({
+      ...(acceptedMedia ? { acceptedMedia } : {}),
       changeCapture(capture) {
         capture.song = {
           ...capture.song,
@@ -528,8 +546,157 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
       );
     return capture;
   }
-  function afterCutoff() {
-    now = offer.cutoffAt;
+  // Seed the committed side of the media handoff. The test drives the real
+  // read/recovery code with the same SQLite and synthetic chain original.
+  function seedAcceptedMedia(
+    capture: PublicationCaptureV2,
+    accepted: RewardDanceAcceptedMedia,
+    video: string,
+  ) {
+    const match = chain.events.find(
+      (event) => event.capture.captureId === capture.captureId,
+    );
+    assert.ok(match);
+    assert.equal(hashText(video), accepted.recordingSha256);
+    const { submission } = match;
+    const submittedAt = Number(submission.trustedSubmittedAtMs);
+    const deadline = Number(submission.reviewDeadlineMs);
+    const mediaId = accepted.id;
+    const repository = new MediaRepository(input.db, capture.communityId);
+    const objects = new Map<string, Uint8Array>();
+    // Only the R2 byte store is doubled. Expiry and key erasure run the product service.
+    const bucket = {
+      async head(key: string) {
+        const value = objects.get(key);
+        return value ? { key, size: value.byteLength } : null;
+      },
+      async list({ prefix }: { prefix: string }) {
+        return {
+          objects: [...objects.keys()]
+            .filter((key) => key.startsWith(prefix))
+            .map((key) => ({ key })),
+          truncated: false,
+        };
+      },
+      async delete(keys: string | string[]) {
+        for (const key of Array.isArray(keys) ? keys : [keys])
+          objects.delete(key);
+      },
+    } as unknown as R2Bucket;
+    const service = new CommunityMedia({
+      repository,
+      bucket,
+      now: () => now,
+      active: async (actor) => actor.accountId === principal.accountId,
+      song: async () => ({
+        communityId: capture.communityId,
+        songKey: capture.songKey,
+        songRevision: capture.songRevision,
+        audioSha256: capture.audioSha256.slice(2),
+        durationSamples: capture.songDurationSamples,
+        title: post.title,
+      }),
+      publicPosting: async () => ({
+        allowed: false,
+        reason: "private fixture",
+      }),
+      reviewAuthority: async () => false,
+      privatePlaybackAuthority: async (actor, media) =>
+        actor.accountId === media.accountId,
+      enqueue: async () =>
+        assert.fail("retention must not dispatch a media job"),
+    });
+    const source = new TextEncoder().encode(video);
+    const rendered = new TextEncoder().encode("synthetic retained rendition");
+    const sourceKey = service.prefix(mediaId) + "source/fixture";
+    const renditionKey = service.prefix(mediaId) + "rendition/fixture";
+    objects.set(sourceKey, source);
+    objects.set(renditionKey, rendered);
+    const record: MediaRecord = {
+      version: MEDIA_VERSION,
+      id: mediaId,
+      requestId: "accepted_media_fixture",
+      communityId: capture.communityId,
+      accountId: capture.learner.accountId,
+      revision: accepted.revision,
+      state: "ready",
+      purpose: "private-review",
+      publicConsent: false,
+      songKey: capture.songKey,
+      songRevision: capture.songRevision,
+      audioSha256: capture.audioSha256.slice(2),
+      startSample: capture.startSample,
+      durationSamples: capture.durationSamples,
+      mediaPolicyVersion: capture.mediaPolicyVersion,
+      recordingSha256: accepted.recordingSha256.slice(2),
+      sourceBytes: source.byteLength,
+      attempts: 1,
+      createdAt: submittedAt - 1000,
+      uploadExpiresAt: submittedAt,
+      expiresAt: deadline,
+      readyAt: submittedAt,
+      sourceKey,
+      renditionKey,
+      rendition: {
+        sha256: hashText("synthetic retained rendition").slice(2),
+        bytes: rendered.byteLength,
+        durationMs: capture.durationSamples / 48,
+        width: 320,
+        height: 240,
+        videoCodec: "h264",
+        audioCodec: "aac",
+      },
+      submissionId: capture.captureId,
+      submissionBindingCommitment: submission.mediaBindingHash,
+      trustedSubmittedAtMs: submittedAt,
+      reviewDeadlineMs: deadline,
+    };
+    db.sqlite
+      .prepare(
+        `INSERT INTO community_media
+      (id,community_id,account_id,request_id,revision,state,purpose,expires_at,ready_at,body)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        record.id,
+        record.communityId,
+        record.accountId,
+        record.requestId,
+        record.revision,
+        record.state,
+        record.purpose,
+        record.expiresAt,
+        record.readyAt!,
+        JSON.stringify(record),
+      );
+    db.sqlite
+      .prepare(
+        "INSERT INTO community_media_submissions VALUES(?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        capture.communityId,
+        capture.captureId,
+        mediaId,
+        capture.learner.accountId,
+        submission.mediaBindingHash,
+        submittedAt,
+        deadline,
+        record.revision,
+      );
+    const head = () =>
+      communityMediaApi(
+        new Request(
+          configuration.app.origin + "/api/media/" + mediaId + "/playback",
+          { method: "HEAD" },
+        ),
+        service,
+        { origin: configuration.app.origin, actor: async () => principal },
+      );
+    return { repository, service, objects, record, head };
+  }
+  function afterCutoff(time = offer.cutoffAt) {
+    assert(time >= offer.cutoffAt);
+    now = time;
     chain.state.safeNumber = 16n;
   }
   return {
@@ -544,6 +711,7 @@ export async function rewardDanceV2ManualFixture(t: TestContext) {
     post,
     now: () => now,
     retainCapture,
+    seedAcceptedMedia,
     afterCutoff,
   };
 }
