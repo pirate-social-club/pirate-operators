@@ -1,7 +1,6 @@
 /** Integration support: actual HTTP/auth/D1/crypto/operator Store.
  * Reuses the existing explicitly scripted RPC; no production permission port. */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { TestContext } from "node:test";
 import type { Hex } from "viem";
@@ -14,7 +13,6 @@ import {
 } from "../packages/dance-chain/v2/wire.ts";
 import {
   createDancePublicationJournal,
-  DANCE_PUBLICATION_BINDINGS_SCHEMA_PROPOSAL,
   type DancePublicationBindingPlan,
 } from "../services/dance-publication-journal.ts";
 import { PublicationRequestSession } from "../services/publication-app-request.ts";
@@ -30,22 +28,10 @@ export async function journalFixture(
     schema?: boolean;
   } = {},
 ) {
-  const f = await publicationAppFixture(t);
-  const db = f.ports.db,
-    guard = readFileSync(
-      new URL("../packages/dance/schema.sql", import.meta.url),
-      "utf8",
-    ).match(/CREATE TABLE dance_transaction_guards[^;]*;/);
-  assert.ok(guard);
-  const exists = await db
-    .prepare(
-      "SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name='dance_transaction_guards'",
-    )
-    .first();
-  if (!exists) await db.prepare(guard[0]).run();
-  if (options.schema !== false)
-    for (const sql of DANCE_PUBLICATION_BINDINGS_SCHEMA_PROPOSAL)
-      await db.prepare(sql).run();
+  const f = await publicationAppFixture(t, {
+    omitDancePublicationMigration: options.schema === false,
+  });
+  const db = f.ports.db;
   await db
     .prepare(
       "CREATE TABLE dance_binding_acceptance_probe(id TEXT PRIMARY KEY,capture_hash TEXT)",

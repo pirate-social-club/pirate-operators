@@ -62,9 +62,12 @@ export async function publicationAppFixture(
     window?: string;
     installSelection?: boolean;
     trustedFirstSelection?: boolean;
+    omitDancePublicationMigration?: boolean;
   } = {},
 ) {
-  const database = await appDatabase(),
+  const database = await appDatabase({
+      omitDancePublicationMigration: options.omitDancePublicationMigration,
+    }),
     directory = await mkdtemp(join(tmpdir(), "publication-http-"));
   let nowMs = Math.floor(Date.now() / 1000) * 1000;
   let operator = operatorDatabase(

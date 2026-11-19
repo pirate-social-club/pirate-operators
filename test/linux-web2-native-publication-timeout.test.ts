@@ -22,7 +22,7 @@ import { consentDigest } from "../packages/protocol/publication-consent.ts";
 import { keccak256, type Hex } from "viem";
 import { danceCommand } from "../packages/dance-chain/v2/wire.ts";
 import { durableJson } from "../harness/private-json.ts";
-import { DanceV2ActionStore, DANCE_V2_ACTIONS_SCHEMA_PROPOSAL } from "../services/dance-v2-action-store.ts";
+import { DanceV2ActionStore } from "../services/dance-v2-action-store.ts";
 import type { Web2PublicDanceCustody } from "../deploy/linux/web2-public-dance-custody.ts";
 import { createNativeDanceRetainedStore } from "../deploy/linux/web2-native-dance-retained-store.ts";
 import { openPinnedNativeDanceOperatorStore } from "../deploy/linux/web2-native-dance-store-connection.ts";
@@ -355,7 +355,6 @@ for (const [scenario, description] of scenarios) {
           await candidate.assertRetainedDanceCustody(danceScope);
           await assert.rejects(candidate.assertRetainedDanceCustody(danceScope, approvalPin), /native_dance_publisher_identity_changed/);
         }
-        for (const sql of DANCE_V2_ACTIONS_SCHEMA_PROPOSAL) await ports.db.prepare(sql).run();
         const actions = new DanceV2ActionStore(ports.db);
         async function ready(label: string) {
           const saved = actions.original(danceScope.communityId, digest(label), "verdict", "fixture-account", {verdict:"pass"});

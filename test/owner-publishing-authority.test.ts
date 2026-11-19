@@ -57,6 +57,7 @@ import { configuration } from "./fixtures/release-admission.ts";
 import { journaledProviderCall } from "../packages/moderation/provider-journal.ts";
 import {
   communityMigrations,
+  DANCE_PUBLICATION_MIGRATION,
   managedMigrations,
 } from "../harness/package-migrations.ts";
 
@@ -1409,7 +1410,7 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
   const names = (await chain(COMMUNITY)).map((path) => path.split("/").at(-1)!);
   assert.deepEqual(
     names.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 22 }, (_, index) => index + 1),
+    Array.from({ length: 23 }, (_, index) => index + 1),
   );
   const profiles = [
     { rewards: false, ownerPublishing: false, v4: false },
@@ -1419,6 +1420,21 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
       ownerPublishing: false,
       v4: false,
       publicationConsent: true,
+    },
+    {
+      rewards: false,
+      ownerPublishing: false,
+      v4: false,
+      privateDance: true,
+      publicationConsent: true,
+    },
+    {
+      rewards: false,
+      ownerPublishing: false,
+      v4: false,
+      privateDance: true,
+      publicationConsent: true,
+      dancePublication: true,
     },
     { rewards: true, ownerPublishing: false, v4: false },
     { rewards: true, ownerPublishing: true, v4: false },
@@ -1432,6 +1448,30 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
       dance: true,
     },
   ];
+  const dancePublicationTables = [
+    "dance_publication_bindings",
+    "dance_publication_starts",
+    "dance_v2_action_originals",
+    "dance_v2_dispatch_sessions",
+    "dance_v2_ready_commands",
+  ];
+  const dancePublicationTriggerNames = [
+    "dance_publication_binding_delete",
+    "dance_publication_binding_insert",
+    "dance_publication_binding_update",
+    "dance_publication_start_no_delete",
+    "dance_publication_start_no_replace",
+    "dance_publication_start_no_update",
+    "dance_v2_action_originals_no_delete",
+    "dance_v2_action_originals_no_replace",
+    "dance_v2_action_originals_no_update",
+    "dance_v2_dispatch_sessions_no_delete",
+    "dance_v2_dispatch_sessions_no_replace",
+    "dance_v2_dispatch_sessions_no_update",
+    "dance_v2_ready_commands_no_delete",
+    "dance_v2_ready_commands_no_replace",
+    "dance_v2_ready_commands_no_update",
+  ];
   for (const selected of profiles) {
     const runtime = new Miniflare({
       modules: true,
@@ -1442,6 +1482,11 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
     try {
       const db = await runtime.getD1Database("DB");
       const selectedNames = communityMigrations(names, selected);
+      const dancePublication = selected.dancePublication === true;
+      assert.equal(
+        selectedNames.includes(DANCE_PUBLICATION_MIGRATION),
+        dancePublication,
+      );
       const records = await migrate(
         db,
         selectedNames.map((name) => `${COMMUNITY}/${name}`),
@@ -1494,11 +1539,33 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
           "publicationConsent" in selected &&
             selected.publicationConsent === true,
         );
+      for (const table of dancePublicationTables)
+        assert.equal(present.has(table), dancePublication, table);
       const triggers = (
         await db
-          .prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger'")
-          .all<{ name: string; sql: string }>()
+          .prepare("SELECT name,tbl_name,sql FROM sqlite_schema WHERE type='trigger'")
+          .all<{ name: string; tbl_name: string; sql: string }>()
       ).results;
+      assert.deepEqual(
+        triggers
+          .filter((row) => dancePublicationTables.includes(row.tbl_name))
+          .map((row) => row.name)
+          .sort(),
+        dancePublication ? dancePublicationTriggerNames : [],
+      );
+      if (dancePublication) {
+        await db
+          .prepare(
+            "INSERT INTO dance_publication_starts VALUES('community','account','command','original','capture',1)",
+          )
+          .run();
+        await assert.rejects(
+          db
+            .prepare("UPDATE dance_publication_starts SET reserved_at_ms=2")
+            .run(),
+          /dance_publication_start_immutable/,
+        );
+      }
       const authority = triggers.filter((row) =>
         row.name.startsWith("learning_authority_"),
       );

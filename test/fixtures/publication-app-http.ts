@@ -66,7 +66,7 @@ export async function loopback(
     },
   };
 }
-export async function appDatabase() {
+export async function appDatabase({ omitDancePublicationMigration = false } = {}) {
   const runtime = new Miniflare({
     modules: true,
     script: "export default {fetch(){return new Response('actual D1')}}",
@@ -84,6 +84,9 @@ export async function appDatabase() {
       )
     )
       .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+      .filter((name) =>
+        !omitDancePublicationMigration || name !== "0023_dance_publication_dispatch.sql",
+      )
       .sort();
     // Use the actual ordered migration files and qualified Alchemy parser,
     // including prerequisite setup bookkeeping and trigger-aware transport.
