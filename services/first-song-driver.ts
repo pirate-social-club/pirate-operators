@@ -55,12 +55,12 @@ export interface ProtectedPostsDriverPorts extends Pick<PostingPorts, "bounds" |
   localPostsFence?: never;
 }
 
-export interface FirstSongDriverPorts {
+export interface FirstSongDriverPorts<TPosting extends PostingPorts | ProtectedPostsDriverPorts = PostingPorts> {
   db: D1Database;
   media: R2Bucket;
   managed: ManagedClient;
   release: ReleasePorts;
-  posting: PostingPorts | ProtectedPostsDriverPorts;
+  posting: TPosting;
   acrEndpoint: string;
   checkServices(): Promise<void>;
   /** Controller-signed owner authorization; required under the unregistered owner policy. */
@@ -69,6 +69,7 @@ export interface FirstSongDriverPorts {
   catalog?: CatalogPublicationPorts;
   clock?: import("../packages/community/publication.ts").PublicationClock;
 }
+export type FirstSongExecutionPorts = FirstSongDriverPorts<PostingPorts | ProtectedPostsDriverPorts>;
 const roleFor = (step: PublicationStep) =>
   step === "pin_audio"
     ? "audio"
@@ -121,11 +122,11 @@ export function ownerPublicationRequestBinding(grant: OwnerBudgetGrant) {
   const key = ownerBudgetKey(grant, "songs");
   return hashJson({ ownerScope: key.scope, ownerWindow: key.period });
 }
-const releaseBinding = ({ release }: FirstSongDriverPorts) =>
+const releaseBinding = ({ release }: Pick<FirstSongDriverPorts, "release">) =>
   release.ownerGrant ? ownerPublicationRequestBinding(release.ownerGrant) : release.grantHash;
 
 export function firstSongDriver(
-  ports: FirstSongDriverPorts,
+  ports: FirstSongExecutionPorts,
 ): PublicationDriver & {
   revalidateProtectedPostsOwner(operation: ExternalOperation): Promise<{ ownerExpiresAtMs: number }>;
 } {
@@ -371,7 +372,7 @@ export function firstSongDriver(
 /** Used by the authenticated resume route and the owned cron/queue wakeup.
  * This continuation is distinct from the driver's read-only reconcile method. */
 export async function resumeFirstSongAdmission(
-  ports: FirstSongDriverPorts,
+  ports: FirstSongExecutionPorts,
   jobId: string,
 ) {
   const input = await publicationInput(

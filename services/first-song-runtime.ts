@@ -10,7 +10,6 @@ import { address } from "../packages/community/manifest-core.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
-import type { PostingPorts } from "../packages/community/publication-posting.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 import { ownerOnly, catalogOwner } from "../packages/community/owner-policy.ts";
 import {
@@ -177,7 +176,7 @@ export function ownerSongRuntime(
     localPostsFence.assertScope(env.DB, configuration, publisher.address);
   }
   const managedChainClient = megaethReadClient(undefined, deployment.rpcUrl);
-  const runtime: FirstSongDriverPorts & { posting: PostingPorts } = {
+  const runtime: FirstSongDriverPorts = {
     db: env.DB,
     media: env.MEDIA,
     managed,

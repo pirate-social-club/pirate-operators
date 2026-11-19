@@ -18,7 +18,9 @@ import { publicationExecutionProfile } from "../packages/community/publication-p
 import type { PreparedOperation } from "../packages/community/publication.ts";
 import { ownerGrantDigest, type OwnerBudgetGrant } from "../packages/release/owner-grant.ts";
 import type { Web2CommunityConfig } from "../packages/community/web2-config-manifest.ts";
-import { firstSongDriver, ownerPublicationRequestBinding, type FirstSongDriverPorts } from "../services/first-song-driver.ts";
+import {
+  firstSongDriver, ownerPublicationRequestBinding, type FirstSongDriverPorts, type ProtectedPostsDriverPorts,
+} from "../services/first-song-driver.ts";
 import { protectedPostsJob } from "../services/protected-posts-job.ts";
 import { readProtectedPostsPlanned, readProtectedPostsReady } from "../services/protected-posts-ready.ts";
 import {
@@ -384,7 +386,7 @@ test("real Posts driver limits both proofs to the sampled owner safe block", asy
   }), "application/json");
   const managed = { origin: request.serviceOrigin, configuration: config, publisher };
   const unexpectedMedia = () => { throw new Error("the reverse proof only reads media metadata"); };
-  const driverPorts: FirstSongDriverPorts = {
+  const driverPorts: FirstSongDriverPorts<ProtectedPostsDriverPorts> = {
     db: ports.db,
     media: {
       async head(key) {
