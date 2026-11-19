@@ -27,7 +27,7 @@ import {
   rpc,
 } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
-import { nativeDancePublisherHoldKey } from "./native-dance-retained-reference.ts";
+import { nativeDancePublisherHoldKey } from "./native-dance-publisher-hold-key.ts";
 import { capturedFee, same, publicationDisposition, type CapturedPublicationFeeV1,
   type PublicationDispositionV1 } from "./publication-command-contract.ts";
 
