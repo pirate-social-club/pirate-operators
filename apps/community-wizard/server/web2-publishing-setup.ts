@@ -60,6 +60,70 @@ export type Web2PublishingView = ReturnType<
   Awaited<ReturnType<typeof createWeb2PublishingSetup>>["snapshot"]
 >;
 
+type RetainedPublishingInputs = {
+  chain: Web2ChainAuthority;
+  publisher: Pick<PublisherProofSigner, "selected">;
+  grants: Pick<ManagedOwnerGrantPort, "reconcile">;
+  now(): number;
+};
+
+/** Recheck the original attached grant after the approved revision-two transition. */
+async function reconcileRetainedExpandedAttachment(
+  journal: Pick<Awaited<ReturnType<typeof createWeb2SigningJournal>>, "reload" | "value">,
+  input: RetainedPublishingInputs,
+  draft: LinuxWeb2Draft,
+  original: Web2PublishingAttachment,
+  readCurrent: () => Promise<Web2CommunityConfig>,
+): Promise<Web2PublishingAttachment> {
+  await journal.reload();
+  const j = journal.value, captured = publishingAttachment(original);
+  insist(j?.attachment && j.accepted && !j.attachmentPending && canonical(j.attachment) === canonical(captured) &&
+    canonical(j.selection) === canonical(captured.selection) && canonical(j.accepted) === canonical(captured.authorization) &&
+    canonical(j.authorization) === canonical(captured.authorization.authorization) &&
+    j.selection.scope.communityId === draft.configuration.communityId &&
+    j.selection.scope.installationId === draft.configuration.installationId,
+    "web2_publishing_attachment_changed", 409);
+  const currentConfiguration = async () => {
+    const config = await readCurrent();
+    insist(config.configurationRevision === 2 && config.learningRecords !== draft.configuration.learningRecords &&
+      canonical({ ...config, configurationRevision: 1, learningRecords: draft.configuration.learningRecords }) ===
+        canonical(draft.configuration), "web2_expanded_publishing_scope_changed", 409);
+    return config;
+  };
+  const assertCustody = async () => {
+    const selected = await input.publisher.selected();
+    insist(selected.address === draft.configuration.publisher &&
+      selected.custodyBindingDigest === captured.custodyBindingDigest, "publisher_custody_binding_changed", 409);
+  };
+  await assertCustody();
+  const observed = requireGrantObservation(
+    await input.grants.reconcile(captured.selection.selectionDigest), captured.selection);
+  insist(observed.state === "attached", "web2_managed_grant_admission_unavailable", 503);
+  const config = await currentConfiguration();
+  const authorization = await requireAuthorizedOwner(j.accepted, config, j.authorization.ownerWallet, undefined, {
+    client: input.chain.client, currentConfiguration, now: input.now,
+    maxSafeBlockAgeSeconds: input.chain.maxSafeBlockAgeSeconds,
+  });
+  await assertCustody();
+  await journal.reload();
+  insist(canonical(journal.value) === canonical(j), "web2_publishing_attachment_changed", 409);
+  await currentConfiguration();
+  const now = input.now();
+  insist(now >= authorization.validFrom && now < authorization.expiresAt, "owner_authorization_outside_window", 403);
+  return captured;
+}
+
+export async function createWeb2RetainedPublishingReconciler(
+  directory: string,
+  input: RetainedPublishingInputs,
+) {
+  const journal = await createWeb2SigningJournal(directory);
+  const { publisher, grants } = input;
+  const authority = { chain: ownWeb2ChainAuthority(input.chain), publisher, grants, now: () => input.now() };
+  return (draft: LinuxWeb2Draft, original: Web2PublishingAttachment, readCurrent: () => Promise<Web2CommunityConfig>) =>
+    reconcileRetainedExpandedAttachment(journal, authority, draft, original, readCurrent);
+}
+
 export async function createWeb2PublishingSetup(
   directory: string,
   input: {
@@ -368,41 +432,9 @@ export async function createWeb2PublishingSetup(
     async retainedExpandedAttachment(draft: LinuxWeb2Draft, original: Web2PublishingAttachment,
       readCurrent: () => Promise<Web2CommunityConfig>) {
       insist(chain && input.publishing && input.publisher, "web2_publishing_authority_unavailable", 503);
-      await journal.reload();
-      const j = journal.value, captured = publishingAttachment(original);
-      insist(j?.attachment && j.accepted && !j.attachmentPending && canonical(j.attachment) === canonical(captured) &&
-        canonical(j.selection) === canonical(captured.selection) && canonical(j.accepted) === canonical(captured.authorization) &&
-        canonical(j.authorization) === canonical(captured.authorization.authorization) &&
-        j.selection.scope.communityId === draft.configuration.communityId &&
-        j.selection.scope.installationId === draft.configuration.installationId,
-        "web2_publishing_attachment_changed", 409);
-      const currentConfiguration = async () => {
-        const config = await readCurrent();
-        insist(config.configurationRevision === 2 && config.learningRecords !== draft.configuration.learningRecords &&
-          canonical({ ...config, configurationRevision: 1, learningRecords: draft.configuration.learningRecords }) ===
-            canonical(draft.configuration), "web2_expanded_publishing_scope_changed", 409);
-        return config;
-      };
-      const assertCustody = async () => {
-        const selected = await input.publisher!.selected();
-        insist(selected.address === draft.configuration.publisher &&
-          selected.custodyBindingDigest === captured.custodyBindingDigest, "publisher_custody_binding_changed", 409);
-      };
-      await assertCustody();
-      const observed = requireGrantObservation(
-        await input.publishing.grants.reconcile(captured.selection.selectionDigest), captured.selection);
-      insist(observed.state === "attached", "web2_managed_grant_admission_unavailable", 503);
-      const config = await currentConfiguration();
-      const authorization = await requireAuthorizedOwner(j.accepted, config, j.authorization.ownerWallet, undefined, {
-        client: chain.client, currentConfiguration, now: input.now, maxSafeBlockAgeSeconds: chain.maxSafeBlockAgeSeconds,
-      });
-      await assertCustody();
-      await journal.reload();
-      insist(canonical(journal.value) === canonical(j), "web2_publishing_attachment_changed", 409);
-      await currentConfiguration();
-      const now = input.now();
-      insist(now >= authorization.validFrom && now < authorization.expiresAt, "owner_authorization_outside_window", 403);
-      return captured;
+      return reconcileRetainedExpandedAttachment(journal, {
+        chain, publisher: input.publisher, grants: input.publishing.grants, now: () => input.now(),
+      }, draft, original, readCurrent);
     },
   };
 }

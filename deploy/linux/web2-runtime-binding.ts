@@ -1,6 +1,9 @@
 import { canonical, hashJson } from "../../packages/community/common.ts";
 import { ownerOnly } from "../../packages/community/owner-policy.ts";
-import { createWeb2PublishingSetup } from "../../apps/community-wizard/server/web2-publishing-setup.ts";
+import {
+  createWeb2PublishingSetup,
+  createWeb2RetainedPublishingReconciler,
+} from "../../apps/community-wizard/server/web2-publishing-setup.ts";
 import { publishingAttachment } from "./web2-publishing-attachment.ts";
 import type { ManagedOwnerGrantPort, PublisherProofSigner, Web2PublishingAttachment } from "./web2-operator-inputs.ts";
 /** One-time host binding AFTER the Wizard retains its genuine enrollment.
@@ -104,6 +107,12 @@ export interface Web2RuntimeBindingInputs {
   now: () => number;
   /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
   publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
+  /** Retained Dance checks the original Wizard journal on its action lease. */
+  retainedPublishing?: {
+    directory: string;
+    grants: Pick<ManagedOwnerGrantPort, "reconcile">;
+    publisher: Pick<PublisherProofSigner, "selected">;
+  };
   publication?: Web2PublicationInstallationInputs;
   activateTrustedPublication?(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody): Promise<void>;
   posts?: Web2PostsInstallationInputs;
@@ -275,6 +284,9 @@ export async function createWeb2RuntimeBinder(
   mode: "setup" | "retained-dance-owner" = "setup",
 ) {
   const retainedOwner = mode === "retained-dance-owner";
+  assert(!input.retainedPublishing || retainedOwner && !input.publishing,
+    "web2_retained_publishing_selection_changed");
+  const retainedPublishing = retainedOwner ? input.retainedPublishing ?? input.publishing : undefined;
   const {
     lease,
     now,
@@ -323,7 +335,7 @@ export async function createWeb2RuntimeBinder(
     "native_expanded_fixture_selection_required");
   const ingress = publicIngressFrom(policy.ingress);
   assertTrustedRevisionTwoTarget(policy.graph, ingress);
-  assert(policy.graph.publicationExpansion !== trustedRevisionTwo || input.publishing,
+  assert(policy.graph.publicationExpansion !== trustedRevisionTwo || (retainedOwner ? retainedPublishing : input.publishing),
     "trusted_revision_two_owner_publishing_required");
   const rewardFile = trustedConsent ? web2DanceRewardMount(policy.graph, policy.target, false) : undefined;
   const posts = input.posts;
@@ -341,10 +353,16 @@ export async function createWeb2RuntimeBinder(
     await assertWeb2LocalStudyInputs(policy.privateStudy, policy.graph);
   }
   await checkNative();
-  const publishing = input.publishing ? await createWeb2PublishingSetup(input.publishing.directory, {
+  const publishing = !retainedOwner && input.publishing ? await createWeb2PublishingSetup(input.publishing.directory, {
     hostInstallationId:policy.installationId,publisher:input.publishing.publisher,
     publishing:{chain,grants:input.publishing.grants},now:()=>Math.floor(now()/1000),
   }) : null;
+  const reconcileExpandedAttachment = retainedPublishing
+    ? await createWeb2RetainedPublishingReconciler(retainedPublishing.directory, {
+      chain, publisher: retainedPublishing.publisher, grants: retainedPublishing.grants,
+      now: () => Math.floor(now() / 1000),
+    })
+    : publishing?.retainedExpandedAttachment;
   assert(
     ingress.origin === policy.origin &&
       !Object.hasOwn(policy.graph, "directoryRuntimeBinding"),
@@ -567,8 +585,8 @@ export async function createWeb2RuntimeBinder(
     async function recheckExpandedAttachment(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>) {
       if (trusted) live();
       const attachment = bound.intent.publishingAttachment;
-      assert(publishing && attachment, "web2_publishing_authority_unavailable");
-      const retained = await publishing.retainedExpandedAttachment(draft, attachment, readCurrent);
+      assert(reconcileExpandedAttachment && attachment, "web2_publishing_authority_unavailable");
+      const retained = await reconcileExpandedAttachment(draft, attachment, readCurrent);
       assert(canonical(retained) === canonical(attachment), "web2_publishing_attachment_changed");
       if (trusted) live();
     }
