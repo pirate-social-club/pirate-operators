@@ -24,6 +24,8 @@ type StoreIdentity = Parameters<typeof assertPinnedNativeDanceStoreConnectionSyn
 type Reference = Readonly<NativePostsPublicationReference>;
 type Request = { reference: Reference; signal: AbortSignal; assertHostCurrent(): true };
 type DispatchRequest = Request & NativePostsDispatchRequest & {
+  /** Optional absolute ceiling from the independently admitted local ingress. */
+  dispatchNotAfterMs?: number;
   /** Authenticated and bounded private dispatch-ready transport. */
   revalidate(): Promise<{ status: number; contentType: string | null; raw: string }>;
 };
@@ -236,7 +238,7 @@ export async function createNativePostsSender(input: {
           proof.expiresAtMs <= selected.quote.expiresAtMs, "native_posts_primary_changed");
         return earlier(held(request, permit), proof.expiresAtMs);
       }
-      const acceptedDeadline = await primary();
+      const acceptedDeadline = earlier(await primary(), request.dispatchNotAfterMs ?? scope.expiresAtMs);
       let start: ReturnType<typeof journal.reserve> | undefined;
       const catalog = input.catalog(selected, {
         assertHeld() { held(request, permit); },
