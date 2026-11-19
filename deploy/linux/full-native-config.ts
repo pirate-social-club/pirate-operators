@@ -6,7 +6,7 @@ import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/share
 import type { Web2DanceRewardIntent } from "../../packages/community/web2-dance-reward-attachment.ts";
 import { web2DanceActivationBindings } from "./web2-dance-retained-files.ts";
 import { protectedPostsBinding, protectedPostsPaths,
-  type ProtectedFirstSongGraph, type ProtectedPostsBootSnapshot } from "./web2-protected-posts-mount.ts";
+  type ProtectedFirstSongGraph, type ProtectedPostsBootSnapshot } from "./web2-protected-posts-selection.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
   installationId:string;durableScope:string;releaseRoot:string;schemaPath:string;stateRoots:Record<string,string>;socket:string;
