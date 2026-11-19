@@ -834,7 +834,7 @@ test("paired Web2 shares the signed session cutoff and preserves one-shot reauth
   advanceWhileAuthorizing = signedCutoff;
   const expired = await state();
   assert.equal(expired.status, 410);
-  assert.equal((await expired.json()).code, "operator_session_expired");
+  assert.partialDeepStrictEqual(await expired.json(), { code: "operator_session_expired" });
   assert.equal((await first.pair()).status, 410);
   t.mock.timers.setTime(signedCutoff - 1);
   assert.equal((await state()).status, 410, "clock regression cannot restore a closed session");
@@ -861,7 +861,7 @@ test("paired Web2 shares the signed session cutoff and preserves one-shot reauth
   t.mock.timers.setTime(thirdStarted + 300_000);
   const expiredCode = await third.pair();
   assert.equal(expiredCode.status, 410);
-  assert.equal((await expiredCode.json()).code, "operator_pairing_expired");
+  assert.partialDeepStrictEqual(await expiredCode.json(), { code: "operator_pairing_expired" });
   const expiredPage = await third.call("/?setup=linux-web2");
   assert.equal(expiredPage.status, 410);
   assert.deepEqual(await readdir(nonces), beforeLatePair);
