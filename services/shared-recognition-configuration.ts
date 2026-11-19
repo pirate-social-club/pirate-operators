@@ -15,6 +15,8 @@ import { canonicalCommunityClient } from "../packages/recognition/canonical-tran
 import { sharedRecognitionRuntime, type RecognitionWake } from "./shared-recognition-runtime.ts";
 import type { CanonicalCommunity } from "../packages/recognition/canonical-community.ts";
 import type { Hex } from "viem";
+import { configuredProtectedCatalog, protectedRecognitionInstallations, type ProtectedRecognitionCatalog } from "./shared-recognition-protected-catalog.ts";
+import type { SharedReservationPorts } from "./shared-recognition-reservations.ts";
 
 /** Reads genuine original registration, current canonical config and pinned Posts
  * code. An admission hash alone is never independent external evidence. */
@@ -46,14 +48,17 @@ export async function readPinnedManagedCommunity(input: ManagedPublishingRegistr
     BigInt(Math.floor(Date.now() / 1000)) - safe.timestamp <= BigInt(d.freshness.maxSafeBlockAgeSeconds), "managed_pinned_deployment_unavailable", 503);
   return c;
 }
-export interface SharedRecognitionConfiguration {
-  schema: "pirate.shared-recognition-service/1";
+interface SharedRecognitionConfigurationFields {
   profile: RecognitionProfile;
   binding: ManagedCatalogBinding;
   journal: { epoch: Hex; restoreAnchorSha256: Hex };
   quotas: { service: number; community: number };
   communities: SignedRecord<ManagedPublishingRegistration>[];
 }
+export type SharedRecognitionConfiguration = SharedRecognitionConfigurationFields & (
+  { schema: "pirate.shared-recognition-service/1" } |
+  { schema: "pirate.shared-recognition-service/2"; protectedCatalog: SignedRecord<ProtectedRecognitionCatalog> }
+);
 export interface SharedRecognitionEnv {
   DB: D1Database;
   ADMISSION_DB: D1Database;
@@ -67,19 +72,27 @@ export interface SharedRecognitionEnv {
   ACRCLOUD_ACCESS_SECRET: string;
   ACRCLOUD_CATALOG_TOKEN: string;
 }
-export function trustedRecognitionConfiguration(record: SignedRecord<SharedRecognitionConfiguration>, trust: TrustAnchor) {
+function readTrustedRecognitionConfiguration(record: SignedRecord<SharedRecognitionConfiguration>, trust: TrustAnchor) {
   exact(object(record), ["schema", "keyId", "body", "signature"]);
   const c = structuredClone(verifyRecord(record, trust));
-  exact(object(c), ["schema", "profile", "binding", "journal", "quotas", "communities"]);
+  const protectedMode = c.schema === "pirate.shared-recognition-service/2";
+  exact(object(c), ["schema", "profile", "binding", "journal", "quotas", "communities",
+    ...(protectedMode ? ["protectedCatalog"] : [])]);
   exact(object(c.journal), ["epoch", "restoreAnchorSha256"]); exact(object(c.quotas), ["service", "community"]);
-  insist(c.schema === "pirate.shared-recognition-service/1" && Array.isArray(c.communities) && c.communities.length > 0 &&
+  insist((c.schema === "pirate.shared-recognition-service/1" || protectedMode) && Array.isArray(c.communities) && c.communities.length > 0 &&
     c.communities.length <= 100, "recognition_configuration_unavailable", 503);
   const profile = recognitionProfile(c.profile); managedDigest(c.journal.epoch); managedDigest(c.journal.restoreAnchorSha256);
   integer(c.quotas.service, 1, 1000000); integer(c.quotas.community, 1, c.quotas.service);
   const communities = c.communities.map(r => authenticatedManagedRegistration(r, trust));
   insist(new Set(communities.map(r => r.scope.communityId)).size === communities.length && canonical(profile) === canonical(c.profile),
     "recognition_community_configuration_changed", 503);
-  return c;
+  const installations = protectedMode
+    ? protectedRecognitionInstallations(c.protectedCatalog, trust, c.communities, profile.signer)
+    : undefined;
+  return { configuration: c, installations };
+}
+export function trustedRecognitionConfiguration(record: SignedRecord<SharedRecognitionConfiguration>, trust: TrustAnchor) {
+  return readTrustedRecognitionConfiguration(record, trust).configuration;
 }
 /** Explicit provisioning only; request handlers never recreate an installation. */
 export async function provisionSharedRecognitionInputs(db: D1Database, record: SignedRecord<SharedRecognitionConfiguration>, trust: TrustAnchor) {
@@ -98,7 +111,8 @@ export function configuredRecognitionRuntime(env: SharedRecognitionEnv, purpose:
     "recognition_configuration_unavailable", 503);
   const trust: TrustAnchor = JSON.parse(env.SERVICE_CONFIGURATION_TRUST_JSON),
     record: SignedRecord<SharedRecognitionConfiguration> = JSON.parse(env.RECOGNITION_CONFIGURATION_JSON),
-    c = trustedRecognitionConfiguration(record, trust), signer = requireDedicatedManagedSigner(bytes32(env.RECOGNITION_SIGNER_PRIVATE_KEY), c.communities[0]!.body.deployment.rpcUrl),
+    { configuration: c, installations } = readTrustedRecognitionConfiguration(record, trust),
+    signer = requireDedicatedManagedSigner(bytes32(env.RECOGNITION_SIGNER_PRIVATE_KEY), c.communities[0]!.body.deployment.rpcUrl),
     credentials = { host: text(env.ACRCLOUD_HOST, 256), accessKey: text(env.ACRCLOUD_ACCESS_KEY, 1024), accessSecret: text(env.ACRCLOUD_ACCESS_SECRET, 8192) },
     catalogToken = text(env.ACRCLOUD_CATALOG_TOKEN, 8192);
   insist(signer.address.toLowerCase() === c.profile.signer && credentials.accessKey.length > 0 && credentials.accessSecret.length > 0 && catalogToken.length > 0,
@@ -109,6 +123,7 @@ export function configuredRecognitionRuntime(env: SharedRecognitionEnv, purpose:
     env.MANAGED_PUBLISHING_CONFIGURATION_JSON.length <= 1024 * 1024, "recognition_installation_inputs_unavailable", 503);
   const publishing: ManagedPublishingConfiguration = managedPublishingConfiguration(JSON.parse(env.MANAGED_PUBLISHING_CONFIGURATION_JSON), trust),
     admissions = new ManagedPublishingJournal(env.ADMISSION_DB, publishing), communities = new Map<string, CanonicalCommunity>();
+  const selectors = new Map<string, NonNullable<SharedReservationPorts["protectedCatalog"]>>();
   for (const signed of c.communities) {
     requireDedicatedManagedSigner(bytes32(env.RECOGNITION_SIGNER_PRIVATE_KEY), signed.body.deployment.rpcUrl);
     const r = authenticatedManagedRegistration(signed, trust), d = r.deployment;
@@ -129,14 +144,25 @@ export function configuredRecognitionRuntime(env: SharedRecognitionEnv, purpose:
       insist(canonical(config.policies.recognition) === canonical(c.profile), "recognition_profile_changed", 403);
       return config;
     };
-    const client = megaethReadClient(undefined, d.rpcUrl);
-    communities.set(r.scope.communityId, canonicalCommunityClient({ signer, currentConfiguration,
+    const client = megaethReadClient(undefined, d.rpcUrl), ipfs = communityIpfsTransport(d);
+    const community = canonicalCommunityClient({ signer, currentConfiguration,
       chain: { client, ownerVerification: { client, currentConfiguration, now: () => Math.floor(Date.now() / 1000),
         maxSafeBlockAgeSeconds: BigInt(d.freshness.maxSafeBlockAgeSeconds) },
-        posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) }, ipfs: communityIpfsTransport(d) } }));
+        posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) }, ipfs } });
+    communities.set(r.scope.communityId, community);
+    if (installations) {
+      const installation = installations.get(r.scope.communityId);
+      insist(installation, "protected_catalog_installation_unavailable", 503);
+      selectors.set(r.scope.communityId, configuredProtectedCatalog({ installation, registration: r, community, client, ipfs }));
+    }
   }
   return sharedRecognitionRuntime({ db: env.DB, queue: env.JOBS, profile: c.profile, signer, credentials, binding: c.binding,
     catalogToken, communities, quotas: c.quotas, journal: c.journal,
+    protectedCatalog: installations ? (authority, intent) => {
+      const resolve = selectors.get(authority.communityId);
+      insist(resolve, "protected_catalog_installation_unavailable", 503);
+      return resolve(authority, intent);
+    } : undefined,
     async cancellation() { throw new Error("recognition_cancellation_not_supported"); },
     async withdrawal() { throw new Error("recognition_withdrawal_not_supported"); },
   });

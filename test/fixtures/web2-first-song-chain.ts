@@ -46,7 +46,7 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number;origin?:string;communityName?:string} = {}) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number;origin?:string;communityName?:string;publisher?:Address;moderationSigner?:Address} = {}) {
   // Long-running installed demos must retain the original configuration states.
   // This bound applies only to the disposable node, never a community server.
   if (options.historyLimit !== undefined) {
@@ -240,14 +240,15 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       assert.equal(value.error, undefined, JSON.stringify(value.error));
       return value.result;
     }
+    const publisher = options.publisher ?? web2Publisher.address.toLowerCase() as Address;
     for (const account of [
       web2Owner,
       web2Other,
       web2Controller,
-      web2Publisher,
       web2Admin,
     ])
       await rpc("anvil_setBalance", [account.address, "0x3635c9adc5dea00000"]);
+    await rpc("anvil_setBalance", [publisher, "0x3635c9adc5dea00000"]);
     const wallet = createWalletClient({
       chain: network,
       transport: http(direct),
@@ -327,7 +328,7 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         configurationRevision: 1,
         postsContract: posts.address,
         controller,
-        publisher: web2Publisher.address.toLowerCase(),
+        publisher,
         operatorPayments: "0x" + "0".repeat(40),
         learningRecords: "0x" + "0".repeat(40),
         app: {
@@ -343,7 +344,7 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
             version: CATALOG_OWNER_POLICY_VERSION,
             sha256: CATALOG_OWNER_POLICY_HASH,
           },
-          moderationSigner: web2Controller.address.toLowerCase(),
+          moderationSigner: options.moderationSigner ?? web2Controller.address.toLowerCase(),
           recognition,
         },
         publisherRevocations: [],

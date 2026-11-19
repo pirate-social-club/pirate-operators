@@ -16,9 +16,9 @@ import { createRequire } from "node:module";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { CoreHeaders, Miniflare, Response as MiniflareResponse } from "miniflare";
-import { sha256, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { CommunityError, canonical, hashJson, hashText } from "../../packages/community/common.ts";
+import { keccak256, sha256, type Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { CommunityError, canonical, hashJson, hashText, object } from "../../packages/community/common.ts";
 import { address } from "../../packages/community/manifest-core.ts";
 import { web2SongChain, web2Owner, web2Controller, web2Publisher } from "./web2-first-song-chain.ts";
 import { canonicalHttpFixture } from "./canonical-http.ts";
@@ -37,7 +37,10 @@ import type { ManagedCatalogBinding } from "../../packages/recognition/provider-
 import { RecognitionStore } from "../../packages/recognition/store.ts";
 import { communityRuntime } from "../community-runtime.ts";
 import { ownerSongRuntime } from "../../services/first-song-runtime.ts";
-import { communityCanonicalFetch } from "../../services/community-canonical.ts";
+import { communityCanonicalFetch, protectedCanonicalSelectionFetch } from "../../services/community-canonical.ts";
+import type { ProtectedRecognitionCatalog } from "../../services/shared-recognition-protected-catalog.ts";
+import { canonicalResponse } from "../../packages/recognition/canonical-protocol.ts";
+import { signRecognitionRequest } from "../../packages/recognition/authorization.ts";
 import { reserveBudget, type ReservationCondition } from "../../packages/community/budgets.ts";
 import { configuredPublishingAdmission } from "../../services/managed-publishing-admission.ts";
 import { signServiceRequest } from "../../packages/moderation/pairing.ts";
@@ -94,7 +97,7 @@ async function bundle(entry: string) {
     target: "es2024", external: ["node:*"], logLevel: "silent" });
   return result.outputFiles[0]!.text;
 }
-export async function managedServicesFixture(options: { grantSeconds?: number; typedOwnerAuthorization?: boolean } = {}) {
+export async function managedServicesFixture(options: { grantSeconds?: number; typedOwnerAuthorization?: boolean; protectedCatalog?: boolean } = {}) {
   const journalCandidateEvidence: { field: string; suffix: string; installationRows: number }[] = [];
   const cleanups: Array<() => Promise<void>> = []; let closed = false;
   async function close() {
@@ -104,8 +107,12 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
     if (failed.length) throw new AggregateError(failed, "managed_fixture_cleanup_failed");
   }
   try {
-  const runId = randomUUID(), publisherKey = new Uint8Array(Buffer.from("11".repeat(32), "hex")),
-    signerKey: Hex = `0x${"73".repeat(32)}`, signer = privateKeyToAccount(signerKey),
+  const publisherHex: Hex = options.protectedCatalog ? generatePrivateKey() : `0x${"11".repeat(32)}`,
+    publisher = options.protectedCatalog ? privateKeyToAccount(publisherHex) : web2Publisher,
+    publisherKey = new Uint8Array(Buffer.from(publisherHex.slice(2), "hex")), runId = randomUUID(),
+    signerKey: Hex = options.protectedCatalog ? generatePrivateKey() : `0x${"73".repeat(32)}`,
+    moderationKey: Hex = options.protectedCatalog ? generatePrivateKey() : `0x${"41".repeat(32)}`,
+    signer = privateKeyToAccount(signerKey),
     credentials = { host: "identify-eu-west-1.acrcloud.com", accessKey: "explicit-fixture-key", accessSecret: "explicit-fixture-secret" },
     namespace = hashText("new managed-service integration namespace"),
     binding: ManagedCatalogBinding = { schema: "pirate.managed-recognition-binding/1", namespace,
@@ -114,7 +121,25 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
     profileBody = { schema: "pirate.recognition-profile/1" as const, namespace, origin: "https://recognition.web2.example",
       signer: signer.address.toLowerCase(), providerBindingSha256: hashJson(binding) },
     profile: RecognitionProfile = { ...profileBody, sha256: hashJson(profileBody) };
-  const chain = await web2SongChain(profile, { evidenceDirectory: join(serviceEvidenceRoot, runId, "chain") }); cleanups.push(() => chain.close());
+  const chain = await web2SongChain(profile, { evidenceDirectory: join(serviceEvidenceRoot, runId, "chain"),
+    publisher: address(publisher.address.toLowerCase()),
+    moderationSigner: address(privateKeyToAccount(moderationKey).address.toLowerCase()) }); cleanups.push(() => chain.close());
+  // The Worker sees an HTTPS transport. Only the owned fixture remaps it to loopback.
+  const workerDeployment = options.protectedCatalog
+    ? { ...chain.deployment, rpcUrl: "https://rpc.managed-worker.fixture.example/rpc" }
+    : chain.deployment;
+  const proofAccount = privateKeyToAccount(generatePrivateKey());
+  const proofSigner = address(proofAccount.address.toLowerCase());
+  const oracle = "0x420000000000000000000000000000000000000f", implementation = "0x0000000000000000000000000000000000000111",
+    oracleCode = "0x600060005260206000f3", oracleCodeHash = keccak256(oracleCode);
+  if (options.protectedCatalog) {
+    // The disposable network's operator fee method returns an explicit zero.
+    await chain.rpc("anvil_setCode", [oracle, oracleCode]);
+    await chain.rpc("anvil_setCode", [implementation, oracleCode]);
+    await chain.rpc("anvil_setStorageAt", [oracle, "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+      "0x" + implementation.slice(2).padStart(64, "0")]);
+    await chain.rpc("anvil_mine", ["0x40", "0x0"]);
+  }
   const pair = generateKeyPairSync("ed25519"),
     privateIssuer = pair.privateKey.export({ format: "der", type: "pkcs8" }),
     trust: TrustAnchor = { keyId: "fixture-pirate-issuer", spki: pair.publicKey.export({ format: "der", type: "spki" }).toString("base64") },
@@ -131,10 +156,10 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
     registration: ManagedPublishingRegistration = { schema: "pirate.managed-publishing-registration/1", issuerKeyId: trust.keyId,
       admissionReference: "manual-pilot:" + randomUUID(), serviceOrigin: chain.deployment.managedOrigin,
       scope: { schema: "pirate.web2-owner-grant-scope/1", enrollmentId: hashText(`hosted-enrollment:${inviteId}`), installationId: chain.profile.installationId,
-        hostInstallationId: installationId, deploymentDigest: hashJson(chain.deployment), communityId: chain.profile.communityId,
+        hostInstallationId: installationId, deploymentDigest: hashJson(workerDeployment), communityId: chain.profile.communityId,
         origin: chain.deployment.origin, controller: chain.current().controller, ownerWallet: address(web2Owner.address.toLowerCase()),
         policy: chain.current().policies.admission, chainId: 6343, postsContract: chain.deployment.posts.address, publisher: chain.current().publisher },
-      grant, deployment: chain.deployment, configurationSha256: hashJson(chain.current()),
+      grant, deployment: workerDeployment, configurationSha256: hashJson(chain.current()),
       registrationOriginal: { plan: planDocument(chain.original.plan), rawTransaction: chain.original.rawTransaction,
         transactionHash: chain.original.transactionHash }, custody: { ...custodyBody, custodyBindingDigest: hashJson(custodyBody) },
       credential: { keyReference: "service-auth", generation: 1, sha256: hashText(credential) },
@@ -142,13 +167,29 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
     journal = { epoch: hashText("fixture exact original epoch"), restoreAnchorSha256: hashText("explicit fresh fixture empty admission") },
     publishing: ManagedPublishingConfiguration = { schema: "pirate.managed-publishing-service/1", origin: registration.serviceOrigin,
       journal, registrations: [sign(registration)], disabledAdmissionReferences: [] },
-    recognition: SharedRecognitionConfiguration = { schema: "pirate.shared-recognition-service/1", profile, binding, journal,
-      quotas: { service: 16, community: 8 }, communities: [sign(registration)] };
+    registrationRecord = publishing.registrations[0]!,
+    protectedPins = {
+      registrationSha256: hashJson(registrationRecord), applicationOriginalSha256: hashText("fixture app original"),
+      releaseSha256: hashText("fixture installed release"), retainedCustodySha256: hashText("fixture initial Store"),
+      proofSigner, feePolicy: {
+        genesisHash: (await chain.client.getBlock({ blockNumber: 0n })).hash!, directoryCodeHash: chain.profile.directoryCodeHash,
+        oracleProxyCodeHash: oracleCodeHash, oracleImplementation: implementation, oracleImplementationCodeHash: oracleCodeHash,
+        maximumSafeAgeSeconds: workerDeployment.freshness.maxSafeBlockAgeSeconds, maximumGas: "1000000",
+        maximumGasPrice: "1000000", maximumTotalFee: "1000000000000", maximumOperatorFee: "0",
+      },
+    },
+    recognitionBase = { profile, binding, journal, quotas: { service: 16, community: 8 }, communities: [registrationRecord] },
+    legacyRecognition: SharedRecognitionConfiguration = { ...recognitionBase, schema: "pirate.shared-recognition-service/1" },
+    protectedInputs = (pins: typeof protectedPins[] = [protectedPins]): SharedRecognitionConfiguration => ({
+      ...recognitionBase, schema: "pirate.shared-recognition-service/2",
+      protectedCatalog: sign<ProtectedRecognitionCatalog>({ schema: "pirate.shared-recognition-protected-catalog/1", installations: pins }),
+    }),
+    recognition = options.protectedCatalog ? protectedInputs() : legacyRecognition;
   const managedCode = await bundle("services/managed-publishing-worker.ts"), recognitionCode = await bundle("services/shared-recognition-worker.ts");
   const managedBindings = { MANAGED_PUBLISHING_PROFILE: "managed-web2", MANAGED_PUBLISHING_CONFIGURATION_JSON: canonical(publishing),
     SERVICE_CONFIGURATION_TRUST_JSON: canonical(trust), SERVICE_ORIGIN: registration.serviceOrigin, SERVICE_PROFILE_HASH: hashText("managed fixture profile"),
     SERVICE_BUDGET_PERIOD: "managed-fixture", SERVICE_REQUEST_CAP: "8", ACRCLOUD_HOST: credentials.host, ACRCLOUD_ACCESS_KEY: credentials.accessKey,
-    ACRCLOUD_ACCESS_SECRET: credentials.accessSecret, OPENAI_API_KEY: "excluded", MODERATION_SIGNER_PRIVATE_KEY: `0x${"41".repeat(32)}`,
+    ACRCLOUD_ACCESS_SECRET: credentials.accessSecret, OPENAI_API_KEY: "excluded", MODERATION_SIGNER_PRIVATE_KEY: moderationKey,
     FILEBASE_IPFS_TOKEN: "explicit-outside-provider-fixture-token" };
   const recognitionBindings = { MANAGED_PUBLISHING_CONFIGURATION_JSON: canonical(publishing), RECOGNITION_CONFIGURATION_JSON: canonical(sign(recognition)), SERVICE_CONFIGURATION_TRUST_JSON: canonical(trust),
     RECOGNITION_SIGNER_PRIVATE_KEY: signerKey, ACRCLOUD_HOST: credentials.host, ACRCLOUD_ACCESS_KEY: credentials.accessKey,
@@ -158,12 +199,26 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
   let canonicalActionHook: { action: string; run(): Promise<unknown> } | undefined;
   const files = new Map<string, { id: number; bucket_id: number; title: string; acr_id: string; state: number; user_defined: unknown }>();
   let canonicalPorts: CatalogPublicationPorts | undefined, afterRead: (() => Promise<unknown>) | undefined;
+  let protectedSelectionReply: Record<string, unknown> | undefined, fixturePostHash: Hex | undefined;
   const outsideResponse = async (request: { url: string; method: string; headers: Iterable<[string, string]>; arrayBuffer(): Promise<ArrayBuffer> }) => {
     const url = new URL(request.url);
-    if (url.origin === new URL(chain.deployment.rpcUrl).origin) {
-      const response = await fetch(request.url, { method: request.method, headers: Object.fromEntries(request.headers),
-        ...(!["GET", "HEAD"].includes(request.method) ? { body: await request.arrayBuffer() } : {}), redirect: "manual" });
-      const hook = afterRead; afterRead = undefined; await hook?.(); return response;
+    if (url.origin === new URL(workerDeployment.rpcUrl).origin || url.origin === new URL(chain.deployment.rpcUrl).origin) {
+      const body = await request.arrayBuffer();
+      const response = await fetch(new URL(url.pathname + url.search, chain.deployment.rpcUrl), {
+        method: request.method, headers: Object.fromEntries(request.headers),
+        ...(!["GET", "HEAD"].includes(request.method) ? { body } : {}), redirect: "manual",
+      });
+      const hook = afterRead; afterRead = undefined; await hook?.();
+      // Anvil omits the MegaETH fee field. Supply it only for this owned test receipt.
+      if (fixturePostHash && url.pathname === "/rpc") {
+        const call = JSON.parse(new TextDecoder().decode(body));
+        if (call.method === "eth_getTransactionReceipt" && call.params?.[0] === fixturePostHash) {
+          const reply = object(await response.json());
+          if (reply.result) reply.result = { ...object(reply.result), l1Fee: "0x0" };
+          return Response.json(reply, { status: response.status });
+        }
+      }
+      return response;
     }
     if (url.origin === chain.deployment.origin) {
       const bytes = await request.arrayBuffer(), wire = JSON.parse(new TextDecoder().decode(bytes)),
@@ -260,8 +315,17 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
       [registration.serviceOrigin, async (request: Request) => nodeResponse(await runtime.dispatchFetch(request.url, await workerRequestInit(request)))],
       [registration.scope.origin, async (request: Request) => {
         assert(canonicalPorts);
-        try { return await communityCanonicalFetch(request, canonicalPorts); }
-        catch { return Response.json({ error: "canonical_source_unavailable" }, { status: 403 }); }
+        try {
+          if (options.protectedCatalog) {
+            const config = chain.current();
+            const selected = await protectedCanonicalSelectionFetch(request, config, async wire => {
+              if (!protectedSelectionReply) return new Response(null, { status: 503 });
+              return canonicalResponse(wire, config, publisher, protectedSelectionReply);
+            });
+            if (selected) return selected;
+          }
+          return await communityCanonicalFetch(request, canonicalPorts);
+        } catch { return Response.json({ error: "canonical_source_unavailable" }, { status: 403 }); }
       }],
       [profile.origin, async (request: Request) => recognitionFetch(request.url, {
         method: request.method, headers: Object.fromEntries(request.headers), body: await request.arrayBuffer(), redirect: "manual" })],
@@ -292,7 +356,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
       registrationGas: "3000000", topupGas: "50000", maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1000000", extraFeeCeiling: "0", extraFeeField: "none",
       globalCeiling: "1000000000000000000", communityCeiling: "500000000000000000", recipientCeiling: "200000000000000000",
       controllerInitialWei: "10000000000000000", publisherInitialWei: "10000000000000000" };
-    const current = () => readPinnedManagedCommunity(registration),
+    const current = () => readPinnedManagedCommunity({ ...registration, deployment: chain.deployment }),
       ownerVerification = { client: chain.client, currentConfiguration: current, now: () => Math.floor(Date.now() / 1000),
         maxSafeBlockAgeSeconds: BigInt(chain.deployment.freshness.maxSafeBlockAgeSeconds) },
       authorizationBody: OwnerAuthorization = { schema: options.typedOwnerAuthorization ? "pirate.owner-publishing-authorization/2" : "pirate.owner-publishing-authorization/1", communityId: grant.communityId,
@@ -301,13 +365,15 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
         ? await web2Controller.signTypedData(ownerAuthorizationTypedData(authorizationBody, chain.current()))
         : await web2Controller.signMessage({ message: { raw: hashJson(authorizationBody) } }) },
       authorization = (await validateOwnerAuthorization(signedOwner, chain.current(), ownerVerification)).authorization,
-      attachmentBody = { schema: "pirate.web2-publishing-attachment/1" as const, selection, authorization: signedOwner,
+      localSelectionBody = { ...selectionBody, scope: { ...selectionBody.scope, deploymentDigest: hashJson(chain.deployment) } },
+      localSelection = { ...localSelectionBody, selectionDigest: hashJson(localSelectionBody) },
+      attachmentBody = { schema: "pirate.web2-publishing-attachment/1" as const, selection: localSelection, authorization: signedOwner,
         custodyBindingDigest: registration.custody.custodyBindingDigest },
       attachment = { ...attachmentBody, digest: hashJson(attachmentBody) },
-      ports = ownerSongRuntime({ DB: community.db, MEDIA: community.media, COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"11".repeat(32)}`,
+      ports = ownerSongRuntime({ DB: community.db, MEDIA: community.media, COMMUNITY_PUBLISHER_PRIVATE_KEY: publisherHex,
         MANAGED_PROFILE_HASH: managedBindings.SERVICE_PROFILE_HASH, OWNER_GRANT_JSON: canonical(grant), OWNER_AUTHORIZATION_JSON: canonical(signedOwner),
         ...(options.typedOwnerAuthorization ? { WEB2_PUBLISHING_ATTACHMENT_JSON: canonical(attachment), WEB2_PUBLISHING_ATTACHMENT_SHA256: attachment.digest,
-          WEB2_PUBLISHING_SELECTION_SHA256: selection.selectionDigest, OWNER_GRANT_ADMISSION_REFERENCE: selection.admissionReference } : {}),
+          WEB2_PUBLISHING_SELECTION_SHA256: localSelection.selectionDigest, OWNER_GRANT_ADMISSION_REFERENCE: localSelection.admissionReference } : {}),
         RECOGNITION_PROFILE_JSON: canonical(profile), CATALOG_TRANSPORT: request => http!.transport(request),
         CATALOG_ACCOUNT_FENCE: async (account, wallet, author) => {
           const row = await community.db.prepare(`SELECT a.account_id FROM community_accounts a JOIN credential_bindings b ON b.account_id=a.account_id
@@ -320,7 +386,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
           return response.ok && body.ownerRelease?.configured === true;
         }, chain.deployment);
     assert(ports.catalog); canonicalPorts = ports.catalog;
-    const client = () => reservationClient({ profile, publisher: web2Publisher, transport: request => http!.transport(request),
+    const client = () => reservationClient({ profile, publisher, transport: request => http!.transport(request),
       current: async intent => assert.deepEqual((await readCanonicalIntent(canonicalPorts!, intent.jobId)).intent, intent),
       beforeSend: async intent => {
         const job = await community.db.prepare("SELECT job_id FROM publication_jobs WHERE job_id=? AND lease_token IS NOT NULL AND lease_until>?")
@@ -360,7 +426,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
       async reservationCount(id: string) { return (await db.prepare("SELECT count(*) AS n FROM spending_reservations WHERE reservation_id=?").bind(id).first<{ n: number }>())!.n; },
       async pinAudioOriginal(intent: AcceptedIntent) {
         const context = (await readCanonicalIntent(canonicalPorts!, intent.jobId)).input.context,
-          issuedAt = Math.floor(Date.now() / 1000), signed = await signServiceRequest(web2Publisher, { action: "release_pin", communityId: chain.profile.communityId,
+          issuedAt = Math.floor(Date.now() / 1000), signed = await signServiceRequest(publisher, { action: "release_pin", communityId: chain.profile.communityId,
             communityOrigin: grant.communityOrigin, serviceOrigin: registration.serviceOrigin, configurationRevision: 1,
             nonce: hashText(randomUUID()), issuedAt, expiresAt: issuedAt + 120 }, { context, role: "audio" });
         return http!.transport(new Request(registration.serviceOrigin + "/v1/owner-releases/pin", { method: "POST",
@@ -457,6 +523,28 @@ export async function managedServicesFixture(options: { grantSeconds?: number; t
         return { operationId: hashJson({ enrollmentId: e.id, purpose: "publisher-enrollment-proof", custodyBindingDigest: registration.custody.custodyBindingDigest }), prepared };
       },
       recognitionWorker: () => runtime.getWorker("recognition"), restartRecognition: () => updateRuntime(),
+      protectedFixture: {
+        pins: protectedPins, proofAccount, publisher,
+        select(value?: Record<string, unknown>) { protectedSelectionReply = value; },
+        postHash(value: Hex) { fixturePostHash = value; },
+        async configuration(mode: "protected" | "legacy" | "missing" | "other-release") {
+          const inputs = mode === "legacy" ? legacyRecognition : mode === "missing" ? protectedInputs([]) :
+            mode === "other-release" ? protectedInputs([{ ...protectedPins, releaseSha256: hashText("Wrong release") }]) : protectedInputs();
+          recognitionBindings.RECOGNITION_CONFIGURATION_JSON = canonical(sign(inputs));
+          await updateRuntime();
+        },
+        async send(action: "intent_bind" | "intent_commit" | "intent_status", body: Record<string, unknown>) {
+          const issuedAt = Math.floor(Date.now() / 1000);
+          const request = await signRecognitionRequest(publisher, { namespace, profileSha256: managedDigest(profile.sha256), action,
+            communityId: managedDigest(registration.scope.communityId), communityOrigin: registration.scope.origin, serviceOrigin: profile.origin,
+            configurationRevision: 1, nonce: hashText(randomUUID()), issuedAt, expiresAt: issuedAt + 60,
+          }, body);
+          const response = await recognitionFetch(profile.origin + "/v1/reservations/" + action.slice("intent_".length), {
+            method: "POST", headers: { "content-type": "application/json" }, body: canonical(request),
+          });
+          return { request, response };
+        },
+      },
       async setWakeDelivery(enabled: boolean) { consume = enabled; await updateRuntime(); },
       recognitionClient: client, providerEffects: () => ({ uploads, identifies, deletes }), loseNextUploadReply: () => { lostUpload = true; },
       loseNextIdentifyReply: () => { lostIdentify = true; }, setProviderOutage: (value: boolean) => { providerOutage = value; },
