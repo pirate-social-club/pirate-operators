@@ -27,7 +27,7 @@ import {
   rpc,
 } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
-import { nativeDancePublisherHoldKey } from "./native-dance-publisher-hold-key.ts";
+import { nativeDancePublisherHoldKey, stagingPublisherLegacyDisabledKey } from "./native-dance-publisher-hold-key.ts";
 import { capturedFee, same, publicationDisposition, type CapturedPublicationFeeV1,
   type PublicationDispositionV1 } from "./publication-command-contract.ts";
 
@@ -59,6 +59,7 @@ export interface StoredAuthorization {
 export const isPublicationV5Kind = (kind: TxKind) =>
   kind === "record_publication_grant" || kind === "record_publication_withdrawal" || kind === "record_result_v5";
 const publicationPrefixHeld = (store: TxStore, nonce?: number) =>
+  store.get(stagingPublisherLegacyDisabledKey) !== undefined ||
   store.get(nativeDancePublisherHoldKey) !== undefined ||
   store.entries("tx:").some(({value}) => {
     const row = value as TxRow;
@@ -360,6 +361,7 @@ const ownPriced = (row: TxRow) => () =>
 async function signed(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce)!;
   if (row.raw && row.hash) return row;
+  check(store.get(stagingPublisherLegacyDisabledKey) === undefined, "staging_legacy_publisher_disabled");
   check(store.get(nativeDancePublisherHoldKey) === undefined, "native_dance_dispatch_original_held");
   const account = privateKeyToAccount(env.PRIVATE_KEY);
   const common = {
@@ -424,6 +426,22 @@ export async function dispatch(
   check(!isPublicationV5Kind(kind), "publication_v5_sender_not_admitted");
   let intent = intentOf(store, kind, ref);
   if (!intent) return undefined;
+  if (store.get(stagingPublisherLegacyDisabledKey) !== undefined && intent.nonce !== null) {
+    const retained = txRow(store, intent.nonce);
+    if (retained?.mined) {
+      const expectedAuthorizations = intent.authorizationList;
+      const retainedAuthorizations = retained.authorizationList;
+      const sameAuthorizations = expectedAuthorizations === undefined
+        ? retainedAuthorizations === undefined
+        : Array.isArray(expectedAuthorizations) && Array.isArray(retainedAuthorizations) &&
+          same(retainedAuthorizations, expectedAuthorizations);
+      check(retained.nonce === intent.nonce && retained.kind === kind && retained.ref === ref &&
+        retained.to === intent.to && retained.data === intent.data && retained.gas === intent.gas &&
+        sameAuthorizations,
+        "staging_legacy_terminal_original_changed");
+      return retained;
+    }
+  }
   check(!publicationPrefixHeld(store,intent.nonce??undefined), "publication_v5_nonce_prefix_held");
   if (intent.nonce === null) {
     const fee = await gasPrice(env.RPC_URL);
@@ -433,8 +451,11 @@ export async function dispatch(
         env.RPC_URL,
         privateKeyToAccount(env.PRIVATE_KEY).address,
       );
-      check(store.get(nativeDancePublisherHoldKey) === undefined, "native_dance_dispatch_original_held");
-      if (store.get("op:nonce") === undefined) store.set("op:nonce", nonce);
+      store.transaction(() => {
+        check(store.get(stagingPublisherLegacyDisabledKey) === undefined, "staging_legacy_publisher_disabled");
+        check(store.get(nativeDancePublisherHoldKey) === undefined, "native_dance_dispatch_original_held");
+        if (store.get("op:nonce") === undefined) store.set("op:nonce", nonce);
+      });
     }
     // Local fault injection: fails the allocation after the nonce advances.
     const failAllocation = store.get("fault:fail-allocation") === true;
