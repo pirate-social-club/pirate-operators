@@ -29,13 +29,16 @@ export async function verifyOwnerTypedAuthorization(
       503,
     );
     const safe = await v.client.getBlock({ blockTag: "safe" });
+    const maximumAge = v.maxSafeBlockAgeSeconds;
+    // The last valid sampled second includes the maximum age itself.
+    const staleAt = safe.timestamp + maximumAge + 1n;
     function fresh() {
       const now = v.now();
       insist(
         Number.isSafeInteger(now) &&
-          v.maxSafeBlockAgeSeconds >= 0n &&
+          maximumAge >= 0n &&
           safe.timestamp <= BigInt(now) &&
-          BigInt(now) - safe.timestamp <= v.maxSafeBlockAgeSeconds,
+          BigInt(now) < staleAt,
         "owner_authorization_safe_view_unavailable",
         503,
       );
@@ -68,6 +71,9 @@ export async function verifyOwnerTypedAuthorization(
     // Cryptographic/current identity verification is also required when
     // authenticating an immutable original after its paid window has closed.
     // NEW effects separately call requireAuthorizedOwner after their awaits.
+    const safeAnchorExpiresAtMs = Number(staleAt * 1000n);
+    insist(Number.isSafeInteger(safeAnchorExpiresAtMs), "owner_authorization_safe_view_unavailable", 503);
+    return safeAnchorExpiresAtMs;
   } catch (error) {
     if (error instanceof CommunityError) throw error;
     throw new CommunityError(

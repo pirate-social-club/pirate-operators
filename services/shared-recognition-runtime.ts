@@ -1,3 +1,4 @@
+import type { SharedReservationPorts } from "./shared-recognition-reservations.ts";
 import { sha256 } from "viem";
 import { ownerAuthorizationRecord } from "../packages/community/owner-authorization-typed-data.ts";
 import type { PrivateKeyAccount } from "viem/accounts";
@@ -29,6 +30,7 @@ export interface SharedRecognitionRuntimeInputs {
   cancellation(ports:CanonicalIntentPorts,intent:AcceptedIntent):Promise<string>;
   withdrawal(ports:CanonicalIntentPorts,publication:VerifiedPublication):Promise<string>;
   providerTransport?:ProviderTransport;
+  protectedCatalog?: SharedReservationPorts["protectedCatalog"];
   journal:{epoch:string;restoreAnchorSha256:string};
   now?:()=>number;
 }
@@ -99,6 +101,7 @@ export function sharedRecognitionRuntime(inputs:SharedRecognitionRuntimeInputs) 
       }},
     reservations:{db:inputs.db,profile,signer:inputs.signer,now,loadAuthority,
       verifyIntent:async(a,jobId)=>(await community(a.communityId).read(jobId)).intent,
+      protectedCatalog:inputs.protectedCatalog,
       verifyPosting:(a,p,posting)=>community(a.communityId).posting(p,posting),
       verifyPublication:(a,p,posting)=>community(a.communityId).publication(p,posting),
       verifyCancellation:(a,p)=>inputs.cancellation(localCommunity(a.communityId),p),

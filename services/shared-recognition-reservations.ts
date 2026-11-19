@@ -7,6 +7,8 @@ import { ReservationStore, type ReservationSnapshot } from "../packages/recognit
 import { signReservation, type ReservationReceipt } from "../packages/recognition/reservation-receipt.ts";
 import { originalDisposition, type OriginalIdentification } from "../packages/recognition/original-identification.ts";
 import type { VerifiedPublication } from "../packages/recognition/model.ts";
+import { protectedCatalogPostingSchema, readProtectedCatalogRetained, readProtectedCatalogPromotion, verifyProtectedCatalogCanonical,
+  verifyProtectedCatalogOriginal, type ProtectedCatalogSelection } from "../packages/recognition/protected-catalog.ts";
 
 /** Canonical private read ports; never deserialize facts asserted by a publisher.
  * verifyPublication must observe the actual successful receipt and exact post.
@@ -17,6 +19,8 @@ export interface SharedReservationPorts {
   verifyIntent(authority:RecognitionAuthority,jobId:string):Promise<AcceptedIntent>;
   verifyPosting(authority:RecognitionAuthority,intent:AcceptedIntent,posting:unknown):Promise<PostingBinding>;
   verifyPublication(authority:RecognitionAuthority,intent:AcceptedIntent,posting:PostingBinding):Promise<VerifiedPublication>;
+  /** Return null only for an explicitly legacy original. Failure to read an admitted protected original must throw. */
+  protectedCatalog?(authority: RecognitionAuthority, intent: AcceptedIntent): Promise<ProtectedCatalogSelection | null>;
   verifyCancellation(authority:RecognitionAuthority,intent:AcceptedIntent):Promise<string>;
   original:OriginalIdentification;
   quotas:{service:number;community:number};
@@ -37,6 +41,21 @@ export function sharedReservationService(ports:SharedReservationPorts) {
     insist(canonical(await authority(a.communityId))===canonical(a),"recognition_pairing_changed",403);
     insist(canonical(acceptedIntent(await ports.verifyIntent(a,p.jobId)))===canonical(p),"recognition_intent_changed",403);
     insist(canonical(await authority(a.communityId))===canonical(a),"recognition_pairing_changed",403);
+  };
+  const selection = async (a: RecognitionAuthority, p: AcceptedIntent) => {
+    const x=await ports.protectedCatalog?.(a,p);
+    if(!x) return null;
+    const pins=structuredClone({reference:x.reference,applicationOriginalSha256:x.applicationOriginalSha256,
+      grantSha256:x.grantSha256,retainedCustodySha256:x.retainedCustodySha256,quote:x.quote,publisher:x.publisher,
+      postsContract:x.postsContract,proofSigner:x.proofSigner,publication:x.publication,recognition:x.recognition});
+    insist(pins.publisher===a.publisher,"protected_catalog_publisher_changed",409);
+    return {...pins,readCanonical:x.readCanonical};
+  };
+  const requireSameSelection=async(a:RecognitionAuthority,p:AcceptedIntent,selected:ProtectedCatalogSelection)=>{
+    const current=await selection(a,p);
+    insist(current,"protected_catalog_selection_unavailable",503);
+    const {readCanonical:_a,...left}=current,{readCanonical:_b,...right}=selected;
+    insist(canonical(left)===canonical(right),"protected_catalog_selection_changed",409);
   };
   const run=async(id:string,claimedCommunity?:string)=>{
     const owned=await ports.db.withSession("first-primary").prepare("SELECT community_id FROM shared_recognition_reservations WHERE reservation_id=? AND namespace=?").bind(id,profile.namespace).first<{community_id:string}>();
@@ -92,10 +111,14 @@ export function sharedReservationService(ports:SharedReservationPorts) {
         const wire=await jsonBody(request,64*1024), wireHash=hashJson(wire),s=store(),
           auth=await authorizeRecognitionRequest(ports.db.withSession('first-primary'),wire,action,profile.namespace,profile.sha256,profile.origin,ports.loadAuthority,()=>Math.floor(now()/1000)),
           a=auth.authority,body=auth.body;
-        exact(body,["jobId",...(action==='intent_bind'||action==='intent_commit'?["posting"]:[])]);
+        const effect=action==='intent_bind'||action==='intent_commit';
+        if(!effect) exact(body,["jobId"]);
         const p=acceptedIntent(await ports.verifyIntent(a,text(body.jobId,128)));
         insist(p.communityId===a.communityId&&p.communityOrigin===a.communityOrigin&&p.configurationRevision===a.configurationRevision&&
           p.namespace===profile.namespace&&p.profileSha256===profile.sha256,"recognition_intent_scope_mismatch",403);
+        const selected=effect?await selection(a,p):null;
+        if(effect) exact(body,["jobId","posting",...(selected?[
+          "original",action==='intent_bind'?"readyReceipt":"canonical"]:[])]);
         await fresh(a,p);
         const id=reservationId(p);
         let r:ReservationSnapshot|null;
@@ -122,7 +145,40 @@ export function sharedReservationService(ports:SharedReservationPorts) {
           return reply({receipt});
         }
         insist(r?.intent_json===canonical(p),"recognition_reservation_conflict",409);
-        if(action==='intent_bind'||action==='intent_commit') {
+        if(effect && selected) {
+          const requestExpiresAt=auth.authorization.expiresAt;
+          const requireLiveRequest=()=>insist(Math.floor(now()/1000)<requestExpiresAt,"recognition_request_expired",403);
+          const retained=r.posting_json===null?null:readProtectedCatalogRetained(JSON.parse(r.posting_json));
+          insist(r.posting_json===null || retained,"recognition_posting_binding_conflict",409);
+          if(action==='intent_commit') insist(retained,"recognition_posting_binding_conflict",409);
+          const bound=await verifyProtectedCatalogOriginal({posting:body.posting,original:body.original,
+            readyReceipt:action==='intent_bind'?body.readyReceipt:retained!.readyReceipt},selected,p,now(),retained===null);
+          insist(r.recording_id===bound.original.payload.recordingId &&
+            (!retained||canonical(retained)===canonical(bound)),"recognition_posting_binding_conflict",409);
+          await fresh(a,p);
+          await requireSameSelection(a,p,selected);
+          if(action==='intent_bind') {
+            requireLiveRequest();
+            r=await s.bindProtected(id,a.communityId,bound,requestExpiresAt);
+          }
+          else {
+            const verified=await verifyProtectedCatalogCanonical(body.canonical,bound,selected,p);
+            if(r.publication_json) {
+              const originalPromotion=readProtectedCatalogPromotion(JSON.parse(r.publication_json));
+              insist(originalPromotion&&canonical(verified.proof)===canonical(originalPromotion.proof),
+                "protected_catalog_canonical_mismatch",409);
+            }
+            await fresh(a,p);
+            await requireSameSelection(a,p,selected);
+            const fence=await s.snapshot(id,a.communityId);
+            insist(fence?.posting_json===r.posting_json&&fence?.recording_id===bound.original.payload.recordingId&&
+              fence.recording_state==='ready'&&(fence.state==='committing'||fence.state==='committed'),
+              "recognition_promotion_changed",409);
+            requireLiveRequest();
+            r=await s.promote(p,bound,verified.publication,{proof:verified.proof,requestExpiresAt});
+          }
+        } else if(effect) {
+          insist(object(body.posting).schema!==protectedCatalogPostingSchema,"protected_catalog_selection_unavailable",503);
           const posting=await ports.verifyPosting(a,p,body.posting);
           await fresh(a,p);
           if(action==='intent_bind') r=await s.bind(id,a.communityId,posting);
@@ -130,7 +186,6 @@ export function sharedReservationService(ports:SharedReservationPorts) {
             insist(r.posting_json===canonical(posting),"recognition_posting_binding_conflict",409);
             const publication=await ports.verifyPublication(a,p,posting);
             await fresh(a,p);
-            // Fresh primary read after receipt/authority awaits, before atomic promotion.
             const fence=await s.snapshot(id,a.communityId);
             insist(fence?.posting_json===canonical(posting)&&fence.recording_state==='ready'&&
               (fence.state==='committing'||fence.state==='committed'),"recognition_promotion_changed",409);
@@ -142,17 +197,29 @@ export function sharedReservationService(ports:SharedReservationPorts) {
           if(r?.recording_id) await ports.wakeRecording(r.recording_id);
         } else r=await s.refreshReady(id,a.communityId);
         insist(r,"recognition_reservation_not_found",404);
+        const stored=r.posting_json?JSON.parse(r.posting_json):null,protectedPosting=stored?readProtectedCatalogRetained(stored):null;
+        const storedPublication=r.publication_json?JSON.parse(r.publication_json):null,
+          protectedPromotion=protectedPosting&&storedPublication?readProtectedCatalogPromotion(storedPublication):null;
+        if(protectedPosting&&r.state==='committed') insist(protectedPromotion,"protected_catalog_canonical_mismatch",409);
         const before=canonical(r),issuedAt=Math.floor(now()/1000),
           purpose:ReservationReceipt['purpose']=action==='intent_bind'?'posting_bound':action==='intent_commit'?'publication_promoted':'accepted_intent',
           payload:ReservationReceipt={schema:'pirate.recognition-reservation-receipt/1',purpose,namespace:profile.namespace,profileSha256:profile.sha256,
             communityId:a.communityId,configurationRevision:a.configurationRevision,requestSha256:wireHash,intentSha256:hashJson(p),reservationId:id,
-            recordingId:r.recording_id,state:r.state,recordingState:r.recording_state,postingSha256:r.posting_json?hashJson(JSON.parse(r.posting_json)):null,
-            publicationSha256:r.publication_json?hashJson(JSON.parse(r.publication_json)):null,issuedAt,expiresAt:Math.min(issuedAt+60,auth.authorization.expiresAt)};
+            recordingId:r.recording_id,state:r.state,recordingState:r.recording_state,postingSha256:stored?hashJson(protectedPosting?.posting??stored):null,
+            publicationSha256:storedPublication?hashJson(protectedPromotion?.publication??storedPublication):null,issuedAt,expiresAt:Math.min(issuedAt+60,auth.authorization.expiresAt)};
         const receipt=await signReservation(ports.signer,payload);
         if(r.state==='committed') {
           insist(r.posting_json&&r.publication_json,"recognition_chain_receipt_missing",409);
-          const publication=await ports.verifyPublication(a,p,JSON.parse(r.posting_json));
-          insist(canonical(publication)===r.publication_json,"recognition_published_facts_changed",409);
+          let publication;
+          if(protectedPosting) {
+            const selected=await selection(a,p);
+            insist(selected&&protectedPromotion&&r.recording_id===protectedPosting.original.payload.recordingId,
+              "protected_catalog_selection_unavailable",503);
+            const bound=await verifyProtectedCatalogOriginal(protectedPosting,selected,p,now(),false);
+            publication=(await verifyProtectedCatalogCanonical(protectedPromotion.proof,bound,selected,p)).publication;
+            await requireSameSelection(a,p,selected);
+          } else publication=await ports.verifyPublication(a,p,stored);
+          insist(canonical(publication)===(protectedPromotion?canonical(protectedPromotion.publication):r.publication_json),"recognition_published_facts_changed",409);
         }
         await fresh(a,p);
         insist(canonical(await s.snapshot(id,a.communityId))===before&&payload.expiresAt>Math.floor(now()/1000),"recognition_reservation_changed",409);

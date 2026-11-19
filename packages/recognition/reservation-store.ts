@@ -1,3 +1,4 @@
+import type { ProtectedCatalogPromotion, ProtectedCatalogRetained } from "./protected-catalog.ts";
 import { canonical, hashJson, insist } from "../community/common.ts";
 import { associationId, recordingId, verifiedPublication, type VerifiedPublication } from "./model.ts";
 import { acceptedIntent, reservationId, type AcceptedIntent, type PostingBinding } from "./intent.ts";
@@ -126,26 +127,55 @@ export class ReservationStore {
     insist(row?.state==='committing' && row.posting_json===json,"recognition_posting_binding_conflict",409);
     return row;
   }
+  async bindProtected(id: string, community: string, binding: ProtectedCatalogRetained, requestExpiresAt: number) {
+    const json=canonical(binding), original=binding.original.payload;
+    const result=await this.database.prepare(`UPDATE shared_recognition_reservations SET state='committing',posting_json=?
+      WHERE reservation_id=? AND namespace=? AND community_id=? AND state IN ('ready','committing')
+      AND unixepoch()<? AND recording_id=? AND (posting_json=? OR (posting_json IS NULL AND
+        CAST(strftime('%s','now') AS INTEGER)*1000+CAST(substr(strftime('%f','now'),4,3) AS INTEGER)<?))
+      AND EXISTS(SELECT 1 FROM shared_recognition_recordings r WHERE r.recording_id=shared_recognition_reservations.recording_id AND r.state='ready')`)
+      .bind(json,id,this.namespace,community,requestExpiresAt,original.recordingId,json,original.bindExpiresAtMs).run();
+    if(result.meta.changes===0) {
+      const observed=await this.database.withSession("first-primary").prepare("SELECT unixepoch() AS now").first<{now:number}>();
+      insist(observed&&Number.isSafeInteger(observed.now),"recognition_primary_clock_unavailable",503);
+      insist(observed.now<requestExpiresAt,"recognition_request_expired",403);
+    }
+    const row=await this.snapshot(id,community);
+    insist(row?.state==='committing'&&row.posting_json===json&&row.recording_id===original.recordingId,
+      "recognition_posting_binding_conflict",409);
+    return row;
+  }
   /** Actual canonical chain receipt is verified by the caller. Promotion and
    * dropping provisional ownership are atomic; no last-reference gap. */
-  async promote(p: AcceptedIntent, posting: PostingBinding, input: VerifiedPublication) {
+  async promote(p: AcceptedIntent, posting: PostingBinding | ProtectedCatalogRetained, input: VerifiedPublication,
+    protectedRequest?: { proof: ProtectedCatalogPromotion["proof"]; requestExpiresAt: number }) {
     const publication=verifiedPublication(input), id=reservationId(p), json=canonical(publication);
+    const postingJson=canonical(posting), recording="schema" in posting?posting.original.payload.recordingId:null;
+    insist((recording!==null)===(protectedRequest!==undefined),"protected_catalog_canonical_mismatch",409);
+    const proof=protectedRequest?.proof, requestExpiresAt=protectedRequest?.requestExpiresAt??null;
+    const promoted=proof?canonical({schema:"pirate.protected-posts-catalog-promotion/1",publication,proof}):json;
     insist(publication.namespace===p.namespace && publication.communityId===p.communityId && publication.postId===p.postId &&
       publication.publicationRevision===p.publicationRevision && publication.configurationRevision===p.configurationRevision &&
       publication.creatorKey===p.creatorKey && publication.audioSha256===p.audioSha256 && publication.audioBytes===p.audioBytes &&
       publication.termsSha256===p.termsSha256 && publication.termsRevision===p.termsRevision && publication.allowsDerivatives===p.allowsDerivatives,
       "recognition_promotion_facts_changed",409);
+    // The second mutation raises the schema's NOT NULL constraint if the
+    // request expired after the first mutation, rolling back the whole batch.
     await this.database.batch([
       this.database.prepare(`INSERT INTO shared_recognition_publications(association_id,recording_id,namespace,community_id,post_id,publication_revision,publication_json,match_evidence_sha256,state)
         SELECT ?,recording_id,namespace,community_id,?,?,?,CASE WHEN json_extract(intent_json,'$.audioSha256')<>(SELECT audio_sha256 FROM shared_recognition_recordings WHERE recording_id=p.recording_id) THEN disposition_sha256 ELSE NULL END,'active'
-        FROM shared_recognition_reservations p WHERE reservation_id=? AND posting_json=? AND state IN ('committing','committed') ON CONFLICT DO NOTHING`)
-        .bind(associationId(publication),p.postId,p.publicationRevision,json,id,canonical(posting)),
-      this.database.prepare(`UPDATE shared_recognition_reservations SET state='committed',publication_json=? WHERE reservation_id=? AND posting_json=? AND state IN ('committing','committed')
+        FROM shared_recognition_reservations p WHERE reservation_id=? AND posting_json=? AND state IN ('committing','committed')
+        AND (? IS NULL OR recording_id=?) AND (? IS NULL OR unixepoch()<?) ON CONFLICT DO NOTHING`)
+        .bind(associationId(publication),p.postId,p.publicationRevision,json,id,postingJson,recording,recording,requestExpiresAt,requestExpiresAt),
+      this.database.prepare(`UPDATE shared_recognition_reservations SET state=CASE WHEN (? IS NULL OR unixepoch()<?) THEN 'committed' END,publication_json=?
+        WHERE reservation_id=? AND posting_json=?
+        AND state IN ('committing','committed') AND (? IS NULL OR recording_id=?)
         AND EXISTS(SELECT 1 FROM shared_recognition_publications WHERE association_id=? AND publication_json=? AND state='active')`)
-        .bind(json,id,canonical(posting),associationId(publication),json),
+        .bind(requestExpiresAt,requestExpiresAt,promoted,id,postingJson,recording,recording,associationId(publication),json),
     ]);
     const row=await this.snapshot(id,p.communityId);
-    insist(row?.state==='committed' && row.publication_json===json,"recognition_promotion_pending",409);
+    insist(row?.state==='committed' && row.publication_json===promoted && row.posting_json===postingJson &&
+      (recording===null || row.recording_id===recording),"recognition_promotion_pending",409);
     return row;
   }
   async cancel(p: AcceptedIntent, evidence: string) {

@@ -1,4 +1,4 @@
-import { requireAuthorizedOwner, requireOwnerIdentity } from "../packages/community/owner-authorization.ts";
+import { requireAuthorizedOwner, requireAuthorizedOwnerWithFreshness, requireOwnerIdentity } from "../packages/community/owner-authorization.ts";
 import type { OwnerVerification } from "../packages/community/owner-authorization-verifier.ts";
 import { catalogOwner } from "../packages/community/owner-policy.ts";
 import { catalogPublication, type CatalogPublicationPorts } from "../packages/community/catalog-publication.ts";
@@ -41,19 +41,26 @@ import type {
 } from "../packages/community/publication-store.ts";
 import { activeAdmissionOperation } from "../packages/community/publication-store.ts";
 import { preparedOperation } from "../packages/community/publication.ts";
-import { ownerBudgetKey } from "../packages/release/owner-grant.ts";
+import { ownerBudgetKey, type OwnerBudgetGrant } from "../packages/release/owner-grant.ts";
 import type {
   PublicationDriver,
   OperationResult,
   Reconciliation,
 } from "../packages/community/publication.ts";
 
+export interface ProtectedPostsDriverPorts extends Pick<PostingPorts, "bounds" | "config" | "profile"> {
+  /** Revalidates app and selected custody authority at the actual effect boundary. */
+  protectedPosts: Pick<PublicationDriver, "prepare" | "execute" | "reconcile" | "validate">;
+  ownerGrant: OwnerBudgetGrant;
+  localPostsFence?: never;
+}
+
 export interface FirstSongDriverPorts {
   db: D1Database;
   media: R2Bucket;
   managed: ManagedClient;
   release: ReleasePorts;
-  posting: PostingPorts;
+  posting: PostingPorts | ProtectedPostsDriverPorts;
   acrEndpoint: string;
   checkServices(): Promise<void>;
   /** Controller-signed owner authorization; required under the unregistered owner policy. */
@@ -110,15 +117,18 @@ function pinResult(value: unknown): OperationResult {
   return { kind: "confirmed", providerId: String(pin.uri), value: v };
 }
 /** Owner jobs bind the owner scope and window so a replacement grant replays. */
-const releaseBinding = (ports: FirstSongDriverPorts) => {
-  const grant = ports.release.ownerGrant;
-  if (!grant) return ports.release.grantHash;
+export function ownerPublicationRequestBinding(grant: OwnerBudgetGrant) {
   const key = ownerBudgetKey(grant, "songs");
   return hashJson({ ownerScope: key.scope, ownerWindow: key.period });
-};
+}
+const releaseBinding = ({ release }: FirstSongDriverPorts) =>
+  release.ownerGrant ? ownerPublicationRequestBinding(release.ownerGrant) : release.grantHash;
+
 export function firstSongDriver(
   ports: FirstSongDriverPorts,
-): PublicationDriver {
+): PublicationDriver & {
+  revalidateProtectedPostsOwner(operation: ExternalOperation): Promise<{ ownerExpiresAtMs: number }>;
+} {
   async function authorizeOwner() {
     if (!ports.release.ownerGrant) return;
     return requireAuthorizedOwner(ports.ownerAuthorization, ports.managed.configuration,
@@ -177,7 +187,24 @@ export function firstSongDriver(
         pinResult(input.progress[step]),
       );
   };
+  const validateProtectedPostsOwner = async (input: PublicationInput, posting: ProtectedPostsDriverPorts) => {
+    insist(ports.release.ownerGrant?.sha256 === posting.ownerGrant.sha256, "protected_posts_owner_grant_changed", 403);
+    await validateMedia(input);
+    const { authorization, safeAnchorExpiresAtMs } = await requireAuthorizedOwnerWithFreshness(
+      ports.ownerAuthorization, ports.managed.configuration, posting.ownerGrant.ownerWallet, undefined, ports.ownerVerification,
+    );
+    insist(safeAnchorExpiresAtMs !== undefined, "protected_posts_owner_safe_view_unavailable", 503);
+    return {
+      ownerExpiresAtMs: Math.min(safeAnchorExpiresAtMs, authorization.expiresAt * 1000, posting.ownerGrant.expiresAt * 1000),
+    };
+  };
   return {
+    async revalidateProtectedPostsOwner(operation) {
+      const posting = ports.posting;
+      insist(operation.step === "publication" && "protectedPosts" in posting,
+        "protected_posts_runtime_unavailable", 503);
+      return validateProtectedPostsOwner(await load(operation), posting);
+    },
     async request(job: PublicationJob, step: PublicationStep) {
       const input = await publicationInput(
         ports.db,
@@ -208,9 +235,14 @@ export function firstSongDriver(
         return {replay:{kind:"provider_idempotency",provider:"pirate-recognition-reservation/1",key:operation.operation_id},payload:{intentHash:input.job.input_hash}};
       }
       if (operation.step === "publication") {
+        const posting = ports.posting;
+        if ("protectedPosts" in posting) {
+          await validateProtectedPostsOwner(input, posting);
+          return posting.protectedPosts.prepare(operation, job);
+        }
         await validateMedia(input);
         await authorizeOwner();
-        return preparePosting(operation, ports.posting, job);
+        return preparePosting(operation, posting, job);
       }
       return {
         replay: {
@@ -245,10 +277,17 @@ export function firstSongDriver(
           await releaseRegistration(input, ports.release, "execute"),
         );
       if (operation.step === "publication") {
+        const posting = ports.posting;
+        if ("protectedPosts" in posting) {
+          insist(job?.job_id === operation.job_id && job.lease_token,
+            "protected_posts_owner_lease_required", 403);
+          await validateProtectedPostsOwner(input, posting);
+          return posting.protectedPosts.execute(operation, job);
+        }
         await validateMedia(input);
         const owner=await authorizeOwner();
         const beforeBroadcast=async()=>{
-          await ports.posting.beforeBroadcast?.(operation);
+          await posting.beforeBroadcast?.(operation);
           if(!owner)return;
           insist(job?.lease_token,"publication_lease_lost",409);
           const held=await ports.db.withSession("first-primary").prepare(`SELECT e.request_hash,e.prepared_json FROM external_operations e
@@ -261,10 +300,10 @@ export function firstSongDriver(
         };
         if (catalogOwner(ports.managed.configuration.policies.admission)) {
           insist(ports.catalog,"recognition_runtime_unconfigured",503);
-          return executePosting(operation,{...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}},job);
+          return executePosting(operation,{...posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}},job);
         }
         await authorizeOwner();
-        return executePosting(operation, {...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await authorizeOwner();}},job);
+        return executePosting(operation, {...posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await authorizeOwner();}},job);
       }
       return confirmed(
         await releasePin(
@@ -286,8 +325,12 @@ export function firstSongDriver(
         return reconcileAdmission(input, ports.managed, ports.acrEndpoint);
       if (operation.step === "registration")
         return releaseRegistration(input, ports.release, "reconcile");
-      if (operation.step === "publication")
-        return reconcilePosting(operation, ports.posting);
+      if (operation.step === "publication") {
+        const posting = ports.posting;
+        if ("protectedPosts" in posting)
+          return posting.protectedPosts.reconcile(operation, job);
+        return reconcilePosting(operation, posting);
+      }
       return releasePin(
         input,
         ports.release,
@@ -309,8 +352,12 @@ export function firstSongDriver(
           ports.acrEndpoint,
           result,
         );
-      if (operation.step === "publication")
-        return validatePosting(operation, ports.posting, result);
+      if (operation.step === "publication") {
+        const posting = ports.posting;
+        if ("protectedPosts" in posting)
+          return posting.protectedPosts.validate(operation, result, job);
+        return validatePosting(operation, posting, result);
+      }
       return validateReleaseResult(
         input,
         ports.release,
