@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -220,6 +221,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
     await rm(directory, { recursive: true, force: true });
   });
   async function boot(pairingOnly = false) {
+    let draftAuthority: (() => void) | undefined;
     const filebaseCredentials = createWeb2FilebaseCredentials({
       scope, secretName, auth,
       async bind(bytes) {
@@ -357,7 +359,13 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
         ...(pairingOnly ? { readOnly: true as const } : {}),
         async assertHeld() {},
         createRuntime: (authorization) => createWeb2WizardRuntime({
-          ...inputs, directory: wizardDirectory, dist, authorization,
+          ...inputs, directory: wizardDirectory, dist,
+          authorization: {
+            async authorize(req, action) {
+              await authorization.authorize(req, action);
+              if (req.url === "/api/web2/draft" && action === "write") draftAuthority?.();
+            },
+          },
           ...(pairingOnly ? { pairingOnly: true as const } : {}),
           custody: { async assertHeld() {} },
         }),
@@ -386,13 +394,74 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
       return { status: response.status, json: JSON.parse(raw) };
     }
     const page = () => fetch(origin + "/?setup=linux-web2", { headers: { cookie } });
-    return { state, send, page };
+    async function draft(
+      write?: { revision: number; fields: Record<string, unknown> },
+      { paired = true, csrf = true } = {},
+    ) {
+      const current = await state();
+      return fetch(origin + "/api/web2/draft", {
+        method: "POST",
+        body: JSON.stringify(write ?? { action: "read" }),
+        headers: {
+          ...(paired ? { cookie } : {}),
+          origin,
+          "content-type": "application/json",
+          ...(csrf ? { "x-wizard-token": current.csrf } : {}),
+        },
+      });
+    }
+    async function interruptedDraft(
+      input: Record<string, unknown>,
+      boundary: "revoke" | "expire",
+    ) {
+      const { csrf } = await state();
+      let observeAdmission!: () => void;
+      const admitted = new Promise<void>(resolve => { observeAdmission = resolve; });
+      let revoked = false, authorityClock = 99;
+      draftAuthority = () => {
+        if (revoked || authorityClock >= 100) throw new CommunityError("fixture_draft_authority_ended", 403);
+        observeAdmission();
+      };
+      let request!: ReturnType<typeof httpRequest>;
+      const reply = new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+        request = httpRequest(origin + "/api/web2/draft", {
+          method: "POST",
+          headers: { cookie, origin, "content-type": "application/json", "x-wizard-token": csrf },
+        }, response => {
+          let received = "";
+          response.setEncoding("utf8");
+          response.on("data", value => { received += value; });
+          response.on("end", () => resolve({ status: response.statusCode, body: received }));
+          response.on("error", reject);
+        });
+        request.on("error", reject);
+        request.setTimeout(3000, () => request.destroy(Error("draft fixture request timed out")));
+      });
+      const content = JSON.stringify(input);
+      request.write(content.slice(0, -1));
+      try {
+        await Promise.race([
+          admitted,
+          reply.then(() => assert.fail("draft replied before its body and first authorization were complete")),
+        ]);
+        revoked = boundary === "revoke";
+        authorityClock = boundary === "expire" ? 100 : 99;
+        request.end(content.slice(-1));
+        return await reply;
+      } finally {
+        draftAuthority = undefined;
+        request.destroy();
+      }
+    }
+    return { state, send, page, draft, interruptedDraft };
   }
 
   const preview = await boot(true);
   assert.equal((await preview.page()).status, 200);
   assert.equal((await preview.state()).view.pairingOnly, true);
   assert.equal((await preview.send("prepare", prepareInput)).json.code, "web2_pairing_only");
+  assert.equal((await preview.draft()).status, 403);
+  assert.equal((await preview.draft({ revision: 0, fields: {} })).status, 403);
   assert.deepEqual(await readdir(wizardDirectory), []);
   assert.equal(writes + pinAdds + hostedPrepares + proofRequests, 0);
   await stop();
@@ -404,6 +473,32 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   await general.withSecret("fixture-general-secret", 1, async value => assert.deepEqual(Buffer.from(value), otherSecret));
   await assert.rejects(general.withKey(binding.keyReference, binding.generation, async () => assert.fail("general agent exposed publisher")));
   const original = join(wizardDirectory, "web2-wizard-original.json");
+  await assert.rejects(readFile(original), { code: "ENOENT" });
+  const fields = {
+    name: prepareInput.name, origin: prepareInput.origin,
+    controller: prepareInput.controller, owner: prepareInput.controller,
+    invite: prepareInput.inviteToken,
+  };
+  assert.equal((await first.draft(undefined, { paired: false })).status, 403);
+  assert.equal((await first.draft(undefined, { csrf: false })).status, 403);
+  assert.equal((await first.draft({ revision: 0, fields }, { csrf: false })).status, 403);
+  assert.deepEqual(await (await first.draft()).json(), { revision: 0, fields: null });
+  const rejectedAttestation = await first.draft({ revision: 0, fields: { ...fields, noticeAccepted: true } });
+  assert.equal(rejectedAttestation.status, 400);
+  const saved = await first.draft({ revision: 0, fields });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await saved.json(), { revision: 1, fields });
+  assert.deepEqual(await (await first.draft({ revision: 0, fields })).json(), { revision: 1, fields });
+  assert.equal((await first.draft({ revision: 0, fields: { ...fields, name: "Stale tab" } })).status, 409);
+  assert.deepEqual(await (await first.draft()).json(), { revision: 1, fields });
+  const revokedRestore = await first.interruptedDraft({ action: "read" }, "revoke");
+  const expiredSave = await first.interruptedDraft({ revision: 1, fields: { ...fields, name: "Late draft" } }, "expire");
+  assert.deepEqual([revokedRestore.status, expiredSave.status], [403, 403]);
+  assert(!revokedRestore.body.includes(prepareInput.inviteToken));
+  assert(!expiredSave.body.includes(prepareInput.inviteToken));
+  assert.deepEqual(await (await first.draft()).json(), { revision: 1, fields });
+  assert(!JSON.stringify(await first.state()).includes(prepareInput.inviteToken));
   await assert.rejects(readFile(original), { code: "ENOENT" });
   assert.equal((await first.send("filebase-save", { token: secret }, false)).status, 403);
   assert.equal((await first.send("filebase-save", { token: secret })).json.code, "web2_filebase_scope_required");
@@ -431,6 +526,8 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   const prepared = await first.send("prepare", prepareInput);
   assert.equal(prepared.status, 200, JSON.stringify(prepared));
   assert.equal(prepared.json.view.phase, "prepared");
+  assert.deepEqual(await (await first.draft()).json(), { revision: 1, fields: { ...fields, invite: "" } });
+  assert.equal((await first.draft({ revision: 1, fields })).status, 409);
   assert.equal(pinAdds, 1);
   assert.equal(hostedPrepares, 1);
   assert.equal(foregroundKeyAttempts + proofRequests + signatures, 0);

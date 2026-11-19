@@ -17,7 +17,11 @@ export function WizardEntry(props:{cloudflare:()=>JSX.Element}){
  })().catch(e=>setError(e instanceof Error?e.message:"Reconnect to the original authenticated setup runner."));});
  return <>
   <nav class="wizard-modes" aria-label="Hosting setup">
-   <a href="/?setup=linux-web2" aria-current={mode()==="linux-web2"?"page":undefined}>HTTPS community</a>
+   <a href="/?setup=linux-web2" aria-current={mode()==="linux-web2"?"page":undefined}
+    onClick={event=>{
+     if(mode()==="linux-web2"&&event.button===0&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey)
+      event.preventDefault();
+    }}>HTTPS community</a>
    <a href="/?setup=linux" aria-current={mode()==="linux"?"page":undefined}>Linux / existing VPS</a>
    <a href="/?setup=cloudflare" aria-current={mode()==="cloudflare"?"page":undefined}>Cloudflare setup</a>
   </nav>

@@ -1,6 +1,8 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
 import { formatEther, type TypedDataDefinition } from "viem";
 import { hashJson } from "../../../packages/community/common.ts";
+import { httpsOrigin } from "../../../packages/community/manifest-core.ts";
+import type { Web2OperatorDraft } from "../web2-setup-draft.ts";
 import {createWeb2MossWindow} from "./web2-moss-window.ts";
 import { Web2FilebaseSetup } from "./web2-filebase-setup.tsx";
 import {
@@ -24,6 +26,12 @@ export function Web2Wizard() {
     [controller, setController] = createSignal(""),
     [owner, setOwner] = createSignal(""),
     [invite, setInvite] = createSignal("");
+  const [controllerConnected, setControllerConnected] = createSignal(false);
+  const [draftState, setDraftState] = createSignal<"idle" | "saving" | "saved" | "failed">("idle");
+  const [draftError, setDraftError] = createSignal("");
+  let draftRevision = 0, savingDraft = false;
+  let draftFields: Web2OperatorDraft = { name: "", origin: "", controller: "", owner: "", invite: "" };
+  let queuedDraft: Web2OperatorDraft | undefined;
   const [rolesReviewed, setRolesReviewed] = createSignal(false),
     [ownerReviewed, setOwnerReviewed] = createSignal(false),
     [accepted, setAccepted] = createSignal(false),
@@ -43,6 +51,65 @@ export function Web2Wizard() {
   const registrationExpiredNotice = "The saved registration challenge expired. Reconcile the original enrollment to check its status.";
   const deadlineText = (deadline: number) => new Date(deadline).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
   const filebaseReady = () => !view()?.filebase || view()?.filebase?.status === "ready";
+  const eligibleOrigin = () => {
+    try { return httpsOrigin(origin()) === origin(); }
+    catch { return false; }
+  };
+  const prepareReady = () => !locked() && filebaseReady() && draftState() === "saved" &&
+    controllerConnected() && rolesReviewed() && accepted() && Boolean(view()?.serverPublisher) &&
+    controller() !== view()?.serverPublisher?.address && name().trim().length > 0 && !/[<>\u0000-\u001f]/.test(name()) &&
+    eligibleOrigin() && /^0x[a-f0-9]{40}$/.test(owner()) && !/^0x0+$/.test(owner()) &&
+    /^[a-f0-9]{64}$/.test(invite());
+
+  async function saveDraft() {
+    if (savingDraft || !queuedDraft) return;
+    savingDraft = true;
+    setDraftState("saving");
+    setDraftError("");
+    try {
+      while (queuedDraft) {
+        const fields = queuedDraft;
+        queuedDraft = undefined;
+        try {
+          const saved = await api.draft(snapshot()!.csrf, { revision: draftRevision, fields });
+          draftRevision = saved.revision;
+        } catch (error) {
+          queuedDraft ??= fields;
+          setDraftState("failed");
+          setDraftError(error instanceof Error ? error.message : "The paired runner could not save the draft.");
+          return;
+        }
+      }
+      setDraftState("saved");
+    } finally {
+      savingDraft = false;
+    }
+  }
+
+  function rememberDraft(changes: Partial<Web2OperatorDraft>) {
+    if (!snapshot() || view()?.pairingOnly || view()?.selection) return;
+    draftFields = { ...draftFields, ...changes };
+    queuedDraft = draftFields;
+    void saveDraft();
+  }
+
+  async function loadDraft() {
+    const fresh = await api.state();
+    if (!fresh.view.pairingOnly) {
+      const saved = await api.draft(fresh.csrf);
+      draftRevision = saved.revision;
+      if (saved.fields) {
+        draftFields = saved.fields;
+        setName(saved.fields.name);
+        setOrigin(saved.fields.origin);
+        setController(saved.fields.controller);
+        setOwner(saved.fields.owner);
+        setInvite(saved.fields.invite);
+        setDraftState("saved");
+      }
+    }
+    return fresh;
+  }
   const offeredPractice = () => view()?.privatePracticeSelection ?? (view()?.privateStudyAvailable ? "study-v5" : undefined);
   const practiceSelection = () => {
     const retained = view()?.installationSelection;
@@ -78,8 +145,17 @@ export function Web2Wizard() {
   }
   onSettled(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    void perform(() => api.state());
-    return () => clearInterval(tick);
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!savingDraft && !queuedDraft) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    void perform(loadDraft);
+    return () => {
+      clearInterval(tick);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
   });
   const send = async (
     action: Web2Action,
@@ -173,6 +249,7 @@ export function Web2Wizard() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (!prepareReady()) return;
               void perform(async () => {
                 const state = await send("prepare", {
                   name: name(),
@@ -193,7 +270,11 @@ export function Web2Wizard() {
                 required
                 maxlength={63}
                 value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
+                onInput={(e) => {
+                  const name = e.currentTarget.value;
+                  setName(name);
+                  rememberDraft({ name });
+                }}
                 disabled={locked()}
               />
             </label>
@@ -202,9 +283,14 @@ export function Web2Wizard() {
               <input
                 required
                 type="url"
+                maxlength={300}
                 placeholder="https://community.example"
                 value={origin()}
-                onInput={(e) => setOrigin(e.currentTarget.value)}
+                onInput={(e) => {
+                  const origin = e.currentTarget.value;
+                  setOrigin(origin);
+                  rememberDraft({ origin });
+                }}
                 disabled={locked()}
               />
             </label>
@@ -214,9 +300,12 @@ export function Web2Wizard() {
               onClick={() =>
                 void perform(async () => {
                   const account = await wallet().connect();
+                  const selectedOwner = owner() || account.address;
                   setController(account.address);
-                  if (!owner()) setOwner(account.address);
+                  setControllerConnected(true);
+                  setOwner(selectedOwner);
                   setRolesReviewed(false);
+                  rememberDraft({ controller: account.address, owner: selectedOwner });
                   return api.state();
                 })
               }
@@ -224,6 +313,9 @@ export function Web2Wizard() {
               Connect MOSS
             </button>
             <p>Controller: {controller() || "Connect your human controller"}</p>
+            <Show when={controller() && !controllerConnected()}>
+              <p>Reconnect MOSS to confirm this saved controller.</p>
+            </Show>
             <p>
               Server publisher:{" "}
               {view()!.serverPublisher?.address ??
@@ -234,11 +326,14 @@ export function Web2Wizard() {
               <input
                 required
                 pattern="0x[a-fA-F0-9]{40}"
+                maxlength={42}
                 value={owner()}
                 onInput={(e) => {
-                  setOwner(e.currentTarget.value.toLowerCase());
+                  const owner = e.currentTarget.value.toLowerCase();
+                  setOwner(owner);
                   setRolesReviewed(false);
                   setOwnerReviewed(false);
+                  rememberDraft({ owner });
                 }}
                 disabled={locked()}
               />
@@ -257,10 +352,15 @@ export function Web2Wizard() {
               <input
                 required
                 pattern="[a-f0-9]{64}"
+                maxlength={64}
                 type="password"
                 autocomplete="off"
                 value={invite()}
-                onInput={(e) => setInvite(e.currentTarget.value)}
+                onInput={(e) => {
+                  const invite = e.currentTarget.value;
+                  setInvite(invite);
+                  rememberDraft({ invite });
+                }}
                 disabled={locked()}
               />
             </label>
@@ -274,19 +374,19 @@ export function Web2Wizard() {
               />
               I accept this pilot notice and its storage limitations.
             </label>
-            <button
-              type="submit"
-              disabled={
-                locked() ||
-                !accepted() ||
-                !rolesReviewed() ||
-                !controller() ||
-                !view()!.serverPublisher ||
-                !filebaseReady()
-              }
-            >
-              Prepare enrollment
-            </button>
+            <Show when={draftState() === "saving"}>
+              <p role="status">Saving draft…</p>
+            </Show>
+            <Show when={draftState() === "saved"}>
+              <p role="status">Draft saved for this paired session.</p>
+            </Show>
+            <Show when={draftState() === "failed"}>
+              <p role="alert">{draftError()}</p>
+              <button type="button" disabled={locked()} onClick={() => void saveDraft()}>
+                Save draft again
+              </button>
+            </Show>
+            <button type="submit" disabled={!prepareReady()}>Prepare enrollment</button>
           </form>
         </Show>
         <p role="status">Setup state: {view()!.phase}</p>

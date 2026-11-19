@@ -10,7 +10,7 @@ import { SetupError } from "./model.ts";
 import type { Setup } from "./setup.ts";
 import type { LinuxSetup } from "./linux-setup.ts";
 import type { Web2Setup } from "./web2-setup.ts";
-import { CommunityError } from "../../../packages/community/common.ts";
+import { CommunityError, exact, object } from "../../../packages/community/common.ts";
 import { LinuxInputError } from "../../../packages/community-setup/shared-linux-profile.ts";
 
 async function body(req: IncomingMessage, limit = 24_576) {
@@ -149,6 +149,17 @@ export function createWizardServer(
           if (!integrations.web2) throw new CommunityError("web2_setup_unavailable", 503);
           await integrations.authorizeWeb2!(req, "write");
           const action = path.slice("/api/web2/".length);
+          if (action === "draft") {
+            const draftInput = object(await body(req, 4096));
+            const restore = draftInput.action === "read";
+            if (restore) exact(draftInput, ["action"]);
+            // A stalled body can outlive the paired session.
+            await integrations.authorizeWeb2!(req, "write");
+            json(200, restore
+              ? integrations.web2.operatorDraft()
+              : integrations.web2.saveOperatorDraft(draftInput));
+            return;
+          }
           const view = await integrations.web2.send(action, await body(req, action === "filebase-save" ? 8192 : 196_608));
           json(200, { available: true, csrf, view });
           return;
@@ -303,6 +314,9 @@ const web2Corrections: Record<string,string> = {
   hosted_signing_request_changed: "The service returned different signing terms. No wallet request is authorized. Reconnect to the selected service.",
   web2_revision_changed: "Another tab or request advanced setup. Refresh the original runner before continuing.",
   web2_original_selection_changed: "This runner retains an existing community request. Reconcile that original instead of replacing it.",
+  web2_operator_draft_invalid: "Check the draft fields and try saving again.",
+  web2_operator_draft_changed: "This draft changed in another Wizard tab. Reload to use the saved draft.",
+  web2_operator_draft_closed: "The retained setup already owns these inputs. Refresh it before continuing.",
   web2_registration_challenge_expired: "The saved registration challenge expired. Reconcile the original enrollment to check its status.",
   hosted_request_refused: "The hosted service refused this step or is unavailable. Keep the original request and check enrollment status.",
   pilot_notice_required: "Read and accept the selected pilot notice before preparation.",

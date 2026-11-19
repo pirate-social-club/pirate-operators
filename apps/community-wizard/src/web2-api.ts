@@ -1,3 +1,8 @@
+import {
+  web2OperatorDraftSnapshotFrom,
+  type Web2OperatorDraft,
+  type Web2OperatorDraftSnapshot,
+} from "../web2-setup-draft.ts";
 import type { Web2WizardView } from "../server/web2-setup.ts";
 export type { Web2WizardView };
 export interface Web2Snapshot {
@@ -155,8 +160,29 @@ export function createWeb2WizardClient(
       ...(operatorSessionExpiresAt === undefined ? {} : { operatorSessionExpiresAt }),
     };
   }
+  async function draft(
+    csrf: string,
+    write?: { revision: number; fields: Web2OperatorDraft },
+  ): Promise<Web2OperatorDraftSnapshot> {
+    const response = await transport("/api/web2/draft", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Wizard-Token": csrf },
+      body: JSON.stringify(write ?? { action: "read" }),
+      ...(write ? { keepalive: true } : {}),
+      signal: AbortSignal.timeout(5000),
+    });
+    const value: unknown = await response.json();
+    if (!response.ok)
+      throw Error(record(value) && typeof value.error === "string" ?
+        value.error : "The paired runner could not save the draft.");
+    return web2OperatorDraftSnapshotFrom(value);
+  }
+
   return {
     state: () => request(),
+    draft,
     send: (
       action: Web2Action,
       input: Record<string, unknown>,

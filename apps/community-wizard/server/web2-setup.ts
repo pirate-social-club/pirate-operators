@@ -1,4 +1,8 @@
 import {
+  web2OperatorDraftFrom,
+  type Web2OperatorDraftSnapshot,
+} from "../web2-setup-draft.ts";
+import {
   createWeb2PublishingSetup,
   prepareWeb2WizardRegistration,
   type Web2PublishingInputs,
@@ -216,6 +220,26 @@ export async function createWeb2Setup(
   await filebase?.restore();
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
+  let draft: Web2OperatorDraftSnapshot = { revision: 0, fields: null };
+
+  function operatorDraft(): Web2OperatorDraftSnapshot {
+    insist(!pairingOnly, "web2_pairing_only", 403);
+    return structuredClone(draft);
+  }
+
+  function saveOperatorDraft(input: unknown): Web2OperatorDraftSnapshot {
+    insist(!pairingOnly, "web2_pairing_only", 403);
+    insist(!journal.request && !busy, "web2_operator_draft_closed", 409);
+    const request = object(input);
+    exact(request, ["revision", "fields"]);
+    const revision = integer(request.revision, 0, Number.MAX_SAFE_INTEGER);
+    const fields = web2OperatorDraftFrom(request.fields);
+    if (canonical(fields) === canonical(draft.fields)) return operatorDraft();
+    insist(revision === draft.revision, "web2_operator_draft_changed", 409);
+    draft = { revision: revision + 1, fields };
+    return operatorDraft();
+  }
+
   function snapshot(): Web2WizardView {
     const e = journal.prepared
       ? parseEnrollment(journal.prepared.enrollment)
@@ -407,6 +431,7 @@ export async function createWeb2Setup(
           );
           journal.request = selected;
           journal.inviteToken = inviteToken;
+          if (draft.fields) draft.fields = { ...draft.fields, invite: "" };
           journal.plan = wire(planDocument(plan));
           journal.deployment = deployment;
         }
@@ -690,6 +715,8 @@ export async function createWeb2Setup(
   }
   return {
     snapshot,
+    operatorDraft,
+    saveOperatorDraft,
     publishingAttachment: publishing.attachment,
     send(action: string, value: unknown) {
       if (busy)
