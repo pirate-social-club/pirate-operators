@@ -35,7 +35,9 @@ import {
   type PublicationCaptureV2,
 } from "../packages/dance/capture-v2.ts";
 import type { DanceFence } from "../packages/dance/contracts.ts";
-import { dancePublicationStatusVersion, readDancePublicationStatus, type DancePublicationStatus } from "../packages/dance/publication-status.ts";
+import {
+  dancePublicationStatusVersion, isDancePublicationRequestId, readDancePublicationStatus, type DancePublicationStatus,
+} from "../packages/dance/publication-status.ts";
 import { DANCE_DB_NOW } from "../packages/dance/store.ts";
 import { danceId, validateFence } from "../packages/dance/validation.ts";
 import type { PublicReadPorts } from "./community-public.ts";
@@ -341,7 +343,7 @@ async function readInstalledDancePublicationStatus(
   insist(body.commandId === requestId, "dance_not_found", 404);
   const action = store.same(saved, store.original(context.communityId, captureId, kind, accountId, body));
   const ready = await store.ready(action.command_id);
-  let state: DancePublicationStatus["state"] = "held";
+  let state: DancePublicationStatus["state"] | "held" = "held";
   if (!ready) {
     if (observe && kind === "register") {
       const row = await db.withSession("first-primary").prepare(
@@ -359,9 +361,11 @@ async function readInstalledDancePublicationStatus(
   } else if (observe) {
     try {
       const result = await observeRetainedDanceV2Action(store, action, ready, observe, request.signal);
-      state = readDancePublicationStatus({
-        version: dancePublicationStatusVersion, requestId, actionId: action.command_id, state: result.state,
-      }, requestId).state;
+      if (result.state !== "held") {
+        state = readDancePublicationStatus({
+          version: dancePublicationStatusVersion, requestId, actionId: action.command_id, state: result.state,
+        }, requestId).state;
+      }
     } catch {
       request.signal.throwIfAborted();
     }
@@ -378,6 +382,7 @@ async function readInstalledDancePublicationStatus(
     "dance_publication_original_changed", 503);
   await session.check();
   request.signal.throwIfAborted();
+  insist(state !== "held", "dance_publication_status_unavailable", 503);
   return { version: dancePublicationStatusVersion, requestId, actionId: action.command_id, state };
 }
 
@@ -388,25 +393,28 @@ export function readInstalledDanceSubmissionStatus(
   const match = submissionStatusPath.exec(url.pathname);
   insist(input.request.method === "GET" && match && url.searchParams.size === 1,
     "dance_publication_status_invalid", 400);
+  const requestId = url.searchParams.get("requestId");
+  insist(isDancePublicationRequestId(requestId), "dance_invalid_id", 400);
   return readInstalledDancePublicationStatus(input, bytes32(match[1]), "register",
-    danceId(url.searchParams.get("requestId")), checkMount, observe);
+    requestId, checkMount, observe);
 }
 
 export async function installedDancePublicationAction(
   input: DancePublicationActionInput, checkMount: () => Promise<void>, observe: DanceV2Observation | undefined,
   dispatch: ((input: DancePublicationActionInput, commandId: Hex) => Promise<void>) | undefined,
 ) {
-  const { commandId } = await applyDancePublicationAction(input, undefined, true, true);
   const body = object(input.body);
+  const requestId = body.commandId;
+  insist(isDancePublicationRequestId(requestId), "dance_invalid_id", 400);
+  const { commandId } = await applyDancePublicationAction(input, undefined, true, true);
   const path = new URL(input.request.url).pathname;
   const kind = path === registerPath ? "register" : "verdict";
   const captureId = bytes32(kind === "register" ? body.captureId : verdictPath.exec(path)?.[1]);
-  const requestId = danceId(body.commandId);
   const status = () => readInstalledDancePublicationStatus(input, captureId, kind, requestId, checkMount, observe);
   const observed = await status();
   insist(observed.actionId === commandId, "dance_publication_original_changed", 409);
   if (observed.state !== "awaiting_publisher") return observed;
-  if (!dispatch) return { ...observed, state: "held" as const };
+  insist(dispatch, "dance_publication_status_unavailable", 503);
   try {
     await dispatch(input, commandId);
   } catch (error) {

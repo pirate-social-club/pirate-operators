@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { decodeAbiParameters, encodeAbiParameters } from "viem";
-import { hashJson, hashText } from "../packages/community/common.ts";
+import { CommunityError, hashJson, hashText } from "../packages/community/common.ts";
 import type { AccountSession } from "../packages/community/accounts.ts";
 import { installedDancePublicationAction, readDanceV2PrivateRegistration, readInstalledDanceSubmissionStatus, type DancePublicationActionInput } from "../services/dance-publication-actions.ts";
 import { danceCommand, danceConsentHash, danceMediaBinding, danceMediaId, danceRecordingBinding, danceRecordingReplay, danceSubmissionHash, danceSubmissionId } from "../packages/dance-chain/v2/wire.ts";
@@ -19,6 +19,10 @@ import { nativeDanceObservationPath, nativeDanceResponse, readNativeDanceReferen
 import { publicationAcceptSessionHeader, publicationHostOrigin } from "../services/native-publication-reference.ts";
 import type { CommunityPrivateDance } from "../services/community-private-dance.ts";
 import { parseDanceCaptureV2, type PublicationCaptureV2 } from "../packages/dance/capture-v2.ts";
+
+const refusal = (code: string, status: number) => (error: unknown) =>
+  error instanceof CommunityError && error.code === code && error.status === status;
+const unavailable = refusal("dance_publication_status_unavailable", 503);
 
 test("ordinary status requires the original accepting session before ready and preserves a dormant ready action", async t => {
   const local = new MemorySqliteD1();
@@ -49,7 +53,9 @@ test("ordinary status requires the original accepting session before ready and p
   const installation = Object.assign(Object.create(PublicationInstallation.prototype), { db, expected }) as PublicationInstallation;
   const selection = { publication: { db, installation }, publisher } as unknown as Web2PublicDanceInputs;
   const { captureId, captureHash } = bound;
-  const body = { commandId: "fixture-original", captureId, mediaId: "fixture-media", recordingSha256: hashText("recording") };
+  const body = { commandId: "06919cef-70a4-4c1e-ad8c-26c801ee3f96",
+    captureId, mediaId: "fixture-media", recordingSha256: hashText("recording") };
+  const otherRequest = "16919cef-70a4-4c1e-ad8c-26c801ee3f96";
   const context = { communityId, origin }, deadline = Date.now() + 60_000;
   local.sqlite.prepare("INSERT INTO publication_v1_installed_selection VALUES(?,?,?,?,?,?)")
     .run(communityId, expected.installationId, origin, expected.incarnation, expected.installedBindingSha256, expected.selectionSha256);
@@ -80,19 +86,27 @@ test("ordinary status requires the original accepting session before ready and p
   const original = store.original(communityId, captureId, "register", account, body);
   const baseContext = hashJson({ captureHash, binding, publisher });
   const acceptedContext = (s: AccountSession) => danceActionAcceptanceContext(baseContext, danceDispatchSessionPin(s));
+  const invalidPost = {
+    body: { ...body, commandId: "fixture-original" },
+    get runtime() { return assert.fail("invalid request ID entered acceptance"); },
+  } as unknown as DancePublicationActionInput;
+  await assert.rejects(installedDancePublicationAction(invalidPost, async () => {}, undefined, undefined),
+    refusal("dance_invalid_id", 400));
+  assert.equal(local.count("dance_v2_action_originals"), 0);
   await store.reserve(original, acceptedContext(first), true).run();
   let observations = 0;
   const mustStayUnsent = async () => { observations++; throw Error("dormant observer"); };
-  const status = (cookie: string, observer: DanceV2Observation | undefined = mustStayUnsent, requestId = body.commandId, target = captureId) =>
+  const status = async (cookie: string, observer: DanceV2Observation | undefined = mustStayUnsent, requestId = body.commandId, target = captureId) =>
     readInstalledDanceSubmissionStatus({ context, selection, request: new Request(
       origin + "/api/dance/reviews/" + target + "/submission-status?" + new URLSearchParams({ requestId }),
       { headers: { cookie: "__Host-community_session=" + cookie, "x-dance-account": account } },
     ) }, async () => {}, observer);
-  assert.deepEqual(await status(firstCookie), {
-    version: "pirate.dance-action-status/1", requestId: body.commandId, actionId: original.command_id, state: "awaiting_chain_clock",
-  });
-  assert.equal((await status(otherCookie)).state, "held");
-  await assert.rejects(status(otherCookie, mustStayUnsent, "foreign-request"), /dance_not_found/);
+  const envelope = { version: "pirate.dance-action-status/1", requestId: body.commandId, actionId: original.command_id };
+  assert.deepEqual(await status(firstCookie), { ...envelope, state: "awaiting_chain_clock" });
+  await assert.rejects(status(otherCookie), unavailable);
+  await assert.rejects(status(otherCookie, mustStayUnsent, otherRequest), refusal("dance_not_found", 404));
+  await assert.rejects(status(firstCookie, mustStayUnsent, "fixture-original"), refusal("dance_invalid_id", 400));
+  await assert.rejects(status("e".repeat(64)), refusal("session_required", 401));
   assert.equal(observations, 0);
 
   const legacy = hashText("legacy capture");
@@ -101,7 +115,7 @@ test("ordinary status requires the original accepting session before ready and p
   local.sqlite.prepare("INSERT INTO community_media_submissions VALUES(?,?,?,?,?,?,?,?)")
     .run(communityId, legacy, account, body.mediaId, submittedAt, binding, mediaDeadline, Number(generation));
   await store.reserve(store.original(communityId, legacy, "register", account, { ...body, captureId: legacy }), baseContext, true).run();
-  assert.equal((await status(firstCookie, mustStayUnsent, body.commandId, legacy)).state, "held");
+  await assert.rejects(status(firstCookie, mustStayUnsent, body.commandId, legacy), unavailable);
 
   const saved = (await store.read(communityId, captureId, "register"))!;
   const [wire] = decodeAbiParameters([danceShapes.capture], bound.canonical.captureAbi);
@@ -129,10 +143,7 @@ test("ordinary status requires the original accepting session before ready and p
   assert.equal(await store.ready(original.command_id), null);
   await prepareWithWitness(first);
   assert.equal(await store.dispatchSessionPin(original.command_id), danceDispatchSessionPin(first));
-  const result = await status(firstCookie);
-  assert.deepEqual(result, {
-    version: "pirate.dance-action-status/1", requestId: body.commandId, actionId: original.command_id, state: "held",
-  });
+  await assert.rejects(status(firstCookie), unavailable);
   assert.equal(observations, 1, "the real ready preimage reaches the unavailable native observer");
   const submit = (cookie: string, csrf: string) => ({
     selection, context, body, runtime: { db, publicationV2: {}, source3: {} },
@@ -143,11 +154,19 @@ test("ordinary status requires the original accepting session before ready and p
   let dispatched = 0;
   const dispatch = async () => { dispatched++; };
   const check = async () => {};
-  assert.equal((await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, undefined, dispatch)).state, "held");
-  assert.equal((await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, mustStayUnsent, dispatch)).state, "held");
+  await assert.rejects(installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, undefined, dispatch), unavailable);
+  await assert.rejects(installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, mustStayUnsent, dispatch), unavailable);
   assert.equal(observations, 2);
   const absence: DanceV2Observation = async () => ({ state: "awaiting_publisher" });
-  assert.equal((await installedDancePublicationAction(submit(otherCookie, other.csrf_token), check, absence, dispatch)).state, "held");
+  const nativeHeld: DanceV2Observation = async () => ({ state: "held" });
+  await assert.rejects(status(firstCookie, nativeHeld), unavailable);
+  await assert.rejects(installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, nativeHeld, dispatch), unavailable);
+  await assert.rejects(installedDancePublicationAction(submit(otherCookie, other.csrf_token), check, absence, dispatch), unavailable);
+  await assert.rejects(installedDancePublicationAction(submit(firstCookie, "wrong-csrf"), check, absence, dispatch),
+    refusal("csrf_required", 403));
+  const mismatched = { ...submit(firstCookie, first.csrf_token), body: { ...body, commandId: otherRequest } };
+  await assert.rejects(installedDancePublicationAction(mismatched, check, absence, dispatch), refusal("dance_idempotency_conflict", 409));
+  assert.equal(local.count("dance_v2_action_originals"), 2);
   const forward = "c".repeat(64);
   let observed = 0;
   let nativeStatusCode = 202;
@@ -169,7 +188,7 @@ test("ordinary status requires the original accepting session before ready and p
       return new Response(valid.body, { status: nativeStatusCode, headers: valid.headers });
     },
   });
-  assert.deepEqual(await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, observeTransport, dispatch), result);
+  await assert.rejects(installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, observeTransport, dispatch), unavailable);
   assert.equal(observed, 1);
   assert.equal(dispatched, 0);
   assert.equal(await store.dispatchSessionPin(original.command_id), danceDispatchSessionPin(first));
@@ -178,7 +197,7 @@ test("ordinary status requires the original accepting session before ready and p
   const submitted = await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, observeTransport, dispatch);
   assert.equal(dispatched, 1);
   assert.equal(observed, 3);
-  assert.deepEqual(submitted, { ...result, state: "retained_unsent" });
+  assert.deepEqual(submitted, { ...envelope, state: "retained_unsent" });
   const observedAgain = await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check,
     async () => ({ state: "retained_unsent", transactionHash: hashText("verified transaction") }), dispatch);
   assert.deepEqual(observedAgain, submitted);

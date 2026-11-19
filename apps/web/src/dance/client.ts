@@ -5,7 +5,7 @@ import {
 import { validDanceTarget } from "../../../../packages/dance/production.ts";
 import type { DanceCapture } from "./capture.ts";
 import {
-  dancePublicationRetryable, dancePublicationTerminal, isDancePublicationStatusReply, readDancePublicationStatus,
+  dancePublicationRetryable, dancePublicationTerminal, isDancePublicationRequestId, isDancePublicationStatusReply, readDancePublicationStatus,
   type DancePublicationStatus,
 } from "../../../../packages/dance/publication-status.ts";
 import type {
@@ -423,6 +423,7 @@ export function createDanceClient(options: {
     if (hasDanceExpiredOutcome(admitted))
       throw new DanceClientError("dance_capture_expired", false, 410);
     if (admitted.receiptJson) return JSON.parse(admitted.receiptJson);
+    if (admitted.publicationStatus?.state === "held") throw new DancePublicationStatusError();
     if (admitted.retainedPublicationOriginal ||
         (admitted.publicationStatus && !dancePublicationRetryable(admitted.publicationStatus.state)))
       throw new DancePublicationStatusError(admitted.publicationStatus);
@@ -471,7 +472,7 @@ export function createDanceClient(options: {
   async function observeSubmission(entry: DanceJournalEntry, signal?: AbortSignal) {
     publicReview();
     if (entry.path !== "reviews" || entry.scope.communityId !== scope.communityId ||
-        entry.scope.accountId !== scope.accountId || !entry.attempted)
+        entry.scope.accountId !== scope.accountId || !entry.attempted || !isDancePublicationRequestId(entry.commandId))
       throw new DanceClientError("dance_publication_original_changed", true);
     const { captureId } = JSON.parse(entry.bodyJson);
     if (typeof captureId !== "string" || !/^0x[0-9a-f]{64}(?![\s\S])/.test(captureId))

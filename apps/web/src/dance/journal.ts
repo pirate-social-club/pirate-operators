@@ -1,7 +1,10 @@
 /** Owned durable command codec, adapted from pinned centralized owner/review
  * recovery. No auth tokens, media bytes or playback URLs. Atomic IndexedDB
  * reservation serializes competing tabs BEFORE dispatch. */
-import { dancePublicationRetryable, readDancePublicationStatus, type DancePublicationStatus } from "../../../../packages/dance/publication-status.ts";
+import {
+  dancePublicationRetryable, readDancePublicationStatus, readStoredDancePublicationStatus,
+  type DancePublicationStatus, type StoredDancePublicationStatus,
+} from "../../../../packages/dance/publication-status.ts";
 
 export interface DanceJournalScope {
   communityId: string;
@@ -20,7 +23,7 @@ export interface DanceJournalEntry {
   requestJson?: string;
   attempted?: true;
   publicationBound?: true;
-  publicationStatus?: DancePublicationStatus;
+  publicationStatus?: StoredDancePublicationStatus;
   retainedPublicationOriginal?: true;
   /** Actual HTTP refusal bound to this original preimage, never a local clock. */
   outcome?: DanceExpiredOutcome;
@@ -129,7 +132,7 @@ function state(v: unknown, s: DanceJournalScope): DanceJournalState {
     if (e.publicationStatus !== undefined) {
       if (e.path !== "reviews" || !e.attempted)
         throw Error("dance_journal_corrupt");
-      readDancePublicationStatus(e.publicationStatus, e.commandId);
+      readStoredDancePublicationStatus(e.publicationStatus, e.commandId);
     }
     if (e.retainedPublicationOriginal !== undefined &&
         (e.retainedPublicationOriginal !== true || !e.publicationStatus))
@@ -237,7 +240,7 @@ export function danceJournalOperations(
         if ((original.publicationStatus && original.publicationStatus.actionId !== next.actionId) ||
             (original.retainedPublicationOriginal && dancePublicationRetryable(next.state)))
           throw Error("dance_publication_original_changed");
-        const retained = !dancePublicationRetryable(next.state) && next.state !== "held";
+        const retained = !dancePublicationRetryable(next.state);
         s.active = {
           ...original,
           publicationStatus: next,

@@ -8,7 +8,7 @@ import {
   type InstalledDanceRewardBindings, type InstalledDanceRewards,
 } from "./web2-installed-dance-rewards.ts";
 import { parseCaptureRequestV2 } from "../packages/dance/capture-v2.ts";
-import { dancePublicationTerminal } from "../packages/dance/publication-status.ts";
+import { dancePublicationTerminal, isDancePublicationRequestId } from "../packages/dance/publication-status.ts";
 import { publicationApplicationFetch, type PublicationApplicationPorts } from "./publication-app.ts";
 import {
   hasNativePublicationBindings, openNativePublicationApplication, reuseNativePublicationApplication,
@@ -713,9 +713,11 @@ async function communityFetchBusiness(
       return reply(result);
     }
     if ((fixtureDance || signedDance !== undefined) && request.method === "POST" && danceV2ActionRoute(url.pathname)) {
+      const installedBody = signedDance !== undefined ? await jsonBody(request) : undefined;
+      if (installedBody) insist(isDancePublicationRequestId(installedBody.commandId), "dance_invalid_id", 400);
       const { publicDance, mounted, config, check, runtime } = await publicDanceFor(await configuration(true));
       const active = await runtime();
-      const body = await jsonBody(request);
+      const body = installedBody ?? await jsonBody(request);
       const input = { request, body, context, config, reads: publicReads, runtime: active, selection: publicDance };
       await check();
       security.set("vary", "Cookie");

@@ -5,7 +5,9 @@ import { createDanceClient, DancePublicationStatusError } from "../src/dance/cli
 import { createDanceReviewController } from "../src/dance/source/dance-review-controller.ts";
 import type { DanceCapture } from "../src/dance/capture.ts";
 import { danceTargetKey } from "../src/dance/source/ports.ts";
-import { dancePublicationStatusVersion } from "../../../packages/dance/publication-status.ts";
+import {
+  dancePublicationStatusVersion, readDancePublicationStatus, readStoredDancePublicationStatus,
+} from "../../../packages/dance/publication-status.ts";
 import { simulatedCommandStorage } from "./dance-command-storage.ts";
 import { hash, scope, sha, simulatedSource } from "./dance-source-fixtures.ts";
 
@@ -53,7 +55,7 @@ test("publication resume observes the original and only proven absence permits i
   assert.deepEqual(await client.retained!(), { ...prepared, attempted: true });
   statusCode = 200;
   mode = "held";
-  await assert.rejects(controller.load(signal), error => refuses(error) && error.publicationStatus?.state === "held");
+  await assert.rejects(controller.load(signal), error => refuses(error) && !error.publicationStatus);
   assert.ok(calls.every(call => call.method === "GET"));
   assert.equal((await client.retained!())?.commandId, prepared.commandId);
   assert.equal((await client.retained!())?.receiptJson, undefined);
@@ -120,4 +122,67 @@ test("an exact original legacy receipt stays compatible, while a wrong-version r
       assert.equal((await client.retained!())?.receiptJson, undefined);
     }
   }
+});
+
+test("publication status accepts six wire states and exact canonical UUIDs", () => {
+  const requestId = "06919cef-70a4-4c1e-ad8c-26c801ee3f96";
+  const envelope = { version: dancePublicationStatusVersion, requestId, actionId: hash(31) };
+  for (const state of [
+    "awaiting_chain_clock", "awaiting_publisher", "retained_unsent", "attempt_unknown", "confirmed", "reverted",
+  ]) {
+    const valid = { ...envelope, state };
+    assert.deepEqual(readDancePublicationStatus(valid, requestId), valid);
+  }
+  const held = { ...envelope, state: "held" };
+  assert.throws(() => readDancePublicationStatus(held, requestId), /dance_publication_status_invalid/);
+  assert.deepEqual(readStoredDancePublicationStatus(held, requestId), held);
+  const opaqueLegacy = { ...held, requestId: "fixture-original" };
+  assert.deepEqual(readStoredDancePublicationStatus(opaqueLegacy, opaqueLegacy.requestId), opaqueLegacy);
+  for (const invalid of ["fixture-original", requestId + "\n", requestId.toUpperCase()]) {
+    const status = { ...envelope, requestId: invalid, state: "awaiting_publisher" };
+    assert.throws(() => readDancePublicationStatus(status, invalid), /dance_publication_status_invalid/);
+  }
+  assert.throws(() => readDancePublicationStatus({ ...envelope, state: "confirmed" }, crypto.randomUUID()),
+    /dance_publication_status_invalid/);
+});
+
+test("an older locally held action keeps its UUID, action pin and bytes after reconnect", async () => {
+  const durable = simulatedCommandStorage();
+  const responses: Response[] = [];
+  const observedMethods: string[] = [];
+  const client = () => createDanceClient({
+    communityId: scope.communityId, accountId: scope.accountId, csrf: "fixture_csrf", isCurrent: () => true,
+    journal: durable.journal(),
+    async fetcher(_, init) {
+      observedMethods.push(init?.method ?? "GET");
+      const response = responses.shift();
+      assert.ok(response, "unexpected request");
+      return response;
+    },
+  });
+  const beforeDisconnect = client();
+  const prepared = await beforeDisconnect.prepareSubmission!(danceTargetKey(scope), hash(32), "media", hash(16), true);
+  const admitted = await durable.journal().markDispatch!(prepared);
+  const actionId = hash(33);
+  const held = readStoredDancePublicationStatus({
+    version: dancePublicationStatusVersion, requestId: prepared.commandId, actionId, state: "held",
+  }, prepared.commandId);
+  const stored = { ...admitted, publicationStatus: held };
+  const [key, oldState] = [...durable.rows.entries()][0]!;
+  durable.rows.set(key, { ...oldState, active: stored });
+  beforeDisconnect.dispose();
+  const afterReconnect = client();
+  assert.deepEqual(await afterReconnect.retained!(), stored);
+  responses.push(
+    Response.json({ error: "dance_publication_status_unavailable" }, { status: 503 }),
+    Response.json(held),
+    Response.json({ ...held, requestId: crypto.randomUUID(), state: "awaiting_publisher" }),
+    Response.json({ ...held, actionId: hash(34), state: "awaiting_publisher" }),
+  );
+  for (let poll = 0; poll < 4; poll++) {
+    await assert.rejects(afterReconnect.dispatchPrepared!(admitted),
+      error => error instanceof DancePublicationStatusError && !error.publicationStatus);
+    assert.deepEqual(await afterReconnect.retained!(), stored);
+  }
+  assert.deepEqual(observedMethods, ["GET", "GET", "GET", "GET"]);
 });
