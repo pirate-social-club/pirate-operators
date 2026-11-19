@@ -52,7 +52,7 @@ export function Web2FilebaseSetup(props: {
           <label>
             Filebase IPFS RPC token
             <input type="password" autocomplete="new-password" spellcheck={false}
-              maxLength={4096} required disabled={props.busy} value={token()}
+              maxlength={4096} required disabled={props.busy} value={token()}
               onInput={(event) => setToken(event.currentTarget.value)} />
           </label>
           <button type="submit" disabled={props.busy || !token()}>Save to Infisical</button>
