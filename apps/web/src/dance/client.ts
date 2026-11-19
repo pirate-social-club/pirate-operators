@@ -4,6 +4,10 @@ import {
 } from "../../../../packages/dance/capture-v2.ts";
 import { validDanceTarget } from "../../../../packages/dance/production.ts";
 import type { DanceCapture } from "./capture.ts";
+import {
+  dancePublicationRetryable, dancePublicationTerminal, isDancePublicationStatusReply, readDancePublicationStatus,
+  type DancePublicationStatus,
+} from "../../../../packages/dance/publication-status.ts";
 import type {
   DanceConsentAcceptance,
   DanceQueue,
@@ -34,11 +38,14 @@ export interface DanceClient {
     captureId: string,
     mediaId: string,
     recordingSha256: string,
+    publicationBound?: boolean,
   ): Promise<DanceJournalEntry>;
   dispatchPrepared?(
     entry: DanceJournalEntry,
     signal?: AbortSignal,
+    publicationBound?: boolean,
   ): Promise<unknown>;
+  observeSubmission?(entry: DanceJournalEntry, signal?: AbortSignal): Promise<DancePublicationStatus>;
   command?(commandId: string): Promise<DanceJournalEntry | null>;
   acceptedCapture?(): Promise<DanceJournalEntry | null>;
   releaseCompletedCapture?(
@@ -93,11 +100,29 @@ export class DanceClientError extends Error {
     this.status = status;
   }
 }
+export class DancePublicationStatusError extends Error {
+  readonly publicationStatus?: DancePublicationStatus;
+  constructor(publicationStatus?: DancePublicationStatus) {
+    super("dance_publication_status");
+    this.publicationStatus = publicationStatus;
+  }
+}
 export function privateAccessLost(e: unknown) {
   return (
     e instanceof DanceClientError &&
     (e.status === 401 || e.status === 403 || e.code === "dance_account_changed")
   );
+}
+
+function isLegacySubmissionReceipt(value: unknown, original: DanceJournalEntry): boolean {
+  if (!value || typeof value !== "object") return false;
+  const receipt = value as DanceReceipt;
+  return Object.keys(receipt).length === 6 && receipt.version === "pirate.dance/1" &&
+    receipt.commandId === original.commandId &&
+    receipt.reviewId === JSON.parse(original.bodyJson).captureId &&
+    Number.isSafeInteger(receipt.revision) && receipt.revision > 0 &&
+    ["awaiting_review", "decision_pending", "withdrawal_pending", "expired", "canonical"].includes(receipt.state) &&
+    (receipt.intentId === null || (typeof receipt.intentId === "string" && !!receipt.intentId));
 }
 export function createDanceClient(options: {
   communityId: string;
@@ -279,6 +304,17 @@ export function createDanceClient(options: {
       if (capture.publication.kind !== "private")
         throw new DanceClientError("dance_response_unknown", true);
     }
+    if (e.path === "reviews") {
+      if (isDancePublicationStatusReply(value)) {
+        const status = readDancePublicationStatus(value, e.commandId);
+        if (response.status !== (dancePublicationTerminal(status.state) ? 200 : 202))
+          throw new DanceClientError("dance_response_unknown", true);
+        await recordPublicationStatus(e, status);
+        throw new DancePublicationStatusError(status);
+      }
+      if (e.publicationBound || e.publicationStatus || response.status !== 200 || !isLegacySubmissionReceipt(value, e))
+        throw new DanceClientError("dance_response_unknown", true);
+    }
     const receipt = value as {
       commandId?: string;
       consent?: { receiptId?: string };
@@ -338,6 +374,7 @@ export function createDanceClient(options: {
     subject: string,
     path: string,
     body: Record<string, unknown>,
+    publicationBound = false,
   ) {
     current();
     const commandId = crypto.randomUUID(),
@@ -351,6 +388,7 @@ export function createDanceClient(options: {
       bodyJson,
       targetKey,
       requestJson: JSON.stringify({ ...body, commandId }),
+      ...(publicationBound ? { publicationBound: true as const } : {}),
     };
     const original = await journal.reserve(candidate);
     current();
@@ -358,7 +396,7 @@ export function createDanceClient(options: {
       throw new DanceClientError("dance_other_original_pending", false, 409);
     return original;
   }
-  async function dispatchPrepared(e: DanceJournalEntry, signal?: AbortSignal) {
+  async function dispatchPrepared(e: DanceJournalEntry, signal?: AbortSignal, publicationBound = false) {
     current();
     if (!journal.command || !journal.markDispatch)
       throw new DanceClientError("dance_preparation_port_unavailable");
@@ -369,11 +407,25 @@ export function createDanceClient(options: {
     if (hasDanceExpiredOutcome(original))
       throw new DanceClientError("dance_capture_expired", false, 410);
     if (original.receiptJson) return JSON.parse(original.receiptJson);
+    if (original.attempted && (publicationBound || original.publicationBound || original.publicationStatus)) {
+      let status: DancePublicationStatus;
+      try {
+        status = await observeSubmission(original, signal);
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (privateAccessLost(error)) throw error;
+        throw new DancePublicationStatusError();
+      }
+      if (!dancePublicationRetryable(status.state)) throw new DancePublicationStatusError(status);
+    }
     const admitted = await journal.markDispatch(original);
     current();
     if (hasDanceExpiredOutcome(admitted))
       throw new DanceClientError("dance_capture_expired", false, 410);
     if (admitted.receiptJson) return JSON.parse(admitted.receiptJson);
+    if (admitted.retainedPublicationOriginal ||
+        (admitted.publicationStatus && !dancePublicationRetryable(admitted.publicationStatus.state)))
+      throw new DancePublicationStatusError(admitted.publicationStatus);
     return send(admitted, signal);
   }
   async function get<T>(
@@ -405,6 +457,28 @@ export function createDanceClient(options: {
     }
     return (await readResponse(response)) as T;
   }
+  async function recordPublicationStatus(entry: DanceJournalEntry, status: DancePublicationStatus) {
+    if (!journal.recordPublicationStatus)
+      throw new DanceClientError("dance_publication_status_unavailable", true);
+    await journal.recordPublicationStatus(entry, status);
+    current();
+  }
+  async function observeSubmission(entry: DanceJournalEntry, signal?: AbortSignal) {
+    publicReview();
+    if (entry.path !== "reviews" || entry.scope.communityId !== scope.communityId ||
+        entry.scope.accountId !== scope.accountId || !entry.attempted)
+      throw new DanceClientError("dance_publication_original_changed", true);
+    const { captureId } = JSON.parse(entry.bodyJson);
+    if (typeof captureId !== "string" || !/^0x[0-9a-f]{64}(?![\s\S])/.test(captureId))
+      throw new DanceClientError("dance_publication_original_changed", true);
+    const reply = await get<unknown>(
+      "reviews/" + captureId + "/submission-status?" + new URLSearchParams({ requestId: entry.commandId }),
+      false, signal,
+    );
+    const status = readDancePublicationStatus(reply, entry.commandId);
+    await recordPublicationStatus(entry, status);
+    return status;
+  }
   return {
     prepareCapture: (target, songKey, offerId, referenceId, consent) =>
       prepare(
@@ -413,15 +487,16 @@ export function createDanceClient(options: {
         "captures",
         captureBody(songKey, offerId, referenceId, consent),
       ),
-    prepareSubmission: async (target, captureId, mediaId, recordingSha256) => {
+    prepareSubmission: async (target, captureId, mediaId, recordingSha256, publicationBound) => {
       publicReview();
       return prepare(target, "submission:" + captureId, "reviews", {
         captureId,
         mediaId,
         recordingSha256,
-      });
+      }, publicationBound);
     },
     dispatchPrepared,
+    observeSubmission,
     command: async (id) => {
       current();
       if (!journal.command) throw Error("dance_preparation_port_unavailable");

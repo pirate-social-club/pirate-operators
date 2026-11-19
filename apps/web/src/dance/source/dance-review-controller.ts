@@ -6,7 +6,7 @@ import {
 // Commands are delegated to the already admitted durable Dance client journal;
 // visibility/publication is deliberately absent while owner policy is held.
 import type { DanceReceipt } from "../../../../../packages/dance/contracts.ts";
-import { DanceClientError } from "../client.ts";
+import { DanceClientError, DancePublicationStatusError, privateAccessLost } from "../client.ts";
 import { sameOriginalCommand, type DanceJournalEntry } from "../journal.ts";
 import { verdictDigest } from "./digests.ts";
 import {
@@ -59,12 +59,34 @@ export function createDanceReviewController(
     guard();
     return value;
   };
+  const publicationBound = (capture?: import("../capture.ts").DanceCapture | null) =>
+    capture?.version === "pirate.dance/2" && capture.publication.kind === "publication-bound";
+  async function publicationStatus(command: DanceJournalEntry, signal: AbortSignal) {
+    try {
+      if (!options.client.observeSubmission) throw Error("dance_publication_status_unavailable");
+      return await options.client.observeSubmission(command, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (privateAccessLost(error)) throw error;
+      throw new DancePublicationStatusError();
+    }
+  }
   const read = async (signal: AbortSignal): Promise<DanceReviewView> => {
     const guard = guardFor(signal);
     guard();
     const entry = await options.journal.read(options.scope, guard);
     guard();
     const capture = entry.capture;
+    const submitted = entry.commands?.submit;
+    if (entry.submission === "unknown" && submitted && options.client.command) {
+      const current = await options.client.command(submitted.commandId);
+      guard();
+      if (current && current.attempted && sameOriginalCommand(current, submitted) &&
+          (current.publicationBound || current.publicationStatus || publicationBound(capture))) {
+        assertCommandTarget(current, options);
+        throw new DancePublicationStatusError(await publicationStatus(current, signal));
+      }
+    }
     if (options.reviewId) {
       if (!options.reviewId || !options.client.observe)
         throw Error("dance_original_command_missing");
@@ -203,7 +225,7 @@ export function createDanceReviewController(
       guard();
       try {
         if (command.targetKey) {
-          await client.dispatchPrepared(command, signal);
+          await client.dispatchPrepared(command, signal, command.path === "reviews" && publicationBound(entry.capture));
           guard();
           recovered = await client.command(command.commandId);
           guard();
@@ -380,6 +402,7 @@ export function createDanceReviewController(
             entry.capture.captureId,
             view.result.media.id,
             verdictDigest(entry.upload.recordingSha256),
+            publicationBound(entry.capture),
           );
           guard();
           assertCommandTarget(command, options);

@@ -8,6 +8,7 @@ import {
   type InstalledDanceRewardBindings, type InstalledDanceRewards,
 } from "./web2-installed-dance-rewards.ts";
 import { parseCaptureRequestV2 } from "../packages/dance/capture-v2.ts";
+import { dancePublicationTerminal } from "../packages/dance/publication-status.ts";
 import { publicationApplicationFetch, type PublicationApplicationPorts } from "./publication-app.ts";
 import {
   hasNativePublicationBindings, openNativePublicationApplication, reuseNativePublicationApplication,
@@ -15,8 +16,12 @@ import {
 } from "./linux-web2-publication.ts";
 import { startDancePublicationCapture } from "./dance-publication-capture-start.ts";
 import { web2PublicDanceStart, type Web2PublicDanceInputs } from "./web2-public-dance-start.ts";
-import { dancePublicationAction, danceV2ActionRoute, revalidateAcceptedDancePublicationAction } from "./dance-publication-actions.ts";
+import {
+  dancePublicationAction, danceV2ActionRoute, danceV2SubmissionStatusRoute, installedDancePublicationAction,
+  readInstalledDanceSubmissionStatus, revalidateAcceptedDancePublicationAction,
+} from "./dance-publication-actions.ts";
 import { installedNativeDanceDispatch, type RevalidateNativeDanceAction } from "./linux-web2-dance-dispatch.ts";
+import { installedNativeDanceObservation } from "./linux-web2-dance-retained-transport.ts";
 import { dancePublicationReviewerFetch, dancePublicationReviewerRoute } from "./dance-publication-review-media.ts";
 import { MAX_MEDIA_BYTES } from "../packages/community-media/validation.ts";
 import { web2ApplicationOriginal } from "./application-native-readback.ts";
@@ -697,21 +702,31 @@ async function communityFetchBusiness(
       security.set("vary", "Cookie, X-Dance-Review-Grant");
       return new Response(response.body, { status: response.status, headers: security });
     }
+    if (signedDance !== undefined && request.method === "GET" && danceV2SubmissionStatusRoute(url.pathname)) {
+      const { publicDance, mounted, check } = await publicDanceFor(await configuration(true));
+      insist(mounted, "dance_publication_runtime_unavailable", 503);
+      const result = await readInstalledDanceSubmissionStatus(
+        { request, context, selection: publicDance }, check, installedNativeDanceObservation(env),
+      );
+      security.set("vary", "Cookie");
+      security.set("cache-control", "no-store, private");
+      return reply(result);
+    }
     if ((fixtureDance || signedDance !== undefined) && request.method === "POST" && danceV2ActionRoute(url.pathname)) {
       const { publicDance, mounted, config, check, runtime } = await publicDanceFor(await configuration(true));
       const active = await runtime();
       const body = await jsonBody(request);
-      const dispatch = mounted ? installedNativeDanceDispatch(env) : undefined;
       const input = { request, body, context, config, reads: publicReads, runtime: active, selection: publicDance };
       await check();
-      const pending = await dancePublicationAction(input, Boolean(dispatch));
-      await check();
-      if (dispatch && pending.state === "awaiting_publisher") {
-        await dispatch(input, pending.commandId);
-        await check();
-      }
       security.set("vary", "Cookie");
       security.set("cache-control", "no-store, private");
+      if (mounted) {
+        const result = await installedDancePublicationAction(input, check,
+          installedNativeDanceObservation(env), installedNativeDanceDispatch(env));
+        return reply(result, dancePublicationTerminal(result.state) ? 200 : 202);
+      }
+      const pending = await dancePublicationAction(input);
+      await check();
       return reply(pending, 202);
     }
     if (

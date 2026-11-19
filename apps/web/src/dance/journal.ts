@@ -1,6 +1,8 @@
 /** Owned durable command codec, adapted from pinned centralized owner/review
  * recovery. No auth tokens, media bytes or playback URLs. Atomic IndexedDB
  * reservation serializes competing tabs BEFORE dispatch. */
+import { dancePublicationRetryable, readDancePublicationStatus, type DancePublicationStatus } from "../../../../packages/dance/publication-status.ts";
+
 export interface DanceJournalScope {
   communityId: string;
   accountId: string;
@@ -17,6 +19,9 @@ export interface DanceJournalEntry {
   targetKey?: string;
   requestJson?: string;
   attempted?: true;
+  publicationBound?: true;
+  publicationStatus?: DancePublicationStatus;
+  retainedPublicationOriginal?: true;
   /** Actual HTTP refusal bound to this original preimage, never a local clock. */
   outcome?: DanceExpiredOutcome;
 }
@@ -57,6 +62,7 @@ export interface DanceJournal {
   ): Promise<DanceJournalEntry | null>;
   acceptedCapture?(scope: DanceJournalScope): Promise<DanceJournalEntry | null>;
   markDispatch?(entry: DanceJournalEntry): Promise<DanceJournalEntry>;
+  recordPublicationStatus?(entry: DanceJournalEntry, status: DancePublicationStatus): Promise<void>;
 }
 export interface DanceJournalState {
   active: DanceJournalEntry | null;
@@ -72,6 +78,7 @@ export function identicalCommand(a: DanceJournalEntry, b: DanceJournalEntry) {
     a.path === b.path &&
     a.bodyJson === b.bodyJson &&
     a.targetKey === b.targetKey &&
+    a.publicationBound === b.publicationBound &&
     a.subject === b.subject
   );
 }
@@ -116,6 +123,16 @@ function state(v: unknown, s: DanceJournalScope): DanceJournalState {
     )
       throw Error("dance_journal_corrupt");
     if (e.outcome !== undefined && !hasDanceExpiredOutcome(e))
+      throw Error("dance_journal_corrupt");
+    if (e.publicationBound !== undefined && (e.publicationBound !== true || e.path !== "reviews"))
+      throw Error("dance_journal_corrupt");
+    if (e.publicationStatus !== undefined) {
+      if (e.path !== "reviews" || !e.attempted)
+        throw Error("dance_journal_corrupt");
+      readDancePublicationStatus(e.publicationStatus, e.commandId);
+    }
+    if (e.retainedPublicationOriginal !== undefined &&
+        (e.retainedPublicationOriginal !== true || !e.publicationStatus))
       throw Error("dance_journal_corrupt");
   }
   return result;
@@ -210,6 +227,23 @@ export function danceJournalOperations(
         return e;
       }),
     active: (s) => transact(s, false, (v) => v.active),
+    recordPublicationStatus: (e, status) =>
+      transact(e.scope, true, (s) => {
+        const original = s.active;
+        if (!original || !sameOriginalCommand(original, e) || original.path !== "reviews" ||
+            !original.attempted || original.receiptJson || original.outcome)
+          throw Error("dance_journal_conflict");
+        const next = readDancePublicationStatus(status, original.commandId);
+        if ((original.publicationStatus && original.publicationStatus.actionId !== next.actionId) ||
+            (original.retainedPublicationOriginal && dancePublicationRetryable(next.state)))
+          throw Error("dance_publication_original_changed");
+        const retained = !dancePublicationRetryable(next.state) && next.state !== "held";
+        s.active = {
+          ...original,
+          publicationStatus: next,
+          ...(retained ? { retainedPublicationOriginal: true as const } : {}),
+        };
+      }),
     latest: (s) => transact(s, false, (v) => v.latest ?? null),
     acknowledge: (s, commandId) =>
       transact(s, true, (v) => {
@@ -232,7 +266,7 @@ export function danceJournalOperations(
             return;
           throw Error("dance_journal_conflict");
         }
-        s.accepted[e.subject] = { ...e, receiptJson };
+        s.accepted[e.subject] = { ...s.active, receiptJson };
         s.latest = s.accepted[e.subject];
         s.active = null;
       }),

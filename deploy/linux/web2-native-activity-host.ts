@@ -23,9 +23,10 @@ import { selectLocalAsr } from "./web2-native-study-asr.ts";
 import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
 import { publicationAcceptSessionHeader, publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
 import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
-import { nativeDanceDispatchPath, nativeDanceHostPath } from "../../services/native-dance-retained-reference.ts";
+import { nativeDanceDispatchPath, nativeDanceHostPath, nativeDanceObservationPath } from "../../services/native-dance-retained-reference.ts";
 
-const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath || path === nativeDanceDispatchPath;
+const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath ||
+  path === nativeDanceDispatchPath || path === nativeDanceObservationPath;
 
 const UPLOAD_IDLE_MS = 15_000;
 const PROCESSING_MS = new Map<string, number>([
@@ -58,7 +59,7 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
     const value = incoming.headers[key];
     if (typeof value === "string") headers.set(key, value);
   }
-  if (incoming.url === nativeDanceDispatchPath) {
+  if (incoming.url === nativeDanceDispatchPath || incoming.url === nativeDanceObservationPath) {
     const session = incoming.headers[publicationAcceptSessionHeader];
     if (typeof session === "string") headers.set(publicationAcceptSessionHeader, session);
   }

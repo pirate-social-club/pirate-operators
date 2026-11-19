@@ -11,13 +11,13 @@ import { publicationResponseBytes } from "./publication-app-documents.ts";
 import { web2ApplicationOriginal } from "./application-native-readback.ts";
 import { isWeb2Deployment, readCommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import { DanceV2ActionStore, type DanceV2Action, type DanceV2ReadyCommand } from "./dance-v2-action-store.ts";
-import type { DanceV2OriginalLookup } from "./dance-v2-action-recovery.ts";
+import type { DanceV2Observation, DanceV2OriginalLookup } from "./dance-v2-action-recovery.ts";
 import { openNativePublicationApplication, reuseNativePublicationApplication, type NativePublicationApplicationEnv } from "./linux-web2-publication.ts";
 import {
   checkedPublicationCapability, nativePublicationAuthorized, publicationAcceptSessionHeader, publicationHostOrigin,
 } from "./native-publication-reference.ts";
 import {
-  assertNativeDanceScope, nativeDanceAttempt, nativeDanceHostPath, nativeDanceReadyPath,
+  assertNativeDanceScope, nativeDanceAttempt, nativeDanceHostPath, nativeDanceObservation, nativeDanceObservationPath, nativeDanceReadyPath,
   nativeDanceReference, nativeDanceReply, nativeDanceReplyLimit, nativeDanceResponse, readNativeDanceReference,
   type NativeDanceRetainedScope,
 } from "./native-dance-retained-reference.ts";
@@ -112,6 +112,36 @@ export function installedNativeDanceOriginals(env: NativeDanceTransportEnv): Dan
       return result;
     },
   });
+}
+
+export function installedNativeDanceObservation(env: NativeDanceTransportEnv): DanceV2Observation | undefined {
+  const host = env.PUBLICATION_OPERATOR_HOST, forward = env.PUBLICATION_OPERATOR_HOST_AUTH,
+    reverse = env.PUBLICATION_RETAINED_LOOKUP_AUTH;
+  if (!host || !forward || !reverse || forward === reverse) return undefined;
+  return async (original, caller) => {
+    const access = checkedPublicationCapability(forward);
+    const mount = await openInstalledDanceScope(env);
+    const ref = nativeDanceReference({ schema: "pirate.native-dance-retained-reference/1",
+      installationId: mount.scope.installationId, releaseSha256: mount.scope.releaseSha256, original });
+    assertNativeDanceScope(ref, mount.scope);
+    const checkPorts = () => insist(env.PUBLICATION_OPERATOR_HOST === host &&
+      env.PUBLICATION_OPERATOR_HOST_AUTH === forward && env.PUBLICATION_RETAINED_LOOKUP_AUTH === reverse,
+      "native_dance_scope_changed", 503);
+    checkPorts();
+    const signal = AbortSignal.any([caller, AbortSignal.timeout(10000)]);
+    const response = await host.fetch(new Request(publicationHostOrigin + nativeDanceObservationPath, {
+      method: "POST", body: canonical(ref), redirect: "manual", signal,
+      headers: { authorization: "Bearer " + access, "content-type": "application/json" },
+    }));
+    insist(response.ok && response.headers.get("content-type") === "application/json",
+      "native_dance_observation_unavailable", 503);
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await publicationResponseBytes(response, nativeDanceReplyLimit));
+    const observed = nativeDanceObservation(nativeDanceReply(raw, ref));
+    await mount.assertCurrent();
+    checkPorts();
+    signal.throwIfAborted();
+    return observed;
+  };
 }
 
 /** Private reverse path. It signs and writes nothing. The request describes a

@@ -6,6 +6,7 @@ import { publicationResponseBytes } from "./publication-app-documents.ts";
 import { exact, record } from "./publication-command-contract.ts";
 
 export const nativeDanceHostPath = "/publication/v1/dance-retained";
+export const nativeDanceObservationPath = "/publication/v1/dance-observation";
 export const nativeDanceDispatchPath = "/publication/v1/dance-dispatch";
 export const nativeDanceDispatchReadyPath = "/_operator/native-publication/dance-dispatch-ready";
 export const nativeDanceReadyPath = "/_operator/native-publication/dance-ready";
@@ -91,3 +92,16 @@ export function nativeDanceReply(raw: string, ref: NativeDanceRetainedReference)
   check(raw === canonical(body) && body.reference === digest(ref), "native_dance_reply_changed");
   return body.result;
 }
+
+export function nativeDanceObservation(value: unknown) {
+  const result = record(value), { state } = result;
+  if (state === "awaiting_publisher" || state === "held") {
+    exact(result, ["state"]);
+    return { state };
+  }
+  check(state === "retained_unsent" || state === "attempt_unknown" ||
+    state === "confirmed" || state === "reverted", "native_dance_observation_invalid");
+  exact(result, ["state", "transactionHash"]);
+  return { state, transactionHash: consentDigest(result.transactionHash) };
+}
+export type NativeDanceObservationResult = ReturnType<typeof nativeDanceObservation>;

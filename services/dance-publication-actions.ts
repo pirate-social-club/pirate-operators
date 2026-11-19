@@ -35,16 +35,19 @@ import {
   type PublicationCaptureV2,
 } from "../packages/dance/capture-v2.ts";
 import type { DanceFence } from "../packages/dance/contracts.ts";
+import { dancePublicationStatusVersion, readDancePublicationStatus, type DancePublicationStatus } from "../packages/dance/publication-status.ts";
 import { DANCE_DB_NOW } from "../packages/dance/store.ts";
 import { danceId, validateFence } from "../packages/dance/validation.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import type { CommunityPrivateDance } from "./community-private-dance.ts";
 import { createDancePublicationJournal } from "./dance-publication-journal.ts";
 import { readDancePublicationAdmission } from "./dance-publication-reader.ts";
-import { recoverDanceV2Action } from "./dance-v2-action-recovery.ts";
+import { observeRetainedDanceV2Action, recoverDanceV2Action, type DanceV2Observation } from "./dance-v2-action-recovery.ts";
 import { readDanceV2ParticipantBindings } from "./dance-v2-participant-bindings.ts";
 import {
   DanceV2ActionStore,
+  danceActionAcceptanceContext,
+  danceDispatchSessionPin,
   type DanceV2Action,
   type DanceV2ReadyCommand,
 } from "./dance-v2-action-store.ts";
@@ -59,14 +62,21 @@ import {
 
 const registerPath = "/api/dance/reviews";
 const verdictPath = /^\/api\/dance\/reviews\/(0x[0-9a-f]{64})\/verdict$/;
+const submissionStatusPath = /^\/api\/dance\/reviews\/(0x[0-9a-f]{64})\/submission-status$/;
 export const danceV2ActionRoute = (path: string) =>
   path === registerPath || verdictPath.test(path);
+export const danceV2SubmissionStatusRoute = (path: string) => submissionStatusPath.test(path);
+
+function registrationContext(captureHash: Hex, binding: Hex, publisher: string) {
+  return hashJson({ captureHash, binding, publisher });
+}
 
 function registrationCommand(
   selected: Web2PublicDanceInputs,
   capture: PublicationCaptureV2,
   action: DanceV2Action,
   receipt: Awaited<ReturnType<typeof mediaSubmissionReceipt>>,
+  sessionPin?: Hex,
 ) {
   const { source, publisher } = selected,
     { domain } = source;
@@ -92,14 +102,15 @@ function registrationCommand(
     termsSha256: bytes32(capture.termsHash),
     publicityPolicyHash: bytes32(capture.consent!.publicityPolicyHash),
   };
+  const context = registrationContext(capture.captureHash, binding, publisher);
   insist(
     receipt.accountId === capture.learner.accountId &&
       receipt.communityId === capture.communityId &&
       receipt.submissionId === capture.captureId &&
       receipt.mediaId === original.mediaId &&
       receipt.bindingCommitment === binding &&
-      action.context_sha256 ===
-        hashJson({ captureHash: capture.captureHash, binding, publisher }) &&
+      (action.context_sha256 === context ||
+        (sessionPin && action.context_sha256 === danceActionAcceptanceContext(context, sessionPin))) &&
       receipt.trustedSubmittedAtMs === action.bound_at_ms &&
       receipt.trustedSubmittedAtMs >= capture.consent!.acceptedAtMs &&
       receipt.reviewDeadlineMs === action.bound_at_ms + 604800000,
@@ -213,11 +224,12 @@ export async function readDanceV2PrivateRegistration(
     capture,
     registrationAction,
     retainedMedia,
+    await store.dispatchSessionPin(registrationAction.command_id),
   );
   const readyRegistration = await store.ready(registrationAction.command_id);
   insist(
     readyRegistration &&
-      canonical(readyRegistration) ===
+      canonical({ ...readyRegistration }) ===
         canonical(
           readyCommand(
             selected,
@@ -310,6 +322,102 @@ export async function dancePublicationAction(input: DancePublicationActionInput,
   return { commandId, state };
 }
 
+type DancePublicationStatusScope = Pick<DancePublicationActionInput, "request" | "context" | "selection">;
+
+async function readInstalledDancePublicationStatus(
+  { request, context, selection }: DancePublicationStatusScope,
+  captureId: Hex, kind: DanceV2Action["kind"], requestId: string,
+  checkMount: () => Promise<void>, observe?: DanceV2Observation,
+): Promise<DancePublicationStatus> {
+  const { db, installation } = selection.publication;
+  insist(installation, "dance_publication_runtime_unavailable", 503);
+  const session = await PublicationRequestSession.open(request, db, context, installation);
+  const accountId = session.original.account_id;
+  insist(request.headers.get("x-dance-account") === accountId, "dance_account_changed", 409);
+  const store = new DanceV2ActionStore(db);
+  const saved = await store.read(context.communityId, captureId, kind);
+  insist(saved && saved.account_id === accountId, "dance_not_found", 404);
+  const body = object(JSON.parse(saved.input_json));
+  insist(body.commandId === requestId, "dance_not_found", 404);
+  const action = store.same(saved, store.original(context.communityId, captureId, kind, accountId, body));
+  const ready = await store.ready(action.command_id);
+  let state: DancePublicationStatus["state"] = "held";
+  if (!ready) {
+    if (observe && kind === "register") {
+      const row = await db.withSession("first-primary").prepare(
+        `SELECT json_extract(c.capture_json,'$.captureHash') AS capture_hash,s.binding_commitment
+        FROM dance_captures c JOIN community_media_submissions s
+          ON s.community_id=c.community_id AND s.submission_id=c.capture_id AND s.account_id=c.account_id
+        WHERE c.community_id=? AND c.capture_id=? AND c.account_id=? AND s.media_id=? AND s.submitted_at_ms=?`,
+      ).bind(context.communityId, captureId, accountId, danceId(body.mediaId), action.bound_at_ms)
+        .first<{ capture_hash: Hex; binding_commitment: Hex }>();
+      if (row && action.context_sha256 === danceActionAcceptanceContext(
+        registrationContext(bytes32(row.capture_hash), bytes32(row.binding_commitment), selection.publisher),
+        danceDispatchSessionPin(session.original),
+      )) state = "awaiting_chain_clock";
+    }
+  } else if (observe) {
+    try {
+      const result = await observeRetainedDanceV2Action(store, action, ready, observe, request.signal);
+      state = readDancePublicationStatus({
+        version: dancePublicationStatusVersion, requestId, actionId: action.command_id, state: result.state,
+      }, requestId).state;
+    } catch {
+      request.signal.throwIfAborted();
+    }
+    if (state === "awaiting_publisher") {
+      const pin = store.dispatchSessionFence(action, context.origin, session.original);
+      const live = await db.withSession("first-primary").prepare(`SELECT 1 AS allowed WHERE (${pin.sql})`)
+        .bind(...pin.values).first<{ allowed: number }>();
+      if (live?.allowed !== 1) state = "held";
+    }
+  }
+  await checkMount();
+  const unchanged = await store.ready(action.command_id);
+  insist(canonical(unchanged && { ...unchanged }) === canonical(ready && { ...ready }),
+    "dance_publication_original_changed", 503);
+  await session.check();
+  request.signal.throwIfAborted();
+  return { version: dancePublicationStatusVersion, requestId, actionId: action.command_id, state };
+}
+
+export function readInstalledDanceSubmissionStatus(
+  input: DancePublicationStatusScope, checkMount: () => Promise<void>, observe?: DanceV2Observation,
+) {
+  const url = new URL(input.request.url);
+  const match = submissionStatusPath.exec(url.pathname);
+  insist(input.request.method === "GET" && match && url.searchParams.size === 1,
+    "dance_publication_status_invalid", 400);
+  return readInstalledDancePublicationStatus(input, bytes32(match[1]), "register",
+    danceId(url.searchParams.get("requestId")), checkMount, observe);
+}
+
+export async function installedDancePublicationAction(
+  input: DancePublicationActionInput, checkMount: () => Promise<void>, observe: DanceV2Observation | undefined,
+  dispatch: ((input: DancePublicationActionInput, commandId: Hex) => Promise<void>) | undefined,
+) {
+  const { commandId } = await applyDancePublicationAction(input, undefined, true, true);
+  const body = object(input.body);
+  const path = new URL(input.request.url).pathname;
+  const kind = path === registerPath ? "register" : "verdict";
+  const captureId = bytes32(kind === "register" ? body.captureId : verdictPath.exec(path)?.[1]);
+  const requestId = danceId(body.commandId);
+  const status = () => readInstalledDancePublicationStatus(input, captureId, kind, requestId, checkMount, observe);
+  const observed = await status();
+  insist(observed.actionId === commandId, "dance_publication_original_changed", 409);
+  if (observed.state !== "awaiting_publisher") return observed;
+  if (!dispatch) return { ...observed, state: "held" as const };
+  try {
+    await dispatch(input, commandId);
+  } catch (error) {
+    input.request.signal.throwIfAborted();
+    // A timed-out or refused effect can still leave the immutable original
+    // held. Report fresh status through observation instead of retrying here.
+    if (!(error instanceof Error)) throw error;
+  }
+  return status();
+}
+
 /** Server-side fresh dispatch check of the retained original only. */
 export async function revalidateAcceptedDancePublicationAction(
   input: DancePublicationActionInput,
@@ -331,6 +439,7 @@ async function applyDancePublicationAction(
   input: DancePublicationActionInput,
   verification?: { ready: DanceV2ReadyCommand; session: Readonly<AccountSession> },
   pinDispatchSession = false,
+  installedStatus = false,
 ) {
   const { request, context, config, reads, runtime } = input;
   const verifyOnly = verification?.ready;
@@ -372,6 +481,8 @@ async function applyDancePublicationAction(
     409,
   );
   const store = new DanceV2ActionStore(db);
+  const acceptingSessionPin = danceDispatchSessionPin(session.original);
+  const acceptanceContext = (hash: Hex) => installedStatus ? danceActionAcceptanceContext(hash, acceptingSessionPin) : hash;
   const role = registration ? "register" : "verdict";
   const original = store.original(
     context.communityId,
@@ -394,6 +505,7 @@ async function applyDancePublicationAction(
     const ready = await store.ready(existing.command_id);
     if (ready) {
       await session.check();
+      if (installedStatus) return { commandId: ready.command_id, state: "awaiting_publisher" as const };
       const lookup = selected.actionOriginals;
       const state = lookup
         ? await recoverDanceV2Action({
@@ -618,11 +730,7 @@ async function applyDancePublicationAction(
           capture.expiresAtMs,
         ],
       };
-      const contextHash = hashJson({
-        captureHash: capture.captureHash,
-        binding: commitment,
-        publisher,
-      });
+      const contextHash = acceptanceContext(registrationContext(capture.captureHash, commitment, publisher));
       try {
         await store.atomic(
           [...fences, originalMedia],
@@ -642,6 +750,11 @@ async function applyDancePublicationAction(
       original,
     );
     const receipt = await mediaSubmissionReceipt(repo, captureId);
+    const expectedAcceptance = acceptanceContext(
+      registrationContext(capture.captureHash, bytes32(receipt.bindingCommitment), publisher),
+    );
+    if (installedStatus)
+      insist(saved.context_sha256 === expectedAcceptance, "dance_publication_accepting_session_changed", 409);
     if (proof.anchor.timestamp * 1000n < BigInt(receipt.trustedSubmittedAtMs)) {
       await session.check();
       return {
@@ -649,7 +762,7 @@ async function applyDancePublicationAction(
         state: "awaiting_chain_clock" as const,
       };
     }
-    const prepared = registrationCommand(selected, capture, saved, receipt);
+    const prepared = registrationCommand(selected, capture, saved, receipt, acceptingSessionPin);
     const command = readyCommand(
       selected,
       prepared.command,
@@ -657,7 +770,7 @@ async function applyDancePublicationAction(
     );
     const acceptance = [
       ...fences,
-      store.fence(saved),
+      store.fence(installedStatus ? { ...saved, context_sha256: expectedAcceptance } : saved),
       retainedMediaFence(receipt, recording),
     ];
     if (verifyOnly) {
@@ -789,7 +902,7 @@ async function applyDancePublicationAction(
   let action = existing;
   if (!action) {
     try {
-      await store.atomic(fences, [store.reserve(original, contextHash)]);
+      await store.atomic(fences, [store.reserve(original, acceptanceContext(contextHash))]);
     } catch (error) {
       if (!(await store.read(context.communityId, captureId, role)))
         throw error;
@@ -798,7 +911,10 @@ async function applyDancePublicationAction(
   }
   const saved = store.same(action, original);
   insist(
-    saved.context_sha256 === contextHash,
+    (installedStatus
+      ? saved.context_sha256 === acceptanceContext(contextHash)
+      : saved.context_sha256 === contextHash ||
+        (verifyOnly && saved.context_sha256 === danceActionAcceptanceContext(contextHash, acceptingSessionPin))),
     "dance_publication_review_context_changed",
     409,
   );
@@ -902,7 +1018,7 @@ async function applyDancePublicationAction(
   );
   const acceptance = [
     ...fences,
-    store.fence(saved),
+    store.fence(installedStatus ? { ...saved, context_sha256: acceptanceContext(contextHash) } : saved),
     ...plan.fences,
     ...admitted.fences,
   ];

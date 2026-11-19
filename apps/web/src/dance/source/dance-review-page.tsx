@@ -21,7 +21,8 @@ import {
 } from "../design-system.ts";
 import { DanceMediaHeader, DanceStatusHeader } from "./dance-media-header.tsx";
 import { createDancePostingViewport, dancePostingAllowed } from "./dance-viewport.ts";
-import { privateAccessLost } from "../client.ts";
+import { DancePublicationStatusError, privateAccessLost } from "../client.ts";
+import { dancePublicationRetryable } from "../../../../../packages/dance/publication-status.ts";
 import { assertRequestedReview, originalHoldCopy } from "./command-ordering.ts";
 import {
   createDanceJourneyActor,
@@ -66,6 +67,7 @@ export function DanceReviewPage(props: {
   >("loading");
   const [confirmCancel, setConfirmCancel] = createSignal(false);
   const [notice, setNotice] = createSignal("");
+  const [publicationRetry, setPublicationRetry] = createSignal<boolean>();
   const [expired, setExpired] = createSignal(false);
   const [preview, setPreview] = createSignal<string>();
   const [failedLocalPreview, setFailedLocalPreview] = createSignal<string>();
@@ -153,7 +155,36 @@ export function DanceReviewPage(props: {
     assertRequestedReview(view.result, provided.reviewId);
     journey.send({ type: "REVIEW_FACT", view });
     setPhase("ready");
+    setPublicationRetry(undefined);
     if (!danceReviewEditable(view.result)) stopPreview();
+  }
+  function publicationFailure(error: unknown) {
+    if (!(error instanceof DancePublicationStatusError)) return false;
+    const state = error.publicationStatus?.state;
+    setPublicationRetry(state ? dancePublicationRetryable(state) : false);
+    switch (state) {
+      case "awaiting_chain_clock":
+      case "awaiting_publisher":
+        setNotice("Your submission is saved. Resume when you’re ready to continue.");
+        break;
+      case "retained_unsent":
+        setNotice("Your submission is saved and has yet to be sent for review.");
+        break;
+      case "attempt_unknown":
+        setNotice("We’re checking your submission.");
+        break;
+      case "confirmed":
+        setNotice("Your submission was confirmed.");
+        break;
+      case "reverted":
+        setNotice("Your submission did not complete.");
+        break;
+      default:
+        setNotice("We couldn’t verify your submission’s status.");
+    }
+    journey.send({ type: "REVIEW_ERROR", error });
+    if (!ready()) setPhase("error");
+    return true;
   }
   function schedule() {
     stopObservation();
@@ -206,6 +237,7 @@ export function DanceReviewPage(props: {
     } catch (error) {
       if (!current(attempt, pending.signal)) return;
       if (privateAccessLost(error)) failure(error);
+      else if (publicationFailure(error)) return;
       else if (ready()) {
         journey.send({ type: "REVIEW_ERROR", error });
         setNotice(
@@ -258,6 +290,7 @@ export function DanceReviewPage(props: {
     } catch (error) {
       if (!current(attempt, pending.signal)) return;
       if (privateAccessLost(error)) failure(error);
+      else if (publicationFailure(error)) return;
       else {
         journey.send({ type: "REVIEW_ERROR", error });
         if (
@@ -444,7 +477,7 @@ export function DanceReviewPage(props: {
         <Show when={phase() === "error"}>
           <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">We couldn’t confirm your recording’s status.</p>
             <Button variant="secondary" onClick={() => void load(false)}>Check again</Button>
-            <Button onClick={() => void load(true)}>Resume submission</Button>
+            <Show when={publicationRetry() !== false}><Button onClick={() => void load(true)}>Resume submission</Button></Show>
             <Button variant="secondary" onClick={provided.onBack}>Back to dance</Button>
           </div>
         </Show>
@@ -486,7 +519,11 @@ export function DanceReviewPage(props: {
           <Show when={!expired() && view().result.state === "uploaded" && postingAllowed() && !privatePractice()}>
             <Button class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => void act("submit")}>{busy() ? "Submitting…" : "Submit for review"}</Button>
           </Show>
-          <Show when={!expired() && snapshot().matches({ review: "error" }) && !privatePractice()}><Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(true)}>Resume submission</Button></Show>
+          <Show when={!expired() && snapshot().matches({ review: "error" }) && !privatePractice()}>
+            <Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(publicationRetry() !== false)}>
+              {publicationRetry() === false ? "Check status" : "Resume submission"}
+            </Button>
+          </Show>
           <Show when={editable() && !fullMedia()}><Button variant="secondary" class="h-12 w-full rounded-xl" disabled={previewStatus() === "loading"} onClick={() => void play()}>Preview recording</Button></Show>
           <Show when={view().result.kind === "review" && danceReviewEditable(view().result)}>
             <Button variant="secondary" class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => setConfirmCancel(true)}>Cancel review</Button>

@@ -19,7 +19,7 @@ import { capturedFee, type CapturedPublicationFeeV1 } from "../../services/publi
 import { observeDanceV2Original } from "../../services/dance-v2-action-recovery.ts";
 import {
   assertNativeDanceScope, nativeDanceAttempt, nativeDancePublisherHoldKey, nativeDanceRaw, nativeDanceReference,
-  type NativeDanceRetainedReference, type NativeDanceSigned,
+  type NativeDanceObservationResult, type NativeDanceRetainedReference, type NativeDanceSigned,
 } from "../../services/native-dance-retained-reference.ts";
 import {
   assertNativeDanceDispatchProofCurrent, type readNativeDanceDispatchProof,
@@ -50,14 +50,19 @@ interface SigningStart {
   nonce: number;
 }
 type NativeDanceDispatchProof = Readonly<ReturnType<typeof readNativeDanceDispatchProof>>;
-export interface NativeDanceDispatchRequest {
+interface NativeDanceBoundRequest {
   reference: NativeDanceRetainedReference;
   calldata: Hex;
-  /** Private, same-request, primary-D1 effect revalidation. */
-  revalidate(): Promise<NativeDanceDispatchProof>;
   /** Actual private host, route selection and transport capability pins. */
   assertHostCurrent(): true;
   signal: AbortSignal;
+}
+interface NativeDanceObservationRequest extends NativeDanceBoundRequest {
+  assertHostCurrentAsync(): Promise<void>;
+}
+export interface NativeDanceDispatchRequest extends NativeDanceBoundRequest {
+  /** Private, same-request, primary-D1 effect revalidation. */
+  revalidate(): Promise<NativeDanceDispatchProof>;
 }
 interface DispatchInputs {
   store: Store;
@@ -156,12 +161,16 @@ export async function createNativeDanceDispatch(input: DispatchInputs) {
   assertPublisherCurrentSync();
   let dispatching = false;
 
-  function assertDispatchCurrentSync(request: NativeDanceDispatchRequest, expiresAtMs: number,
-    assertOriginalCurrent: () => void) {
+  function assertRequestCurrentSync(request: NativeDanceBoundRequest, assertOriginalCurrent?: () => void) {
     request.signal.throwIfAborted();
     assert(request.assertHostCurrent() === true, "native_dance_dispatch_host_fence_unavailable");
     assertPublisherCurrentSync(assertOriginalCurrent);
     request.signal.throwIfAborted();
+  }
+
+  function assertDispatchCurrentSync(request: NativeDanceDispatchRequest, expiresAtMs: number,
+    assertOriginalCurrent: () => void) {
+    assertRequestCurrentSync(request, assertOriginalCurrent);
     assertNativeDanceDispatchProofCurrent(expiresAtMs);
   }
 
@@ -278,6 +287,92 @@ export async function createNativeDanceDispatch(input: DispatchInputs) {
       selectedCustody: Readonly<Web2PublicDanceCustody>) {
       assert(selected === store && selectedLease === lease && selectedRetained === retained &&
         canonical(selectedCustody) === canonical(custody), "native_dance_dispatch_custody_changed");
+    },
+    async observe(request: NativeDanceObservationRequest,
+      respond: (result: NativeDanceObservationResult) => Response): Promise<Response> {
+      assert(!dispatching, "native_dance_dispatch_busy");
+      dispatching = true;
+      const { signal } = request;
+      function finish(result: NativeDanceObservationResult, assertEvidenceCurrent?: () => void) {
+        assertRequestCurrentSync(request, assertEvidenceCurrent);
+        // Build the response synchronously before releasing the read permit.
+        return respond(result);
+      }
+      try {
+        const ref = nativeDanceReference(structuredClone(request.reference));
+        const calldata = nativeDanceRaw(request.calldata);
+        assertNativeDanceScope(ref, scope);
+        const expected = checkedCommand(ref, calldata);
+        await current(signal);
+        assertRequestCurrentSync(request);
+        try {
+          const command = commandKey(ref.original.commandId);
+          const step = "10-original-" + ref.original.commandId.slice(2);
+          const originalFile = join(custody.composer.path, step + ".original.json");
+          const pinnedOriginal = lstatSync(originalFile, { throwIfNoEntry: false }) &&
+            pinNativeDanceEffectFile(originalFile, 32 * 1024);
+          const attempt = await retained.read(store, ref, calldata, signal);
+          if (!attempt) {
+            await request.assertHostCurrentAsync();
+            assert(await retained.read(store, ref, calldata, signal) === null,
+              "native_dance_dispatch_original_changed");
+            return finish({ state: "awaiting_publisher" }, () => {
+              assert(!pinnedOriginal && lstatSync(originalFile, { throwIfNoEntry: false }) === undefined &&
+                store.get(command) === undefined && store.get(nativeDancePublisherHoldKey) === undefined,
+                "native_dance_dispatch_original_held");
+            });
+          }
+          assert(pinnedOriginal, "native_dance_dispatch_original_changed");
+          const assertOriginalCurrent = pinnedOriginal;
+          const index = nonceKey(attempt.nonce);
+          const row = store.get<{ broadcast: string; raw: Hex; nonce: number; hash: Hex }>(command);
+          const held = store.get<SigningStart>(nativeDancePublisherHoldKey);
+          const sameHold = held?.reference.original.commandId === ref.original.commandId;
+          const cursor = store.get<number>("op:nonce");
+          assert(row && row.raw === attempt.raw && row.hash === attempt.hash && row.nonce === attempt.nonce &&
+            typeof cursor === "number" && Number.isSafeInteger(cursor) && cursor > attempt.nonce &&
+            (!sameHold || (cursor === attempt.nonce + 1 &&
+              canonical(held) === canonical({ reference: ref, calldata, nonce: attempt.nonce }))),
+            "native_dance_dispatch_journal_changed");
+          const expectedRow = canonical(row);
+          const expectedHold = canonical(held ?? null);
+          function assertEvidenceCurrent() {
+            assertOriginalCurrent();
+            assert(canonical(store.get(command) ?? null) === expectedRow &&
+              canonical(store.get(index) ?? null) === expectedRow &&
+              canonical(store.get(nativeDancePublisherHoldKey) ?? null) === expectedHold &&
+              store.get("op:nonce") === cursor, "native_dance_dispatch_journal_changed");
+          }
+          assertRequestCurrentSync(request, assertEvidenceCurrent);
+          if (row.broadcast === "retained-unsent") {
+            assert(sameHold, "native_dance_dispatch_original_held");
+            await request.assertHostCurrentAsync();
+            return finish({ state: "retained_unsent", transactionHash: attempt.hash }, assertEvidenceCurrent);
+          }
+          assert(row.broadcast === "attempted", "native_dance_dispatch_journal_changed");
+          await safe(signal);
+          const result = await observeDanceV2Original({
+            client, original: ref.original, expected, pin, attempt,
+            async assertCurrent() {
+              await current(signal);
+              await request.assertHostCurrentAsync();
+              assertRequestCurrentSync(request, assertEvidenceCurrent);
+            },
+          });
+          if (result === "pending_confirmation") {
+            await current(signal);
+            await request.assertHostCurrentAsync();
+          }
+          const state = result === "pending_confirmation" ? "attempt_unknown" : result;
+          return finish({ state, transactionHash: attempt.hash }, assertEvidenceCurrent);
+        } catch {
+          await current(signal);
+          await request.assertHostCurrentAsync();
+          return finish({ state: "held" });
+        }
+      } finally {
+        dispatching = false;
+      }
     },
     async execute(request: NativeDanceDispatchRequest) {
       assert(!dispatching, "native_dance_dispatch_busy");
@@ -424,4 +519,6 @@ export async function createNativeDanceDispatch(input: DispatchInputs) {
     },
   });
 }
-export type NativeDanceDispatch = Awaited<ReturnType<typeof createNativeDanceDispatch>>;
+type NativeDancePublisher = Awaited<ReturnType<typeof createNativeDanceDispatch>>;
+export type NativeDanceDispatch = Pick<NativeDancePublisher, "assertBinding" | "execute">;
+export type NativeDanceObservation = Pick<NativeDancePublisher, "assertBinding" | "observe">;

@@ -69,6 +69,11 @@ export interface DanceV2OriginalLookup {
   ): Promise<DanceV2SignedAttempt | null>;
 }
 
+export type DanceV2Observation = (
+  original: Readonly<DanceV2OperatorOriginal>,
+  signal: AbortSignal,
+) => Promise<import("./native-dance-retained-reference.ts").NativeDanceObservationResult>;
+
 const sameAddress = (a: string | null | undefined, b: string) =>
   a?.toLowerCase() === b.toLowerCase();
 
@@ -281,6 +286,15 @@ export async function recoverDanceV2Action(input: {
         "dance_v2_transaction_original_changed", 503);
     },
   });
+}
+
+/** Native observation uses the same exact application action and calldata as legacy recovery. */
+export async function observeRetainedDanceV2Action(
+  store: DanceV2ActionStore, action: DanceV2Action, ready: DanceV2ReadyCommand,
+  observe: DanceV2Observation, signal: AbortSignal,
+) {
+  const { original } = await retained(store, structuredClone(action), structuredClone(ready));
+  return observe(original, signal);
 }
 
 /** Canonical proof shared by application observation and the held sender's

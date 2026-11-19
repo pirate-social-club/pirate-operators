@@ -20,14 +20,15 @@ import {
 } from "../../services/native-publication-reference.ts";
 import type { Web2NativePublicationGraph } from "./web2-publication-selection.ts";
 import {
-  nativeDanceDispatchPath, nativeDanceDispatchReadyPath, nativeDanceHostPath, nativeDanceReadyPath, nativeDanceRaw, nativeDanceReply,
+  nativeDanceDispatchPath, nativeDanceDispatchReadyPath, nativeDanceHostPath, nativeDanceObservationPath,
+  nativeDanceObservation, nativeDanceReadyPath, nativeDanceRaw, nativeDanceReply,
   nativeDanceResponse, readNativeDanceReference, type NativeDanceRetainedScope,
 } from "../../services/native-dance-retained-reference.ts";
 import { readNativeDanceDispatchProof } from "../../services/native-dance-dispatch-proof.ts";
 import { assertPublicDancePublisher, type Web2PublicDanceCustody } from "./web2-public-dance-custody.ts";
 import { assertNativeDanceRetainedCustody, type NativeDanceRetainedStore } from "./web2-native-dance-retained-store.ts";
 
-import type { NativeDanceDispatch } from "./web2-native-dance-dispatch.ts";
+import type { NativeDanceDispatch, NativeDanceObservation } from "./web2-native-dance-dispatch.ts";
 import { pinNativeDanceEffectFile } from "./web2-native-dance-effect-authority.ts";
 
 type Operator = Parameters<typeof publicationInstalledOperatorFetch>[1];
@@ -87,12 +88,14 @@ export async function createNativePublicationActivityRoute(input: {
   operator: Omit<Operator, "catalog">;
   retainedDance?: NativeDanceRetainedStore;
   danceDispatch?: NativeDanceDispatch;
+  danceObservation?: NativeDanceObservation;
   issuer: ManagedPublicationIssuer & { readonly capabilityRef: string };
   /** Must verify the real selected lifetime, retained journal and issuer binding. */
   assertCurrent(): Promise<void>;
 }): Promise<NativePublicationActivityRoute> {
-  const { lease, socket, issuer, requestCapabilityFile, lookupCapabilityFile, assertCurrent, retainedDance, danceDispatch } = input;
-  assert(!danceDispatch || retainedDance, "native_dance_dispatch_custody_unavailable");
+  const { lease, socket, issuer, requestCapabilityFile, lookupCapabilityFile, assertCurrent, retainedDance,
+    danceDispatch, danceObservation } = input;
+  assert(!(danceDispatch || danceObservation) || retainedDance, "native_dance_dispatch_custody_unavailable");
   const selection = structuredClone(input.selection);
   const { entries, active } = structuredClone(input.retainedSelection);
   const catalog = new PublicationReleaseCatalog(entries.map(entry => entry.release), active);
@@ -124,7 +127,7 @@ export async function createNativePublicationActivityRoute(input: {
   const requestAccess = await capabilityFile(requestCapabilityFile);
   const lookupAccess = await capabilityFile(lookupCapabilityFile);
   assert(requestAccess !== lookupAccess, "native_publication_directional_capabilities_required");
-  const effectCapabilityPins = danceDispatch ? [
+  const danceCapabilityPins = danceDispatch || danceObservation ? [
     pinNativeDanceEffectFile(requestCapabilityFile, 64, hash(requestAccess)),
     pinNativeDanceEffectFile(lookupCapabilityFile, 64, hash(lookupAccess)),
   ] : undefined;
@@ -243,14 +246,16 @@ export async function createNativePublicationActivityRoute(input: {
     async fetch(request: Request) {
     const url = new URL(request.url);
     const dispatchDance = url.pathname === nativeDanceDispatchPath;
+    const observeDance = url.pathname === nativeDanceObservationPath;
     if (url.origin !== publicationHostOrigin ||
-        (url.pathname !== publicationHostPath && url.pathname !== nativeDanceHostPath && !dispatchDance) ||
+        (url.pathname !== publicationHostPath && url.pathname !== nativeDanceHostPath && !dispatchDance && !observeDance) ||
         url.search || url.hash || request.method !== "POST" ||
+        (observeDance && request.headers.has(publicationAcceptSessionHeader)) ||
         !await nativePublicationAuthorized(request, requestAccess))
       return new Response(null, { status: 404 });
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(dispatchDance ? 18000 : 9000)]);
     try {
-      if (url.pathname === nativeDanceHostPath || dispatchDance) {
+      if (url.pathname === nativeDanceHostPath || dispatchDance || observeDance) {
         assert(retainedDance && active, "native_dance_custody_unavailable");
         const ref = await readNativeDanceReference(request);
         const release = catalog.get(active);
@@ -261,12 +266,32 @@ export async function createNativePublicationActivityRoute(input: {
         assert(ingress.tls.kind === "local-fixture-ca" || publicDanceCustody, "native_dance_custody_unavailable");
         retainedDance.assertOwner(authority.store, ref);
         if (publicDanceCustody) await assertPublicDancePublisher(retainedDance, authority.store, publicDanceCustody, lease);
-        if (dispatchDance) {
+        if (dispatchDance || observeDance) {
           const custody = publicDanceCustody;
-          assert(danceDispatch && custody && effectCapabilityPins && ingress.tls.kind !== "local-fixture-ca",
+          const selected = dispatchDance ? danceDispatch : danceObservation;
+          assert(selected && custody && danceCapabilityPins && ingress.tls.kind !== "local-fixture-ca",
             "native_dance_dispatch_custody_unavailable");
+          const publisherPort = selected, publisherCustody = custody;
+          const retained = retainedDance, capabilityPins = danceCapabilityPins;
+          const assertHostCurrent = (): true => {
+            assert(publicDanceCustody === publisherCustody, "native_dance_dispatch_custody_changed");
+            assertIssuer();
+            publisherPort.assertBinding(authority.store, lease, retained, publisherCustody);
+            for (const check of capabilityPins) check();
+            return true;
+          };
+          assertHostCurrent();
+          if (observeDance) {
+            assert(danceObservation, "native_dance_observation_unavailable");
+            const ready = await reverse(nativeDanceReadyPath, canonical(ref), signal);
+            const calldata = nativeDanceRaw(nativeDanceReply(ready, ref));
+            return await danceObservation.observe({
+              reference: ref, calldata, signal, assertHostCurrent,
+              assertHostCurrentAsync: () => current(signal),
+            }, (result) => nativeDanceResponse(ref, nativeDanceObservation(result)));
+          }
+          assert(danceDispatch, "native_dance_dispatch_custody_unavailable");
           const session = consentDigest(request.headers.get(publicationAcceptSessionHeader));
-          danceDispatch.assertBinding(authority.store, lease, retainedDance, custody);
           const ready = async () => {
             await assertPublicDancePublisher(retainedDance, authority.store, custody, lease);
             const reply = await reverse(nativeDanceDispatchReadyPath, canonical(ref), signal, session);
@@ -275,13 +300,7 @@ export async function createNativePublicationActivityRoute(input: {
           const { calldata } = await ready();
           const result = await danceDispatch.execute({
             reference: ref, calldata, signal,
-            assertHostCurrent(): true {
-              assert(publicDanceCustody === custody, "native_dance_dispatch_custody_changed");
-              assertIssuer();
-              danceDispatch.assertBinding(authority.store, lease, retainedDance, custody);
-              for (const check of effectCapabilityPins) check();
-              return true;
-            },
+            assertHostCurrent,
             revalidate: ready,
           });
           await current(signal);

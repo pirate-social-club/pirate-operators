@@ -103,7 +103,7 @@ type HostTransportInputs = Parameters<typeof createNativePublicationActivityRout
 export async function openWeb2PublicationTransport(
   policy: Web2RuntimeBindingPolicy,
   lease: OperationLease,
-  owner: Pick<HostTransportInputs, "retainedSelection" | "issuer" | "operator" | "assertCurrent" | "firstGrant" | "retainedDance" | "danceDispatch">,
+  owner: Pick<HostTransportInputs, "retainedSelection" | "issuer" | "operator" | "assertCurrent" | "firstGrant" | "retainedDance" | "danceDispatch" | "danceObservation">,
 ) {
   const { transport, paths, socket, ingress } = nativePublicationHostSelection(policy);
   assert(!owner.firstGrant || policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.fixtureTransport,

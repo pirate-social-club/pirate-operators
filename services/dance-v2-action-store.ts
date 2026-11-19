@@ -56,7 +56,17 @@ export function danceDispatchSessionPin(session: Readonly<AccountSession>) {
   });
 }
 
+export function danceActionAcceptanceContext(contextSha256: Hex, sessionSha256: Hex) {
+  return hashJson({ schema: "pirate.dance-v2-acceptance-context/1", contextSha256, sessionSha256 });
+}
+
 export class DanceV2ActionStore extends DanceStore {
+  async dispatchSessionPin(id: Hex) {
+    const row = await this.stmt("SELECT session_sha256 FROM dance_v2_dispatch_sessions WHERE command_id=?", id)
+      .first<{ session_sha256: Hex }>();
+    return row?.session_sha256;
+  }
+
   prepareDispatchSession(value: DanceV2ReadyCommand, session: Readonly<AccountSession>) {
     return this.stmt(
       "INSERT INTO dance_v2_dispatch_sessions(command_id,session_sha256) VALUES(?,?)",
