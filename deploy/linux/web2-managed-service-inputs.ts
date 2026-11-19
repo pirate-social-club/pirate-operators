@@ -51,12 +51,14 @@ class ManagedTransportUnknown extends Error {
 export async function createWeb2ManagedServiceInputs(input: {
   record: SignedRecord<InstalledWeb2ManagedServiceInputs>;
   trust: TrustAnchor;
-  key: KeyChannel;
   lease: OperationLease;
   now(): number;
   currentInstalled(): Promise<SignedRecord<InstalledWeb2ManagedServiceInputs>>;
   transport?: (request: Request) => Promise<Response>;
-}): Promise<{ managedGrant: ManagedOwnerGrantPort; publisher: PublisherProofSigner }> {
+} & (
+  { key: KeyChannel; protectedPublisher?: never } |
+  { key: Pick<KeyChannel, "withSecret">; protectedPublisher: PublisherProofSigner }
+)): Promise<{ managedGrant: ManagedOwnerGrantPort; publisher: PublisherProofSigner }> {
   const record = structuredClone(input.record), trust = structuredClone(input.trust),
     selected = installedBody(verifyRecord(record, trust)), { body, r, policy } = selected,
     selection = selectionFor(r), custody = structuredClone(r.custody), credential = structuredClone(r.credential);
@@ -68,11 +70,36 @@ export async function createWeb2ManagedServiceInputs(input: {
       Number.isSafeInteger(input.now()), "managed_installed_binding_changed", 409);
     await input.lease.assertHeld();
   }
-  const publisher = createWeb2PublisherProofSigner({ key: input.key, keyReference: custody.keyReference, generation: custody.generation,
-    installationId: body.installationId, publisher: address(custody.publisher), lease: input.lease, policy, now: input.now,
-    currentBinding: async () => { await check(); return { keyReference: custody.keyReference, generation: custody.generation,
-      installationId: custody.installationId, publisher: address(custody.publisher) }; },
-  });
+  const expectedAddress = address(custody.publisher);
+  let publisher: PublisherProofSigner;
+  if (input.protectedPublisher) {
+    const owner = input.protectedPublisher;
+    publisher = {
+      async selected() {
+        await check();
+        const actual = await owner.selected();
+        insist(actual.address === expectedAddress && actual.custodyBindingDigest === custody.custodyBindingDigest,
+          "managed_custody_changed", 409);
+        await check();
+        return actual;
+      },
+      async signEnrollment(value) {
+        const requested = structuredClone(value);
+        await check();
+        const proof = await owner.signEnrollment(requested);
+        insist(proof.recipient === expectedAddress, "managed_custody_changed", 409);
+        await check();
+        return proof;
+      },
+    };
+  } else {
+    publisher = createWeb2PublisherProofSigner({ key: input.key,
+      keyReference: custody.keyReference, generation: custody.generation,
+      installationId: body.installationId, publisher: expectedAddress, lease: input.lease, policy, now: input.now,
+      currentBinding: async () => { await check(); return { keyReference: custody.keyReference, generation: custody.generation,
+        installationId: custody.installationId, publisher: expectedAddress }; },
+    });
+  }
   async function call(action: "prepare" | "attach" | "reconcile", value: unknown) {
     await check();
     return input.key.withSecret(credential.keyReference, credential.generation, async bytes => {
