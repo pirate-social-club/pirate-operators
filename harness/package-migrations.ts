@@ -9,6 +9,7 @@ export const COMMUNITY_MEDIA_MIGRATION = "0015_community_media.sql";
 export const DANCE_MIGRATION = "0016_dance.sql";
 export const DANCE_CANONICAL_MIGRATION = "0017_dance_canonical_controls.sql";
 export const DANCE_PRIVATE_MIGRATION = "0022_dance_private_practice.sql";
+export const DANCE_PUBLICATION_MIGRATION = "0023_dance_publication_dispatch.sql";
 export const LEARNING_AUTHORITY_MIGRATION = "0018_learning_authority.sql";
 export const REWARD_CLOSURE_MIGRATION = "0014_reward_closure_snapshots.sql";
 export const OWNER_PUBLISHING_MIGRATION = "0012_owner_budget_windows.sql";
@@ -32,6 +33,8 @@ export function communityMigrations(
     dance?: boolean;
     /** Fresh private stores, independent of V4 login/public result authority. */
     privateDance?: boolean;
+    /** Published Dance originals and dispatch for the combined native install. */
+    dancePublication?: boolean;
   },
 ) {
   insist(
@@ -59,6 +62,12 @@ export function communityMigrations(
     "dance_media_reward_selection_required",
     409,
   );
+  insist(
+    !selected.dancePublication ||
+      (selected.privateDance && selected.publicationConsent && names.includes(DANCE_PUBLICATION_MIGRATION)),
+    "dance_publication_migration_selection_required",
+    409,
+  );
   return names
     .filter((p) => /^\d{4}_.+\.sql$/.test(p))
     .filter((p) => p !== "0011_manual_rewards.sql" || selected.rewards)
@@ -81,6 +90,7 @@ export function communityMigrations(
         selected.privateDance,
     )
     .filter((p) => p !== DANCE_PRIVATE_MIGRATION || selected.privateDance)
+    .filter((p) => p !== DANCE_PUBLICATION_MIGRATION || selected.dancePublication)
     .filter((p) => p !== LEARNING_AUTHORITY_MIGRATION || selected.v4)
     .filter(
       (p) => p !== PUBLICATION_CONSENT_MIGRATION || selected.publicationConsent,

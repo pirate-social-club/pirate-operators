@@ -44,7 +44,7 @@ import {
   type Web2RuntimeBindingInputs,
 } from "./web2-runtime-binding.ts";
 
-import { selectWeb2PublicationConsent } from "./web2-initialization.ts";
+import { selectWeb2DancePublication, selectWeb2PublicationConsent } from "./web2-initialization.ts";
 import { trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
 import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
@@ -406,10 +406,11 @@ export async function launchWeb2LocalInstallation(
           "native_publication_migrations_unavailable");
         if (trustedConsent) {
           assert(selectWeb2PublicationConsent(plan.migrations), "native_publication_migrations_unavailable");
-          for (const row of plan.migrations.filter((migration: {name: string}) =>
-            migration.name === "0020_publication_consent.sql" ||
-            migration.name === "0021_publication_installed_selection.sql")) {
-            assert(hash(row.sql) === row.sha256 && row.statements.join("") === row.sql,
+          const dancePublication = Boolean(policy.graph.danceRewardIntent);
+          assert(!dancePublication || selectWeb2DancePublication(plan.migrations), "native_dance_publication_migrations_unavailable");
+          for (const row of plan.migrations.slice(consent, consent + (dancePublication ? 4 : 2))) {
+            assert(hash(row.sql) === row.sha256 && row.statements.join("") === row.sql &&
+              (!dancePublication || release.files["sql/" + row.name] === row.sha256),
               "native_publication_migrations_changed");
           }
         }

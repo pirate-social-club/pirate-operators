@@ -21,6 +21,15 @@ const consentMigrations = [
   ["0020_publication_consent.sql", "e9cac21b952f917147693036616052abb5442b297beada5937ce094f20ce9690"],
   ["0021_publication_installed_selection.sql", "bd8d82b8a834c686b6349a20771229d0a8b0e29455777b9c9507d92001b4ee11"],
 ] as const;
+const dancePublicationMigration = [
+  "0023_dance_publication_dispatch.sql",
+  "bc2188b5f1bb1db1abc5ab31ccbb0937af4bfe7098aa2aa84afdbbbbac229c02",
+] as const;
+const dancePublicationMigrations = [
+  ...consentMigrations,
+  ["0022_dance_private_practice.sql", "18c41e8e0bcb281ceda86b1bd6f3f3859232c143bd8728aebbd5bd1597f6f4d3"],
+  dancePublicationMigration,
+] as const;
 
 /** The bootstrap calls this after verifying numbered source bytes and ledger. */
 export function selectWeb2PublicationConsent(migrations: readonly { name: string; sha256: string }[]) {
@@ -34,10 +43,23 @@ export function selectWeb2PublicationConsent(migrations: readonly { name: string
   return true;
 }
 
+export function selectWeb2DancePublication(migrations: readonly { name: string; sha256: string }[]) {
+  if (!migrations.some(row => row.name === dancePublicationMigration[0])) return false;
+  const matches = migrations.filter(row => dancePublicationMigrations.some(([name]) => row.name === name));
+  const start = migrations.findIndex(row => row.name === consentMigrations[0][0]);
+  if (matches.length !== dancePublicationMigrations.length || start < 0 ||
+    !dancePublicationMigrations.every(([name, sha256], i) =>
+      migrations[start + i]?.name === name && migrations[start + i]?.sha256 === sha256))
+    throw Error("web2_dance_publication_migrations_changed");
+  return true;
+}
+
 const catalogConsentContext = "UPDATE catalog_phase_schema_guard SET publication_consent=";
 const defaultCatalogConsentContext = "-- catalog-phase-statement\n" + catalogConsentContext + "0 WHERE singleton=1;";
 const defaultNativeConsentContext = "WITH publication_consent_context(enabled) AS (VALUES (0)),";
 const boundNativeConsentContext = "WITH publication_consent_context(enabled) AS (VALUES (?)),";
+const defaultNativeDancePublicationContext = "dance_publication_context(enabled) AS (VALUES (0)),";
+const boundNativeDancePublicationContext = "dance_publication_context(enabled) AS (VALUES (?)),";
 const digest = async (text: string) =>
   Array.from(
     new Uint8Array(
@@ -55,7 +77,7 @@ export async function initializeWeb2Schema(
   db: D1Database,
   input: Web2SchemaPlan,
   releaseSha256: string,
-  options: { postsCustody?: boolean; publicationConsent?: boolean; requireRetained?: boolean } = {},
+  options: { postsCustody?: boolean; publicationConsent?: boolean; dancePublication?: boolean; requireRetained?: boolean } = {},
 ) {
   const plan = structuredClone(input);
   if (
@@ -82,6 +104,7 @@ export async function initializeWeb2Schema(
   }
   const posts = options.postsCustody ? LOCAL_POSTS_CUSTODY_SCHEMA : [];
   const publicationConsent = options.publicationConsent === true;
+  const dancePublication = options.dancePublication === true;
   // Both context slots follow their overlay's attested metadata INSERT, in
   // the same atomic D1 batch. Direct overlay execution keeps both defaults.
   const nativeGuard = plan.overlays[2]?.statements[3];
@@ -89,10 +112,13 @@ export async function initializeWeb2Schema(
     throw Error("web2_catalog_consent_context_changed");
   if (publicationConsent && nativeGuard?.split(defaultNativeConsentContext).length !== 2)
     throw Error("web2_native_consent_context_changed");
+  if (dancePublication && (!publicationConsent || nativeGuard?.split(defaultNativeDancePublicationContext).length !== 2))
+    throw Error("web2_native_dance_publication_context_changed");
   const selected = options.postsCustody || publicationConsent ? {
     plan,
     ...(options.postsCustody ? { postsCustody: posts } : {}),
     ...(publicationConsent ? { publicationConsent: true } : {}),
+    ...(dancePublication ? { dancePublication: true } : {}),
   } : plan;
   const manifestSha256 = await digest(JSON.stringify(selected));
   if (options.requireRetained) {
@@ -131,10 +157,17 @@ export async function initializeWeb2Schema(
     ),
     ...plan.overlays.flatMap((row, overlay) =>
       row.statements.map((sql, statement) => {
-        if (publicationConsent && overlay === 0 && statement === 2)
-          return db.prepare(catalogConsentContext + "? WHERE singleton=1").bind(1);
-        if (publicationConsent && overlay === 2 && statement === 3)
-          return db.prepare(sql.replace(defaultNativeConsentContext, boundNativeConsentContext)).bind(1);
+        if (publicationConsent && overlay === 0 && statement === 2) {
+          return dancePublication
+            ? db.prepare(catalogConsentContext + "?, dance_publication=? WHERE singleton=1").bind(1, 1)
+            : db.prepare(catalogConsentContext + "? WHERE singleton=1").bind(1);
+        }
+        if (publicationConsent && overlay === 2 && statement === 3) {
+          const consentSql = sql.replace(defaultNativeConsentContext, boundNativeConsentContext);
+          return dancePublication
+            ? db.prepare(consentSql.replace(defaultNativeDancePublicationContext, boundNativeDancePublicationContext)).bind(1, 1)
+            : db.prepare(consentSql).bind(1);
+        }
         return db.prepare(sql);
       }),
     ),

@@ -41,6 +41,7 @@ INSERT INTO native_application_transition_guard SELECT CASE WHEN
 -- silently acquire a new effect when it is created. Global byte comparison;
 -- no lossy SQL normalization or guessed textual dependency search.
 WITH publication_consent_context(enabled) AS (VALUES (0)),
+dance_publication_context(enabled) AS (VALUES (0)),
 known(type,name,tbl_name,sql) AS(VALUES
   ('trigger','dance_accepted_submission_no_update','dance_reviews','CREATE TRIGGER dance_accepted_submission_no_update BEFORE UPDATE OF review_id,community_id,account_id,media_id,recording_digest,media_json,receipt_json ON dance_reviews BEGIN SELECT RAISE(ABORT,''dance_submission_immutable''); END'),
   ('trigger','dance_attempt_admission_no_delete','dance_attempt_admissions','CREATE TRIGGER dance_attempt_admission_no_delete BEFORE DELETE ON dance_attempt_admissions BEGIN SELECT RAISE(ABORT,''dance_attempt_admission_immutable''); END'),
@@ -272,13 +273,34 @@ BEGIN SELECT RAISE(IGNORE); END'),
     ('trigger', 'publication_v1_observation_update', 'publication_v1_observations', 'CREATE TRIGGER publication_v1_observation_update BEFORE UPDATE ON publication_v1_observations
 BEGIN SELECT RAISE(ABORT,''publication_observation_immutable''); END')
 ),
-selected_consent_trigger AS (
+expected_dance_publication_trigger(type,name,tbl_name,sql) AS (
+  VALUES
+    ('trigger', 'dance_publication_binding_delete', 'dance_publication_bindings', 'CREATE TRIGGER dance_publication_binding_delete BEFORE DELETE ON dance_publication_bindings BEGIN SELECT RAISE(ABORT,''dance_publication_binding_immutable''); END'),
+    ('trigger', 'dance_publication_binding_insert', 'dance_publication_bindings', 'CREATE TRIGGER dance_publication_binding_insert BEFORE INSERT ON dance_publication_bindings WHEN EXISTS(SELECT 1 FROM dance_publication_bindings WHERE (community_id=NEW.community_id AND capture_id=NEW.capture_id AND account_id=NEW.account_id AND purpose=NEW.purpose) OR (capture_hash=NEW.capture_hash AND account_id=NEW.account_id AND purpose=NEW.purpose)) BEGIN SELECT RAISE(ABORT,''dance_publication_binding_immutable''); END'),
+    ('trigger', 'dance_publication_binding_update', 'dance_publication_bindings', 'CREATE TRIGGER dance_publication_binding_update BEFORE UPDATE ON dance_publication_bindings BEGIN SELECT RAISE(ABORT,''dance_publication_binding_immutable''); END'),
+    ('trigger', 'dance_publication_start_no_delete', 'dance_publication_starts', 'CREATE TRIGGER dance_publication_start_no_delete BEFORE DELETE ON dance_publication_starts BEGIN SELECT RAISE(ABORT,''dance_publication_start_immutable''); END'),
+    ('trigger', 'dance_publication_start_no_replace', 'dance_publication_starts', 'CREATE TRIGGER dance_publication_start_no_replace BEFORE INSERT ON dance_publication_starts WHEN EXISTS(SELECT 1 FROM dance_publication_starts WHERE (community_id=NEW.community_id AND account_id=NEW.account_id AND command_id=NEW.command_id) OR capture_id=NEW.capture_id) BEGIN SELECT RAISE(ABORT,''dance_publication_start_immutable''); END'),
+    ('trigger', 'dance_publication_start_no_update', 'dance_publication_starts', 'CREATE TRIGGER dance_publication_start_no_update BEFORE UPDATE ON dance_publication_starts BEGIN SELECT RAISE(ABORT,''dance_publication_start_immutable''); END'),
+    ('trigger', 'dance_v2_action_originals_no_delete', 'dance_v2_action_originals', 'CREATE TRIGGER dance_v2_action_originals_no_delete BEFORE DELETE ON dance_v2_action_originals BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_action_originals_no_replace', 'dance_v2_action_originals', 'CREATE TRIGGER dance_v2_action_originals_no_replace BEFORE INSERT ON dance_v2_action_originals WHEN EXISTS(SELECT 1 FROM dance_v2_action_originals WHERE command_id=NEW.command_id OR (community_id=NEW.community_id AND capture_id=NEW.capture_id AND kind=NEW.kind)) BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_action_originals_no_update', 'dance_v2_action_originals', 'CREATE TRIGGER dance_v2_action_originals_no_update BEFORE UPDATE ON dance_v2_action_originals BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_dispatch_sessions_no_delete', 'dance_v2_dispatch_sessions', 'CREATE TRIGGER dance_v2_dispatch_sessions_no_delete BEFORE DELETE ON dance_v2_dispatch_sessions BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_dispatch_sessions_no_replace', 'dance_v2_dispatch_sessions', 'CREATE TRIGGER dance_v2_dispatch_sessions_no_replace BEFORE INSERT ON dance_v2_dispatch_sessions WHEN EXISTS(SELECT 1 FROM dance_v2_dispatch_sessions WHERE command_id=NEW.command_id) BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_dispatch_sessions_no_update', 'dance_v2_dispatch_sessions', 'CREATE TRIGGER dance_v2_dispatch_sessions_no_update BEFORE UPDATE ON dance_v2_dispatch_sessions BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_ready_commands_no_delete', 'dance_v2_ready_commands', 'CREATE TRIGGER dance_v2_ready_commands_no_delete BEFORE DELETE ON dance_v2_ready_commands BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_ready_commands_no_replace', 'dance_v2_ready_commands', 'CREATE TRIGGER dance_v2_ready_commands_no_replace BEFORE INSERT ON dance_v2_ready_commands WHEN EXISTS(SELECT 1 FROM dance_v2_ready_commands WHERE command_id=NEW.command_id) BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END'),
+    ('trigger', 'dance_v2_ready_commands_no_update', 'dance_v2_ready_commands', 'CREATE TRIGGER dance_v2_ready_commands_no_update BEFORE UPDATE ON dance_v2_ready_commands BEGIN SELECT RAISE(ABORT,''dance_v2_action_immutable''); END')
+),
+selected_optional_trigger AS (
   SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM expected_consent_trigger
   WHERE (SELECT enabled FROM publication_consent_context)=1
+  UNION ALL
+  SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM expected_dance_publication_trigger
+  WHERE (SELECT enabled FROM dance_publication_context)=1
 ),
 allowed_executable AS (
   SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM known
-  UNION ALL SELECT type,name,tbl_name,sql FROM selected_consent_trigger
+  UNION ALL SELECT type,name,tbl_name,sql FROM selected_optional_trigger
 ),
 actual_executable AS (
   SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM sqlite_schema WHERE type IN ('trigger','view')
@@ -288,7 +310,7 @@ SELECT CASE WHEN NOT EXISTS(
  SELECT type,name,tbl_name,sql FROM actual_executable
  EXCEPT SELECT type,name,tbl_name,sql FROM allowed_executable
 ) AND NOT EXISTS(
- SELECT type,name,tbl_name,sql FROM selected_consent_trigger
+ SELECT type,name,tbl_name,sql FROM selected_optional_trigger
  EXCEPT SELECT type,name,tbl_name,sql FROM actual_executable
 ) THEN 1 ELSE 0 END;
 -- native-transition-statement

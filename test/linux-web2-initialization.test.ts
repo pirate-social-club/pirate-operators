@@ -10,6 +10,7 @@ import {
 import { communityMigrations } from "../harness/package-migrations.ts";
 import {
   initializeWeb2Schema,
+  selectWeb2DancePublication,
   selectWeb2PublicationConsent,
   type Web2SchemaPlan,
 } from "../deploy/linux/web2-initialization.ts";
@@ -289,6 +290,57 @@ test(
     assert.deepEqual(await schemaRows(f.db), installed);
   },
 );
+
+test("fresh Web2 gates Dance dispatch on the exact numbered selection and retained trigger set", { timeout: 30000 }, async t => {
+  const f = await nativeProducerFixture(false);
+  t.after(f.dispose);
+  const root = "apps/community-wizard/infra/migrations";
+  const files = await readdir(root);
+  const base = {
+    rewards: true, ownerPublishing: true, v4: true, rewardClosure: true,
+    media: true, dance: true, privateDance: true, publicationConsent: true,
+  };
+  const prior = communityMigrations(files, base);
+  const chosen = communityMigrations(files, { ...base, dancePublication: true });
+  assert.deepEqual(chosen, [...prior, "0023_dance_publication_dispatch.sql"]);
+  assert.throws(() => communityMigrations(files, { ...base, privateDance: false, dancePublication: true }),
+    /dance_publication_migration_selection_required/);
+  assert.throws(() => communityMigrations(files, { ...base, publicationConsent: false, dancePublication: true }),
+    /dance_publication_migration_selection_required/);
+  const numbered = await splitSql(chosen.slice(nativeMigrationNames.length), root);
+  const [consent, mount, practice, dispatch] = numbered;
+  assert(consent && mount && practice && dispatch);
+  assert.equal(selectWeb2DancePublication([consent, mount, practice]), false);
+  assert.throws(() => selectWeb2DancePublication([consent, mount, dispatch, practice]),
+    /web2_dance_publication_migrations_changed/);
+  assert.throws(() => selectWeb2DancePublication([consent, mount, practice, { ...dispatch, sha256: "00".repeat(32) }]),
+    /web2_dance_publication_migrations_changed/);
+  const publicationConsent = selectWeb2PublicationConsent(numbered);
+  const dancePublication = selectWeb2DancePublication(numbered);
+  assert(publicationConsent && dancePublication);
+  for (const row of numbered)
+    await f.db.batch(row.statements.filter(sql => sql.trim()).map(sql => f.db.prepare(sql)));
+  const plan = await sourcePlan(), release = "ef".repeat(32);
+  const before = await schemaRows(f.db);
+  await assert.rejects(initializeWeb2Schema(f.db, plan, release, { publicationConsent }),
+    /catalog_phase_schema_refusal/);
+  assert.deepEqual(await schemaRows(f.db), before);
+  const trigger = await f.db.prepare(
+    "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='dance_v2_dispatch_sessions_no_delete'",
+  ).first<{ sql: string }>();
+  assert(trigger);
+  await f.db.prepare("DROP TRIGGER dance_v2_dispatch_sessions_no_delete").run();
+  await assert.rejects(initializeWeb2Schema(f.db, plan, release, { publicationConsent, dancePublication }),
+    /catalog_phase_schema_refusal/);
+  await f.db.prepare(trigger.sql).run();
+  assert.deepEqual(await schemaRows(f.db), before);
+  const first = await initializeWeb2Schema(f.db, plan, release, { publicationConsent, dancePublication });
+  assert.equal(first.alreadyInitialized, false);
+  await assert.rejects(initializeWeb2Schema(f.db, plan, release, { publicationConsent, requireRetained: true }),
+    /web2_retained_schema_changed/);
+  assert.deepEqual(await initializeWeb2Schema(f.db, plan, release, { publicationConsent, dancePublication, requireRetained: true }),
+    { manifestSha256: first.manifestSha256, alreadyInitialized: true });
+});
 
 test("trusted reopen requires the exact retained Web2 ledger without rebuilding empty or partial D1", { timeout: 30000 }, async t => {
   const f = await nativeProducerFixture(false);

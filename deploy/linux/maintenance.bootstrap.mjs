@@ -2,7 +2,7 @@ import {initializeNativeOriginal} from "../../packages/community/native-business
 import {initializeWeb2NativeOriginal} from "../../packages/community/web2-native-business-binding.ts";
 import {web2ApplicationOriginal} from "../../services/application-native-readback.ts";
 import {initializeNativePostsCustody} from "../../services/linux-web2-posts-custody.ts";
-import {initializeWeb2Schema, selectWeb2PublicationConsent} from "./web2-initialization.ts";
+import {initializeWeb2Schema, selectWeb2DancePublication, selectWeb2PublicationConsent} from "./web2-initialization.ts";
 import {initializeNativePublication, initializeTrustedNativePublication} from "./web2-publication-selection.ts";
 /** Private one-shot bootstrap. No user-facing listener or caller-supplied SQL. */
 export default {
@@ -26,6 +26,9 @@ export default {
       if (!env.NATIVE_APPLICATION_ORIGINAL_JSON) throw new Error('Native original binding missing');
       return JSON.parse(env.NATIVE_APPLICATION_ORIGINAL_JSON).schema === "pirate.web2-native-application-original/1";
     }
+    const web2 = originalIsWeb2();
+    const dancePublication = selectWeb2DancePublication(plan.migrations);
+    if (dancePublication && !web2) throw new Error('Dance publication requires the native Web2 schema');
     const key = '_qualification/' + plan.releaseSha256;
     const bytes = 'pirate-linux-native-object:' + plan.releaseSha256;
     async function readOriginalObject() {
@@ -36,7 +39,7 @@ export default {
       return object;
     }
     if (retained) {
-      if (!originalIsWeb2() || env.POSTS_CUSTODY_SELECTION_JSON !== undefined || env.POSTS_CUSTODY_HOST_AUTH !== undefined ||
+      if (!web2 || env.POSTS_CUSTODY_SELECTION_JSON !== undefined || env.POSTS_CUSTODY_HOST_AUTH !== undefined ||
           env.WEB2_PUBLICATION_INITIALIZATION_JSON !== undefined)
         throw new Error('Trusted retained Web2 scope changed');
       const original = await web2ApplicationOriginal(env);
@@ -70,12 +73,14 @@ export default {
       ]);
     }
     let publicationSelectionSha256;
-    if (originalIsWeb2()) {
+    if (web2) {
       if (!plan.web2Schema) throw new Error('Explicit fresh Web2 schema plan missing');
       const postsCustody = env.POSTS_CUSTODY_SELECTION_JSON !== undefined ||
         env.POSTS_CUSTODY_HOST_AUTH !== undefined;
       const publicationConsent = selectWeb2PublicationConsent(plan.migrations);
-      await initializeWeb2Schema(env.DB, plan.web2Schema, plan.releaseSha256, { postsCustody, publicationConsent, requireRetained: retained });
+      await initializeWeb2Schema(env.DB, plan.web2Schema, plan.releaseSha256, {
+        postsCustody, publicationConsent, dancePublication, requireRetained: retained,
+      });
       if (!retained) await initializeWeb2NativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
       if (postsCustody) {
         const original = await web2ApplicationOriginal(env);

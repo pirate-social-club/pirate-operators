@@ -12,6 +12,7 @@ import {build,stop} from "esbuild";
 import {acquireOperation,privateDirectory,hash,type OperationLease} from "../../deploy/linux/backend-state.ts";
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import {communityMigrations} from "../package-migrations.ts";
+import {selectWeb2DancePublication} from "../../deploy/linux/web2-initialization.ts";
 import {object} from "../../packages/community/common.ts";
 import {learningResultsV5Build} from "../../packages/protocol/generated/learning-results-v5.ts";
 import {danceCapturePolicyBuild,danceVerdictsBuild} from "../../packages/dance-chain/v2/abi.ts";
@@ -202,16 +203,22 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
    assert(o.profile==="web2-first-song/1" && rawSelection.publicationConsent===true,"explicit_web2_publication_schema_required");
    keys.push("publicationConsent");
   }
+  if (Object.hasOwn(rawSelection,"dancePublication")) {
+   assert(o.profile==="web2-first-song/1" && rawSelection.dancePublication===true,"explicit_dance_publication_schema_required");
+   keys.push("dancePublication");
+  }
   assert.deepEqual(Object.keys(rawSelection).sort(),[...keys].sort(),"explicit_migration_selection_required");
   const flag=(name:string)=>{const value=rawSelection[name];assert(typeof value==="boolean","migration_selection_boolean_required: "+name);return value;};
   const migrations={rewards:flag("rewards"),ownerPublishing:flag("ownerPublishing"),v4:flag("v4"),
    rewardClosure:flag("rewardClosure"),media:flag("media"),dance:flag("dance"),
    ...(rawSelection.privateDance===true?{privateDance:true}:{}),
-   ...(rawSelection.publicationConsent===true?{publicationConsent:true}:{})};
+   ...(rawSelection.publicationConsent===true?{publicationConsent:true}:{}),
+   ...(rawSelection.dancePublication===true?{dancePublication:true}:{})};
   const migrationRoot=join(root,"apps/community-wizard/infra/migrations"),names=communityMigrations(await readdir(migrationRoot),migrations);
   const sql=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),migrationRoot,JSON.stringify(names)],"split-migrations");
   const migrationPlan:Parameters<typeof buildCompleteLinuxArtifacts>[0]["migrationPlan"]=JSON.parse(await readFile(sql.stdoutPath,"utf8"));
   assert.deepEqual(migrationPlan.map(row=>row.name),names);
+  assert(!migrations.dancePublication || selectWeb2DancePublication(migrationPlan),"dance_publication_migration_plan_required");
   let web2Schema:Parameters<typeof buildCompleteLinuxArtifacts>[0]["web2Schema"];
   if(o.profile==="web2-first-song/1"){
    // These are schema prerequisites only; application learning/names/Dance
