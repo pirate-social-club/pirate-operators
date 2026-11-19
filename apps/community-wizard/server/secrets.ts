@@ -16,27 +16,77 @@ export interface SecretStore {
   ): Promise<SecretName[]>;
   read(settings: Settings): Promise<Record<string, string>>;
 }
-function scope(s: Settings) {
-  return {
+
+export type InfisicalScope = Pick<Settings, "projectId" | "environment" | "secretPath">;
+
+export function scopedInfisicalSecrets(s: InfisicalScope, sdk: InfisicalSDK) {
+  const scope = {
     projectId: s.projectId,
     environment: s.environment,
     secretPath: s.secretPath,
     includeImports: false,
     expandSecretReferences: false,
   };
+  return {
+    async names() {
+      const result = await sdk.secrets().listSecrets({
+        ...scope, recursive: false, viewSecretValue: false,
+      });
+      return new Set(result.secrets.map((secret) => secret.secretKey));
+    },
+    async read(name: string) {
+      return (await sdk.secrets().getSecret({ ...scope, secretName: name })).secretValue;
+    },
+    async write(name: string, value: string, existing = false) {
+      const options = { ...scope, secretValue: value };
+      if (existing) await sdk.secrets().updateSecret(name, options);
+      else await sdk.secrets().createSecret(name, options);
+    },
+  };
 }
-async function readRequired(s: Settings, sdk: InfisicalSDK) {
+
+export async function prepareInfisicalScope(
+  s: InfisicalScope,
+  connection: InfisicalConnection,
+  sdk: InfisicalSDK,
+) {
+  if (connection.mode === "cli") {
+    let path = "/";
+    for (const name of s.secretPath.slice(1).split("/")) {
+      const scope = { projectId: s.projectId, environment: s.environment, path };
+      const list = () => sdk.folders().listFolders({ ...scope, recursive: false });
+      if (!(await list()).some((folder) => folder.name === name)) {
+        try {
+          await sdk.folders().create({ ...scope, name });
+        } catch (error) {
+          // A concurrent creation or uncertain response is resolved by readback.
+          if (!(await list()).some((folder) => folder.name === name))
+            throw error;
+        }
+        if (!(await list()).some((folder) => folder.name === name))
+          throw new SetupError(
+            "Infisical folder creation has not been confirmed. Retry connection.",
+            409,
+          );
+      }
+      path = (path === "/" ? "" : path) + "/" + name;
+    }
+  }
+  // Unattended identities can remain restricted to an existing leaf folder.
+  return scopedInfisicalSecrets(s, sdk).names();
+}
+
+async function readRequired(s: Settings, vault: ReturnType<typeof scopedInfisicalSecrets>) {
   const result: Record<string, string> = {};
   for (const name of requiredSecrets(s)) {
-    const secret = await sdk
-      .secrets()
-      .getSecret({ ...scope(s), secretName: name });
-    if (!secret.secretValue)
+    const value = await vault.read(name);
+    if (!value)
       throw new SetupError("A required Infisical credential is empty.", 409);
-    result[name] = secret.secretValue;
+    result[name] = value;
   }
   return result;
 }
+
 export function createInfisicalStore(auth = infisicalAuth()): SecretStore {
   return {
     connection: auth.connection,
@@ -46,46 +96,7 @@ export function createInfisicalStore(auth = infisicalAuth()): SecretStore {
           "Managed moderation does not use community provider secrets.",
           409,
         );
-      const sdk = await auth.client();
-      if (auth.connection.mode === "machine") {
-        // Existing unattended identities can remain restricted to the leaf folder.
-        await sdk
-          .secrets()
-          .listSecrets({
-            ...scope(s),
-            recursive: false,
-            viewSecretValue: false,
-          });
-        return;
-      }
-      let path = "/";
-      for (const name of s.secretPath.slice(1).split("/")) {
-        const scope = {
-          projectId: s.projectId,
-          environment: s.environment,
-          path,
-        };
-        const list = () =>
-          sdk.folders().listFolders({ ...scope, recursive: false });
-        if (!(await list()).some((folder) => folder.name === name)) {
-          try {
-            await sdk.folders().create({ ...scope, name });
-          } catch (error) {
-            // A concurrent creation or uncertain response is resolved by readback.
-            if (!(await list()).some((folder) => folder.name === name))
-              throw error;
-          }
-          if (!(await list()).some((folder) => folder.name === name))
-            throw new SetupError(
-              "Infisical folder creation has not been confirmed. Retry connection.",
-              409,
-            );
-        }
-        path = `${path === "/" ? "" : path}/${name}`;
-      }
-      await sdk
-        .secrets()
-        .listSecrets({ ...scope(s), recursive: false, viewSecretValue: false });
+      await prepareInfisicalScope(s, auth.connection, await auth.client());
     },
     async save(s, values) {
       if (s.moderationMode !== "independent")
@@ -93,18 +104,12 @@ export function createInfisicalStore(auth = infisicalAuth()): SecretStore {
           "Managed moderation keeps provider keys in the operator service, not this community.",
           409,
         );
-      const sdk = await auth.client();
-      const existing = await sdk
-        .secrets()
-        .listSecrets({ ...scope(s), recursive: false, viewSecretValue: false });
-      const names = new Set(existing.secrets.map((secret) => secret.secretKey));
-      for (const [name, value] of Object.entries(values)) {
-        const options = { ...scope(s), secretValue: value };
-        if (names.has(name)) await sdk.secrets().updateSecret(name, options);
-        else await sdk.secrets().createSecret(name, options);
-      }
+      const vault = scopedInfisicalSecrets(s, await auth.client());
+      const names = await vault.names();
+      for (const [name, value] of Object.entries(values))
+        await vault.write(name, value, names.has(name));
       // Re-read only the required names; a failed partial write never claims success.
-      const readback = await readRequired(s, sdk);
+      const readback = await readRequired(s, vault);
       for (const [name, value] of Object.entries(values))
         if (readback[name] !== value)
           throw new SetupError(
@@ -115,8 +120,7 @@ export function createInfisicalStore(auth = infisicalAuth()): SecretStore {
     },
     async read(s) {
       if (!requiredSecrets(s).length) return {};
-      const sdk = await auth.client();
-      return readRequired(s, sdk);
+      return readRequired(s, scopedInfisicalSecrets(s, await auth.client()));
     },
   };
 }

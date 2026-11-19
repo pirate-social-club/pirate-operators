@@ -148,7 +148,8 @@ export function createWizardServer(
         if (path.startsWith("/api/web2/")) {
           if (!integrations.web2) throw new CommunityError("web2_setup_unavailable", 503);
           await integrations.authorizeWeb2!(req, "write");
-          const view = await integrations.web2.send(path.slice("/api/web2/".length), await body(req, 196_608));
+          const action = path.slice("/api/web2/".length);
+          const view = await integrations.web2.send(action, await body(req, action === "filebase-save" ? 8192 : 196_608));
           json(200, { available: true, csrf, view });
           return;
         }
@@ -279,6 +280,15 @@ export function createWizardServer(
 }
 
 const web2Corrections: Record<string,string> = {
+  web2_filebase_onboarding_unavailable: "This runner uses its preselected Filebase credential.",
+  web2_filebase_cli_unavailable: "Install the Infisical CLI on the wizard runner, then check the folder again.",
+  web2_filebase_scope_unavailable: "Check the runner's Infisical login or machine identity and its access to the displayed project, environment and folder.",
+  web2_filebase_scope_required: "Check the displayed Infisical folder before entering the Filebase credential.",
+  web2_filebase_credential_required: "Save and verify the Filebase credential before preparing enrollment.",
+  web2_filebase_credential_invalid: "Enter the Filebase IPFS RPC token without whitespace.",
+  web2_filebase_readback_unavailable: "Infisical could not confirm the saved Filebase credential. Check the same folder again before retrying.",
+  web2_filebase_credential_conflict: "The selected folder already has a different Filebase credential. Check the saved value with the host operator.",
+  web2_filebase_binding_unavailable: "The Filebase credential is saved in Infisical. Check the key agent on the wizard runner, then check the folder again.",
   publisher_custody_binding_unavailable:"The preprovisioned server publisher custody binding is unavailable. No new enrollment or gas allocation is authorized.",
   web2_publishing_authority_unavailable:"Authenticated Pirate grant selection and admission are unavailable. Retain this enrollment; publishing and installation are unavailable.",
   web2_managed_grant_admission_unavailable:"The managed service has not confirmed this exact grant admission. Reconcile the retained attachment before retrying.",

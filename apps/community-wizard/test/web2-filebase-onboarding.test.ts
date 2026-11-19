@@ -1,0 +1,293 @@
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { once } from "node:events";
+import { createServer } from "node:net";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import test from "node:test";
+import { hashJson, hashText } from "../../../packages/community/common.ts";
+import { addPin, preparePin } from "../../../packages/community/ipfs.ts";
+import {
+  enrollmentTypedData, policyHash, type HostedPolicy,
+} from "../../../packages/community/hosted-enrollment.ts";
+import {
+  CATALOG_OWNER_POLICY_HASH, CATALOG_OWNER_POLICY_VERSION,
+} from "../../../packages/community/owner-policy.ts";
+import { directoryV3Build, parseWeb2ProfileDocument } from "../../../packages/community/web2-directory.ts";
+import { prepareWeb2Registration } from "../../../packages/community/web2-registration-chain.ts";
+import { startPairedOperator } from "../../../deploy/linux/bootstrap-local-target.ts";
+import { createWeb2WizardRuntime } from "../server/web2-runtime.ts";
+import { infisicalAuth } from "../server/infisical-auth.ts";
+import { createWeb2FilebaseCredentials } from "../server/web2-filebase-credentials.ts";
+import type { Web2SetupInputs } from "../server/web2-setup.ts";
+
+const address = (digit: string) => ("0x" + digit.repeat(40)) as `0x${string}`;
+const notice = "Disposable wizard Filebase onboarding fixture.";
+const policy: HostedPolicy = {
+  schema: "pirate.hosted-enrollment-policy/1", pilotId: "filebase-fixture",
+  serviceOrigin: "https://admission.example",
+  deployment: {
+    schema: "pirate.web2-directory/3", chainId: 6343, directory: address("1"),
+    directoryCodeHash: directoryV3Build.runtimeCodeHash,
+    directoryAbiSha256: directoryV3Build.abiSha256,
+    sourceCommit: "1".repeat(40), deploymentBlock: 1n,
+  },
+  registrar: address("2"), funder: address("3"), registrarRevision: "1",
+  noticeSha256: hashText(notice), inviteMaxSeconds: 3600, challengeSeconds: 1800,
+  maxSafeBlockAgeSeconds: 600, broadcastRetrySeconds: 10, maxBroadcastAttempts: 3,
+  registrationGas: "3000000", topupGas: "50000", maxFeePerGas: "1000000",
+  maxPriorityFeePerGas: "1", extraFeeCeiling: "0", extraFeeField: "none",
+  globalCeiling: "1000000000000000000", communityCeiling: "100000000000000000",
+  recipientCeiling: "100000000000000000", controllerInitialWei: "0", publisherInitialWei: "0",
+};
+const prepareInput = {
+  name: "Credential fixture", origin: "https://web2.example", controller: address("4"),
+  publisher: address("5"), inviteToken: "a".repeat(64), noticeAccepted: true,
+};
+
+async function availablePort() {
+  const server = createServer().listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const bound = server.address();
+  assert(bound && typeof bound === "object");
+  const closed = once(server, "close");
+  server.close();
+  await closed;
+  return bound.port;
+}
+
+test("paired Web2 saves once, recovers the selected Filebase key, prepares and reopens", async t => {
+  const directory = await mkdtemp(join(await realpath("/var/tmp"), "web2-filebase-"));
+  const wizardDirectory = join(directory, "wizard");
+  const nonceDirectory = join(directory, "nonces");
+  const dist = join(directory, "dist");
+  for (const path of [wizardDirectory, nonceDirectory, dist]) await mkdir(path, { mode: 0o700 });
+  await writeFile(join(dist, "index.html"), "<title>Disposable wizard fixture</title>");
+  const scope = {
+    siteUrl: "https://infisical.invalid", projectId: "00000000-0000-0000-0000-000000000001",
+    environment: "dev", secretPath: "/communities/filebase-fixture",
+  };
+  const secretName = "FILEBASE_IPFS_TOKEN";
+  const secret = "disposable-filebase-fixture-bearer";
+  const authToken = "fixture." + Buffer.from(JSON.stringify({
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  })).toString("base64url") + ".signature";
+  let loggedIn = false, scopeAllowed = false, activationAllowed = false;
+  const auth = infisicalAuth({ INFISICAL_SITE_URL: scope.siteUrl }, async args => {
+    if (args[0] === "--version") return "infisical fixture";
+    if (!loggedIn) throw Error("CLI detail " + authToken);
+    return args[0] === "login" ? JSON.stringify({ sessions: [{
+      principalType: "user", status: "authenticated", domain: scope.siteUrl,
+      profile: "fixture", verification: { state: "verified" },
+    }] }) : authToken;
+  });
+  let stored: string | undefined;
+  let writes = 0, pinAdds = 0, hostedPrepares = 0, reads = 0;
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (url.origin !== scope.siteUrl) return originalFetch(input, init);
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer " + authToken);
+    const method = init?.method ?? "GET";
+    const payload = method === "GET" ? Object.fromEntries(url.searchParams) : JSON.parse(String(init?.body));
+    assert.equal(payload.workspaceId, scope.projectId);
+    assert.equal(payload.environment, scope.environment);
+    if (!scopeAllowed) return Response.json({ message: "scope refusal " + authToken }, { status: 403 });
+    if (url.pathname === "/api/v1/folders") {
+      assert.equal(method, "GET");
+      assert.ok(payload.path === "/" || payload.path === "/communities");
+      return Response.json({ folders: [{ name: payload.path === "/" ? "communities" : "filebase-fixture" }] });
+    }
+    assert.equal(payload.secretPath, scope.secretPath);
+    if (method === "GET" && url.pathname === "/api/v3/secrets/raw") {
+      assert.equal(payload.viewSecretValue, "false");
+      assert.equal(payload.include_imports, "false");
+      return Response.json({ secrets: stored ? [{ secretKey: secretName }] : [] });
+    }
+    assert.ok(url.pathname.endsWith("/" + secretName));
+    if (method === "GET") {
+      reads++;
+      assert.equal(payload.includeImports, "false");
+      assert.equal(payload.expandSecretReferences, "false");
+      return stored
+        ? Response.json({ secret: { secretKey: secretName, secretValue: stored } })
+        : Response.json({}, { status: 404 });
+    }
+    assert.equal(method, "POST");
+    assert.equal(payload.secretValue, secret);
+    assert.equal(stored, undefined);
+    writes++;
+    stored = secret;
+    // The vault commits the create while the acknowledgement is lost.
+    return Response.json({ message: "uncertain " + secret }, { status: 502 });
+  };
+
+  let channelValue: string | undefined, observedUri: string | undefined;
+  const recognition = {
+    schema: "pirate.recognition-profile/1" as const,
+    namespace: hashText("fixture recognition"),
+    origin: "https://recognition.example", signer: address("7"),
+    providerBindingSha256: hashText("fixture recognition binding"),
+  };
+  const config: Web2SetupInputs["configuration"] = {
+    operatorPayments: address("0"), signingKeyId: "filebase-fixture",
+    policies: { admission: { version: CATALOG_OWNER_POLICY_VERSION, sha256: CATALOG_OWNER_POLICY_HASH },
+      moderationSigner: address("2"), recognition: { ...recognition, sha256: hashJson(recognition) } },
+  };
+  let paired: Awaited<ReturnType<typeof startPairedOperator>> | undefined;
+  async function stop() {
+    await paired?.close();
+    paired = undefined;
+    channelValue = undefined;
+  }
+  t.after(async () => {
+    await stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+  async function boot() {
+    const filebaseCredentials = createWeb2FilebaseCredentials({
+      scope, secretName, auth,
+      async bind(bytes) {
+        if (!activationAllowed) throw Error("fixture binding unavailable " + secret);
+        channelValue = new TextDecoder().decode(bytes);
+      },
+    });
+    const now = 1_800_000_000;
+    const inputs: Web2SetupInputs = {
+      policy, notice, configuration: config, hostInstallationId: "web2-filebase-fixture", filebaseCredentials,
+      clock: () => now,
+      publisherProof: {
+        async selected() { return { address: address("5"), custodyBindingDigest: hashText("fixture publisher") }; },
+        async signEnrollment() { throw Error("prepare cannot sign"); },
+      },
+      deployment: {
+        postingPeriod: "fixture", rpcUrl: "https://rpc.example", ipfsGateways: ["https://ipfs.filebase.io"],
+        managedOrigin: "https://managed.example", posts: { address: address("6"),
+          runtimeCodeHash: hashText("posts code"), deploymentBlock: "1" },
+        freshness: { maxSafeBlockAgeSeconds: "600" },
+      },
+      async pinConfiguration({ bytes, uri }) {
+        assert.equal(channelValue, secret);
+        const pin = await preparePin(bytes, "application/json");
+        assert.equal(pin.uri, uri);
+        const cid = uri.slice(7);
+        await addPin(pin, bytes, channelValue, async () => {}, async request => {
+          const url = new URL(request.url);
+          if (url.origin === "https://rpc.filebase.io") {
+            assert.equal(request.headers.get("authorization"), "Bearer " + secret);
+            if (url.pathname === "/api/v0/add") {
+              pinAdds++;
+              return Response.json({ Hash: cid });
+            }
+            assert.equal(url.pathname, "/api/v0/pin/ls");
+            assert.equal(url.searchParams.get("arg"), cid);
+            return Response.json({ Keys: { [cid]: { Type: "recursive" } } });
+          }
+          assert.equal(request.headers.get("authorization"), null);
+          assert.ok(url.pathname.endsWith("/" + cid));
+          return new Response(new Uint8Array(bytes));
+        });
+        observedUri = uri;
+      },
+      async transport(input, init) {
+        assert.equal(String(input), policy.serviceOrigin + "/prepare");
+        hostedPrepares++;
+        const payload = JSON.parse(String(init?.body));
+        assert.equal(payload.uri, observedUri);
+        assert.ok(!String(init?.body).includes(secret));
+        const profile = parseWeb2ProfileDocument(payload.profile);
+        const plan = prepareWeb2Registration(profile, payload.config, payload.uri, policy.registrar, 1n);
+        const inviteId = hashText("fixture invite"), id = hashText("hosted-enrollment:" + inviteId);
+        const enrollment = {
+          schema: "pirate.hosted-enrollment/1" as const, id, inviteId,
+          allowanceId: hashText("fixture allowance"), expiresAt: now + 60,
+          noticeSha256: policy.noticeSha256, policyHash: policyHash(policy), plan,
+        };
+        return new Response(JSON.stringify({
+          schema: enrollment.schema, enrollmentId: id, expiresAt: enrollment.expiresAt,
+          typedData: enrollmentTypedData(enrollment),
+        }, (_key, value) => typeof value === "bigint" ? String(value) : value));
+      },
+    };
+    const pairing = randomBytes(32);
+    const code = pairing.toString("base64url");
+    const frontPort = await availablePort();
+    let innerPort = await availablePort();
+    while (innerPort === frontPort) innerPort = await availablePort();
+    try {
+      paired = await startPairedOperator({
+        installationId: "web2-filebase-fixture", setup: "linux-web2",
+        frontPort, innerPort, pairingSecret: pairing, pairingNonceDirectory: nonceDirectory,
+        async assertHeld() {},
+        createRuntime: (authorization) => createWeb2WizardRuntime({
+          ...inputs, directory: wizardDirectory, dist, authorization,
+          custody: { async assertHeld() {} },
+        }),
+      });
+    } finally { pairing.fill(0); }
+    const origin = paired.origin;
+    const pairResponse = await fetch(origin + "/pair", {
+      method: "POST", redirect: "manual", headers: { origin }, body: new URLSearchParams({ code }),
+    });
+    assert.equal(pairResponse.status, 303);
+    const cookie = pairResponse.headers.get("set-cookie")?.split(";")[0];
+    assert(cookie);
+    const state = () => fetch(origin + "/api/web2/state", {
+      headers: { cookie },
+    }).then(response => response.json());
+    async function send(action: string, value: Record<string, unknown>, paired = true) {
+      const before = await state();
+      const response = await fetch(origin + "/api/web2/" + action, {
+        method: "POST",
+        headers: { origin, "x-wizard-token": before.csrf,
+          ...(paired ? { cookie } : {}), "content-type": "application/json" },
+        body: JSON.stringify({ revision: before.view.revision, ...value }),
+      });
+      const raw = await response.text();
+      assert.ok(!raw.includes(secret) && !raw.includes(authToken));
+      return { status: response.status, json: JSON.parse(raw) };
+    }
+    return { state, send };
+  }
+
+  const first = await boot();
+  const original = join(wizardDirectory, "web2-wizard-original.json");
+  await assert.rejects(readFile(original), { code: "ENOENT" });
+  assert.equal((await first.send("filebase-save", { token: secret }, false)).status, 403);
+  assert.equal((await first.send("filebase-save", { token: secret })).json.code, "web2_filebase_scope_required");
+  assert.equal((await first.send("filebase-check", {})).status, 409);
+  loggedIn = true;
+  assert.equal((await first.send("filebase-check", {})).status, 409);
+  scopeAllowed = true;
+  assert.equal((await first.send("filebase-check", {})).status, 200);
+  assert.equal((await first.send("prepare", prepareInput)).json.code, "web2_filebase_credential_required");
+  await assert.rejects(readFile(original), { code: "ENOENT" });
+  assert.equal(pinAdds + hostedPrepares + writes, 0);
+  assert.equal((await first.send("filebase-save", { token: secret })).json.code, "web2_filebase_binding_unavailable");
+  assert.equal(writes, 1);
+  activationAllowed = true;
+  const recovered = await first.send("filebase-check", {});
+  assert.equal(recovered.status, 200);
+  assert.equal(recovered.json.view.filebase.status, "ready");
+  assert.equal((await first.send("filebase-save", { token: "different-fixture-token" })).json.code,
+    "web2_filebase_credential_conflict");
+  assert.equal(writes, 1);
+  const prepared = await first.send("prepare", prepareInput);
+  assert.equal(prepared.status, 200, JSON.stringify(prepared));
+  assert.equal(prepared.json.view.phase, "prepared");
+  assert.equal(pinAdds, 1);
+  assert.equal(hostedPrepares, 1);
+  await stop();
+  assert.equal(channelValue, undefined);
+  const reopened = await boot();
+  const latest = await reopened.state();
+  assert.equal(latest.view.filebase.status, "ready");
+  assert.equal(latest.view.selection.configurationUri, observedUri);
+  assert.equal(channelValue, secret);
+  assert.equal(writes, 1);
+  assert.equal(pinAdds, 1);
+  assert.ok(reads >= 3);
+  for (const name of await readdir(wizardDirectory))
+    assert.doesNotMatch(await readFile(join(wizardDirectory, name), "utf8"), /disposable-filebase-fixture-bearer|\\.signature/);
+});

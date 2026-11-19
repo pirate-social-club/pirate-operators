@@ -2,6 +2,7 @@ import { createSignal, For, onSettled, Show } from "solid-js";
 import { formatEther, type TypedDataDefinition } from "viem";
 import { hashJson } from "../../../packages/community/common.ts";
 import {createWeb2MossWindow} from "./web2-moss-window.ts";
+import { Web2FilebaseSetup } from "./web2-filebase-setup.tsx";
 import {
   createWeb2WizardClient,
   type Web2Action,
@@ -31,6 +32,7 @@ export function Web2Wizard() {
     [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
   const locked = () => busy() || Boolean(view()?.busy);
+  const filebaseReady = () => !view()?.filebase || view()?.filebase?.status === "ready";
   const offeredPractice = () => view()?.privatePracticeSelection ?? (view()?.privateStudyAvailable ? "study-v5" : undefined);
   const practiceSelection = () => {
     const retained = view()?.installationSelection;
@@ -109,6 +111,16 @@ export function Web2Wizard() {
       </p>
       <Show when={error()}>
         <p role="alert">{error()}</p>
+      </Show>
+      <Show when={!view()?.challenge && view()?.filebase}>
+        {(filebase) => (
+          <Web2FilebaseSetup
+            view={filebase()}
+            busy={locked()}
+            check={() => void perform(() => send("filebase-check"))}
+            save={(token) => void perform(() => send("filebase-save", { token }))}
+          />
+        )}
       </Show>
       <Show when={waitingForInstallation()}>
         <p role="status">
@@ -247,7 +259,8 @@ export function Web2Wizard() {
                 !accepted() ||
                 !rolesReviewed() ||
                 !controller() ||
-                !view()!.serverPublisher
+                !view()!.serverPublisher ||
+                !filebaseReady()
               }
             >
               Prepare enrollment
@@ -279,7 +292,7 @@ export function Web2Wizard() {
           </Show>
           <button
             disabled={
-              locked() || (view()!.invitationCorrectionRequired && !accepted())
+              locked() || !filebaseReady() || (view()!.invitationCorrectionRequired && !accepted())
             }
             onClick={() =>
               void perform(() =>

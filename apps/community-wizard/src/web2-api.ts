@@ -6,6 +6,8 @@ export interface Web2Snapshot {
   view: Web2WizardView;
 }
 export type Web2Action =
+  | "filebase-check"
+  | "filebase-save"
   | "prepare"
   | "resume-prepare"
   | "redeem"
@@ -19,6 +21,8 @@ export type Web2Action =
   | "install"
   | "installation-status";
 const actions: readonly string[] = [
+  "filebase-check",
+  "filebase-save",
   "prepare",
   "resume-prepare",
   "redeem",

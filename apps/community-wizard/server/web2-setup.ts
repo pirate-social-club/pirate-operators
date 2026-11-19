@@ -4,6 +4,7 @@ import {
   type Web2PublishingInputs,
   type Web2PublishingView,
 } from "./web2-publishing-setup.ts";
+import type { Web2FilebaseCredentials, Web2FilebaseView } from "./web2-filebase-credentials.ts";
 import type { PublisherProofSigner } from "../../../deploy/linux/web2-operator-inputs.ts";
 import { ownerOnly } from "../../../packages/community/owner-policy.ts";
 import {
@@ -76,6 +77,7 @@ export interface Web2WizardView {
     custodyBindingDigest: `0x${string}`;
   } | null;
   publishing: Web2PublishingView;
+  filebase?: Web2FilebaseView;
   notice: string;
   policy: {
     chainId: number;
@@ -110,6 +112,7 @@ export interface Web2SetupInputs {
   signingOrigin?:string;
   publisherProof?: PublisherProofSigner;
   publishing?: Web2PublishingInputs;
+  filebaseCredentials?: Web2FilebaseCredentials;
   notice: string;
   /** Actual shared deployment inputs, before any community exists. No dummy ID. */
   deployment: Omit<
@@ -188,6 +191,8 @@ export async function createWeb2Setup(
   const serverPublisher = input.publisherProof
     ? await input.publisherProof.selected()
     : null;
+  const filebase = input.filebaseCredentials;
+  await filebase?.restore();
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
   function snapshot(): Web2WizardView {
@@ -202,6 +207,7 @@ export async function createWeb2Setup(
       signingOrigin,
       serverPublisher,
       publishing: publishing.snapshot(),
+      ...(filebase ? { filebase: filebase.snapshot() } : {}),
       notice,
       policy: {
         chainId: policy.deployment.chainId,
@@ -272,6 +278,29 @@ export async function createWeb2Setup(
     );
     delete body.revision;
     busy = true;
+    try {
+      if (action === "filebase-check" || action === "filebase-save") {
+        insist(filebase, "web2_filebase_onboarding_unavailable", 503);
+        if (action === "filebase-check") {
+          exact(body, []);
+          await filebase.connect();
+        } else {
+          exact(body, ["token"]);
+          await filebase.save(body.token);
+          journal.revision++;
+          await save();
+        }
+      } else {
+        if (!journal.prepared && (action === "prepare" || action === "resume-prepare"))
+          await filebase?.assertReady();
+        await runSetupAction(action, body);
+      }
+    } finally {
+      busy = false;
+    }
+    return snapshot();
+  }
+  async function runSetupAction(action: string, body: Record<string, unknown>) {
     try {
       if (action === "resume-prepare") {
         exact(
@@ -624,10 +653,7 @@ export async function createWeb2Setup(
         )
       )
         throw error;
-    } finally {
-      busy = false;
     }
-    return snapshot();
   }
   return {
     snapshot,

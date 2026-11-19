@@ -97,6 +97,15 @@ export function infisicalAuth(
   const common = ["--silent", "--domain", `${siteUrl}/api`];
   return {
     connection,
+    async cliAvailable() {
+      if (mode !== "cli") return undefined;
+      try {
+        await runCli(["--version"]);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async client() {
       const sdk = new InfisicalSDK({ siteUrl });
       if (mode === "machine") {
