@@ -432,6 +432,7 @@ export function createDanceClient(options: {
     path: string,
     recoverCommands = true,
     signal?: AbortSignal,
+    requireStatus200 = false,
   ): Promise<T> {
     if (recoverCommands) {
       const active = await journal.active(scope);
@@ -455,6 +456,10 @@ export function createDanceClient(options: {
       current();
       throw new DanceClientError("dance_read_unavailable");
     }
+    if (requireStatus200 && response.ok && response.status !== 200) {
+      current();
+      throw new DanceClientError("dance_read_unavailable", false, response.status);
+    }
     return (await readResponse(response)) as T;
   }
   async function recordPublicationStatus(entry: DanceJournalEntry, status: DancePublicationStatus) {
@@ -473,7 +478,7 @@ export function createDanceClient(options: {
       throw new DanceClientError("dance_publication_original_changed", true);
     const reply = await get<unknown>(
       "reviews/" + captureId + "/submission-status?" + new URLSearchParams({ requestId: entry.commandId }),
-      false, signal,
+      false, signal, true,
     );
     const status = readDancePublicationStatus(reply, entry.commandId);
     await recordPublicationStatus(entry, status);

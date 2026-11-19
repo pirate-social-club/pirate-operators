@@ -18,6 +18,7 @@ test("publication resume observes the original and only proven absence permits i
   } as unknown as DanceCapture;
   const calls: { method: string; path: string; body: unknown }[] = [];
   let mode: "offline" | "held" | "awaiting_publisher" | "malformed" | "retained_unsent" | "wrong_id" | "reverted" = "offline";
+  let statusCode = 200;
   let requestId = "";
   const client = createDanceClient({
     communityId: scope.communityId, accountId: scope.accountId, csrf: "fixture_csrf", isCurrent: () => true,
@@ -31,7 +32,7 @@ test("publication resume observes the original and only proven absence permits i
       if (mode === "offline") return Response.json({ error: "native_dance_observation_unavailable" }, { status: 503 });
       if (mode === "malformed") return Response.json({ ...response("awaiting_publisher"), transactionHash: hash(24) });
       if (mode === "wrong_id") return Response.json({ ...response("retained_unsent"), actionId: hash(24) });
-      return Response.json(response(mode));
+      return Response.json(response(mode), { status: statusCode });
     },
   });
   const prepared = await client.prepareSubmission!(danceTargetKey(scope), captureId, "media", hash(16));
@@ -46,6 +47,11 @@ test("publication resume observes the original and only proven absence permits i
   await assert.rejects(controller.load(signal), error => refuses(error) && !error.publicationStatus);
   mode = "malformed";
   await assert.rejects(controller.load(signal), error => refuses(error) && !error.publicationStatus);
+  mode = "awaiting_publisher";
+  statusCode = 202;
+  await assert.rejects(controller.load(signal), error => refuses(error) && !error.publicationStatus);
+  assert.deepEqual(await client.retained!(), { ...prepared, attempted: true });
+  statusCode = 200;
   mode = "held";
   await assert.rejects(controller.load(signal), error => refuses(error) && error.publicationStatus?.state === "held");
   assert.ok(calls.every(call => call.method === "GET"));

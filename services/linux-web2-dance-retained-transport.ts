@@ -121,26 +121,36 @@ export function installedNativeDanceObservation(env: NativeDanceTransportEnv): D
   return async (original, caller) => {
     const access = checkedPublicationCapability(forward);
     const mount = await openInstalledDanceScope(env);
-    const ref = nativeDanceReference({ schema: "pirate.native-dance-retained-reference/1",
-      installationId: mount.scope.installationId, releaseSha256: mount.scope.releaseSha256, original });
-    assertNativeDanceScope(ref, mount.scope);
     const checkPorts = () => insist(env.PUBLICATION_OPERATOR_HOST === host &&
       env.PUBLICATION_OPERATOR_HOST_AUTH === forward && env.PUBLICATION_RETAINED_LOOKUP_AUTH === reverse,
       "native_dance_scope_changed", 503);
     checkPorts();
     const signal = AbortSignal.any([caller, AbortSignal.timeout(10000)]);
-    const response = await host.fetch(new Request(publicationHostOrigin + nativeDanceObservationPath, {
-      method: "POST", body: canonical(ref), redirect: "manual", signal,
-      headers: { authorization: "Bearer " + access, "content-type": "application/json" },
-    }));
-    insist(response.ok && response.headers.get("content-type") === "application/json",
-      "native_dance_observation_unavailable", 503);
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await publicationResponseBytes(response, nativeDanceReplyLimit));
-    const observed = nativeDanceObservation(nativeDanceReply(raw, ref));
+    const observed = await nativeDanceObservationTransport(mount.scope, access, host)(original, signal);
     await mount.assertCurrent();
     checkPorts();
     signal.throwIfAborted();
     return observed;
+  };
+}
+
+export function nativeDanceObservationTransport(
+  selection: NativeDanceRetainedScope, capability: string, host: Pick<Fetcher, "fetch">,
+): DanceV2Observation {
+  const scope = structuredClone(selection), access = checkedPublicationCapability(capability);
+  return async (original, signal) => {
+    const ref = nativeDanceReference({ schema: "pirate.native-dance-retained-reference/1",
+      installationId: scope.installationId, releaseSha256: scope.releaseSha256, original });
+    assertNativeDanceScope(ref, scope);
+    const response = await host.fetch(new Request(publicationHostOrigin + nativeDanceObservationPath, {
+      method: "POST", body: canonical(ref), redirect: "manual", signal,
+      headers: { authorization: "Bearer " + access, "content-type": "application/json" },
+    }));
+    insist(response.status === 200 && response.headers.get("content-type") === "application/json",
+      "native_dance_observation_unavailable", 503);
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await publicationResponseBytes(response, nativeDanceReplyLimit));
+    signal.throwIfAborted();
+    return nativeDanceObservation(nativeDanceReply(raw, ref));
   };
 }
 

@@ -14,6 +14,9 @@ import type { Web2PublicDanceInputs } from "../services/web2-public-dance-start.
 import { MemorySqliteD1 } from "./dance-sqlite-fixture.ts";
 import { danceCaptureV2Fixture } from "./fixtures/dance-capture-v2.ts";
 import type { DanceV2Observation } from "../services/dance-v2-action-recovery.ts";
+import { nativeDanceObservationTransport } from "../services/linux-web2-dance-retained-transport.ts";
+import { nativeDanceObservationPath, nativeDanceResponse, readNativeDanceReference } from "../services/native-dance-retained-reference.ts";
+import { publicationAcceptSessionHeader, publicationHostOrigin } from "../services/native-publication-reference.ts";
 import type { CommunityPrivateDance } from "../services/community-private-dance.ts";
 import { parseDanceCaptureV2, type PublicationCaptureV2 } from "../packages/dance/capture-v2.ts";
 
@@ -145,11 +148,36 @@ test("ordinary status requires the original accepting session before ready and p
   assert.equal(observations, 2);
   const absence: DanceV2Observation = async () => ({ state: "awaiting_publisher" });
   assert.equal((await installedDancePublicationAction(submit(otherCookie, other.csrf_token), check, absence, dispatch)).state, "held");
+  const forward = "c".repeat(64);
+  let observed = 0;
+  let nativeStatusCode = 202;
+  const observeTransport = nativeDanceObservationTransport({
+    chainId: 6343, communityId, publisher, verifier: domain.verifier,
+    sourceHash: bound.canonical.sourceHash, installationId: expected.installationId, releaseSha256: hashText("release"),
+  }, forward, {
+    async fetch(input) {
+      const request = new Request(input);
+      observed++;
+      assert.equal(request.url, publicationHostOrigin + nativeDanceObservationPath);
+      assert.equal(request.headers.get("authorization"), "Bearer " + forward);
+      assert.equal(request.headers.get(publicationAcceptSessionHeader), null);
+      const ref = await readNativeDanceReference(request);
+      assert.equal(ref.original.commandId, original.command_id);
+      const valid = nativeDanceResponse(ref, dispatched
+        ? { state: "retained_unsent", transactionHash: hashText("verified transaction") }
+        : { state: "awaiting_publisher" });
+      return new Response(valid.body, { status: nativeStatusCode, headers: valid.headers });
+    },
+  });
+  assert.deepEqual(await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, observeTransport, dispatch), result);
+  assert.equal(observed, 1);
   assert.equal(dispatched, 0);
-  const submitted = await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check,
-    async () => dispatched ? { state: "retained_unsent", transactionHash: hashText("verified transaction") } : { state: "awaiting_publisher" },
-    dispatch);
+  assert.equal(await store.dispatchSessionPin(original.command_id), danceDispatchSessionPin(first));
+  assert.deepEqual({ ...await store.ready(original.command_id) }, ready);
+  nativeStatusCode = 200;
+  const submitted = await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check, observeTransport, dispatch);
   assert.equal(dispatched, 1);
+  assert.equal(observed, 3);
   assert.deepEqual(submitted, { ...result, state: "retained_unsent" });
   const observedAgain = await installedDancePublicationAction(submit(firstCookie, first.csrf_token), check,
     async () => ({ state: "retained_unsent", transactionHash: hashText("verified transaction") }), dispatch);
