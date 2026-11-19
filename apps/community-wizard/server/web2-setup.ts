@@ -46,7 +46,10 @@ import {
 } from "../../../packages/community/hosted-enrollment.ts";
 import { initialRecipients } from "../../../packages/community/hosted-topup-chain.ts";
 import { parseEnrollment } from "../../../packages/community/hosted-enrollment.ts";
-import { createHostedEnrollmentClient } from "../../../packages/community-setup/hosted-enrollment-client.ts";
+import {
+  createHostedEnrollmentClient,
+  type HostedEnrollmentTransport,
+} from "../../../packages/community-setup/hosted-enrollment-client.ts";
 import {
   linuxWeb2DraftFrom,
   isWeb2PracticeSelection,
@@ -96,6 +99,8 @@ export interface Web2WizardView {
         configurationUri: string;
       });
   challenge: unknown | null;
+  /** Expiration of the retained registration challenge in Unix seconds. */
+  registrationExpiresAt?: number;
   enrollment: HostedEnrollmentStatus | null;
   controllerAuthorized: boolean;
   fundingAuthorized: boolean;
@@ -140,7 +145,7 @@ export interface Web2SetupInputs {
   installation?: LinuxWeb2Installation;
   /** Trusted persistent host identity; distinct from the Directory installation ID. */
   hostInstallationId?: string;
-  transport?: typeof fetch;
+  transport?: HostedEnrollmentTransport;
   clock?: () => number;
 }
 export async function createWeb2Setup(
@@ -243,6 +248,7 @@ export async function createWeb2Setup(
             }
           : null,
       challenge: journal.prepared?.typedData ?? null,
+      ...(journal.prepared ? { registrationExpiresAt: journal.prepared.expiresAt } : {}),
       enrollment: journal.enrollment,
       controllerAuthorized: Boolean(journal.controllerSignature),
       fundingAuthorized: Boolean(journal.recipientProofs),

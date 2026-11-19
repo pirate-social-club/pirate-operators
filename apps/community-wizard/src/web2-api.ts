@@ -4,6 +4,8 @@ export interface Web2Snapshot {
   available: true;
   csrf: string;
   view: Web2WizardView;
+  /** Absolute session deadline supplied by the authenticated loopback proxy. */
+  operatorSessionExpiresAt?: number;
 }
 export type Web2Action =
   | "filebase-check"
@@ -141,7 +143,17 @@ export function createWeb2WizardClient(
       throw Error(
         "This runner serves an incompatible setup model. Retain its original state.",
       );
-    return value as unknown as Web2Snapshot;
+    const cutoff = response.headers.get("x-pirate-operator-session-expires-at");
+    const operatorSessionExpiresAt = cutoff === null ? undefined : Number(cutoff);
+    if (operatorSessionExpiresAt !== undefined &&
+        (!Number.isSafeInteger(operatorSessionExpiresAt) || operatorSessionExpiresAt <= 0))
+      throw Error("This runner returned an invalid operator session deadline.");
+    return {
+      available: true,
+      csrf: value.csrf,
+      view: value.view as unknown as Web2WizardView,
+      ...(operatorSessionExpiresAt === undefined ? {} : { operatorSessionExpiresAt }),
+    };
   }
   return {
     state: () => request(),

@@ -31,7 +31,17 @@ export function Web2Wizard() {
     [study, setStudy] = createSignal(false),
     [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
-  const locked = () => busy() || Boolean(view()?.busy || view()?.pairingOnly);
+  const [now, setNow] = createSignal(Date.now());
+  const sessionDeadline = () => snapshot()?.operatorSessionExpiresAt;
+  const registrationDeadline = () => {
+    const expiresAt = view()?.registrationExpiresAt;
+    return expiresAt === undefined ? undefined : Math.min(expiresAt * 1000, sessionDeadline() ?? Infinity);
+  };
+  const sessionEnded = () => now() >= (sessionDeadline() ?? Infinity);
+  const registrationEnded = () => now() >= (registrationDeadline() ?? Infinity);
+  const locked = () => busy() || sessionEnded() || Boolean(view()?.busy || view()?.pairingOnly);
+  const registrationExpiredNotice = "The saved registration challenge expired. Reconcile the original enrollment to check its status.";
+  const deadlineText = (deadline: number) => new Date(deadline).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
   const filebaseReady = () => !view()?.filebase || view()?.filebase?.status === "ready";
   const offeredPractice = () => view()?.privatePracticeSelection ?? (view()?.privateStudyAvailable ? "study-v5" : undefined);
   const practiceSelection = () => {
@@ -67,7 +77,9 @@ export function Web2Wizard() {
     }
   }
   onSettled(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
     void perform(() => api.state());
+    return () => clearInterval(tick);
   });
   const send = async (
     action: Web2Action,
@@ -139,6 +151,13 @@ export function Web2Wizard() {
           Network: {view()!.policy.chainId}. Hosted enrollment:{" "}
           {view()!.policy.serviceOrigin}.
         </p>
+        <Show when={sessionDeadline()}>{deadline => (
+          <p>
+            {sessionEnded()
+              ? "This operator session expired. Open a newly authorized setup session for the saved original."
+              : `Operator session ends at ${deadlineText(deadline())}.`}
+          </p>
+        )}</Show>
         <Show
           when={!view()!.selection}
           fallback={
@@ -325,17 +344,24 @@ export function Web2Wizard() {
             exact origin, configuration and selected pilot policy. It does not
             send a community transaction.
           </p>
+          <Show when={registrationDeadline()}>{deadline => (
+            <p>{registrationEnded() && !sessionEnded()
+              ? registrationExpiredNotice
+              : `Registration authorization ends at ${deadlineText(deadline())}.`}</p>
+          )}</Show>
           <button
-            disabled={locked()}
+            disabled={locked() || registrationEnded()}
             onClick={() =>
-              void perform(async () =>
-                send(
+              void perform(async () => {
+                if (Date.now() >= (registrationDeadline() ?? Infinity))
+                  throw Error(registrationExpiredNotice);
+                return send(
                   "redeem",
                   view()!.controllerAuthorized
                     ? {}
                     : { signature: await sign(view()!.challenge) },
-                ),
-              )
+                );
+              })
             }
           >
             {view()!.controllerAuthorized

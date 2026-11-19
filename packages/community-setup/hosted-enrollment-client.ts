@@ -102,28 +102,53 @@ export function checkedHostedPreparation(
   };
 }
 
+/** In-process only. The hosted request body stays bound to the original ID and proof. */
+export type HostedEnrollmentTransport = (
+  resource: string,
+  init: RequestInit,
+  context?: Readonly<{ redeemExpiresAt: number }>,
+) => Promise<Response>;
+
+export function assertHostedRedeemDeadline(
+  expiresAt: number | undefined,
+  nowSeconds: number,
+): asserts expiresAt is number {
+  insist(
+    typeof expiresAt === "number" && Number.isSafeInteger(expiresAt) && expiresAt > 0 &&
+      Number.isSafeInteger(nowSeconds) && nowSeconds >= 0,
+    "web2_registration_deadline_required",
+    503,
+  );
+  insist(nowSeconds < expiresAt, "web2_registration_challenge_expired", 410);
+}
+
 export function createHostedEnrollmentClient(
   input: HostedPolicy,
-  transport: typeof fetch = (...args) => globalThis.fetch(...args),
+  transport: HostedEnrollmentTransport = (resource, init) => globalThis.fetch(resource, init),
   clock = () => Math.floor(Date.now() / 1000),
 ) {
   const policy = ownPolicy(input);
-  async function post(path: string, body: unknown) {
-    let response: Response;
+  async function post(path: string, body: unknown, redeemExpiresAt?: number) {
     const deadline = AbortSignal.timeout(15_000);
     try {
-      response = await bounded(
-        transport(policy.serviceOrigin + path, {
-          method: "POST",
-          redirect: "manual",
-          credentials: "omit",
-          cache: "no-store",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(wire(body)),
-          signal: deadline,
-        }),
-        deadline,
-      );
+      const resource = policy.serviceOrigin + path;
+      const init: RequestInit = {
+        method: "POST",
+        redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(wire(body)),
+        signal: deadline,
+      };
+      let send: Promise<Response>;
+      if (path === "/redeem") {
+        assertHostedRedeemDeadline(redeemExpiresAt, clock());
+        send = transport(resource, init, { redeemExpiresAt });
+      } else {
+        send = transport(resource, init);
+      }
+      const response = await bounded(send, deadline);
       const chunks: Uint8Array[] = [];
       let size = 0;
       if (!response.body) throw Error("missing response");
@@ -208,7 +233,7 @@ export function createHostedEnrollmentClient(
     return e;
   }
   async function action(
-    path: string,
+    path: "/redeem" | "/status" | "/initial-topup",
     prepared: PreparedHostedEnrollment,
     controllerSignature: unknown,
     proofs?: unknown,
@@ -221,6 +246,7 @@ export function createHostedEnrollmentClient(
     const value = await post(
       path,
       proofs === undefined ? auth : { ...auth, recipientProofs: proofs },
+      path === "/redeem" ? e.expiresAt : undefined,
     );
     const status = hostedEnrollmentStatusFrom(value);
     insist(

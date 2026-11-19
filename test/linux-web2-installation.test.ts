@@ -5,7 +5,9 @@ import {
   writeFile,
   readFile,
   mkdtemp,
+  readdir,
   readlink,
+  rm,
 } from "node:fs/promises";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
@@ -750,3 +752,117 @@ test(
     );
   },
 );
+
+test("paired Web2 shares the signed session cutoff and preserves one-shot reauthentication", { timeout: 10000 }, async t => {
+  const { startPairedOperator } = await import("../deploy/linux/bootstrap-local-target.ts");
+  const root = await mkdtemp(join(process.env.TMPDIR ?? "/var/tmp", "paired-cutoff-"));
+  const nonces = join(root, "nonces");
+  await mkdir(nonces, { mode: 0o700 });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const started = Date.UTC(2026, 10, 19, 17, 29, 48);
+  const signedCutoff = Date.UTC(2026, 10, 19, 18, 5, 24);
+  t.mock.timers.enable({ apis: ["Date"], now: started });
+  const journalPath = join(root, "retained-original.json");
+  await writeFile(journalPath, JSON.stringify({ phase: "unknown", controllerAuthorized: true }), { mode: 0o600 });
+  let protectedRequests = 0;
+  let advanceWhileAuthorizing: number | undefined;
+  async function boot(sessionExpiresAt: number) {
+    const frontPort = await availablePort();
+    let innerPort = await availablePort();
+    while (innerPort === frontPort) innerPort = await availablePort();
+    const secret = randomBytes(32);
+    const code = secret.toString("base64url");
+    const paired = await startPairedOperator({
+      installationId: "paired-cutoff-fixture", setup: "linux-web2", frontPort, innerPort,
+      sessionExpiresAt, pairingSecret: secret, pairingNonceDirectory: nonces,
+      async assertHeld() {
+        if (advanceWhileAuthorizing === undefined) return;
+        t.mock.timers.setTime(advanceWhileAuthorizing);
+        advanceWhileAuthorizing = undefined;
+      },
+      async createRuntime(authorization) {
+        const server = createServer((req, res) => {
+          void authorization.authorize(req, "read").then(async () => {
+            protectedRequests++;
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(await readFile(journalPath));
+          }, () => res.writeHead(403).end());
+        });
+        return {
+          server,
+          async listen(port) {
+            server.listen(port, "127.0.0.1");
+            await once(server, "listening");
+          },
+          close: () => new Promise<void>((resolve, reject) =>
+            server.close(error => error ? reject(error) : resolve())),
+        };
+      },
+    });
+    secret.fill(0);
+    t.after(() => paired.close());
+    const call = (path: string, init?: RequestInit) =>
+      fetch(paired.origin + path, { signal: AbortSignal.timeout(2000), redirect: "manual", ...init });
+    const pair = (input = code) => call("/pair", {
+      method: "POST", headers: { Origin: paired.origin }, body: new URLSearchParams({ code: input }),
+    });
+    return { paired, call, pair, code };
+  }
+
+  const first = await boot(signedCutoff);
+  const pairedAt = started + 98_500;
+  t.mock.timers.setTime(pairedAt);
+  const link = await first.pair();
+  assert.equal(link.status, 303);
+  const setCookie = link.headers.get("set-cookie");
+  assert(setCookie?.includes(`Max-Age=${Math.floor((signedCutoff - pairedAt) / 1000)}`));
+  assert(setCookie?.includes("HttpOnly; SameSite=Strict"));
+  const cookie = setCookie?.split(";")[0];
+  assert(cookie);
+  assert.equal((await first.pair()).status, 403, "same launch cannot Pair twice");
+  assert.equal((await readdir(nonces)).length, 1);
+
+  const state = () => first.call("/api/web2/state", { headers: { Cookie: cookie } });
+  t.mock.timers.setTime(started + 30 * 60_000 + 1);
+  assert.equal((await state()).status, 200, "the old short pairing timer cannot evict this signed operation");
+  t.mock.timers.setTime(signedCutoff - 1);
+  const before = await state();
+  assert.equal(before.status, 200);
+  assert.equal(before.headers.get("x-pirate-operator-session-expires-at"), String(signedCutoff));
+  assert.deepEqual(await before.json(), { phase: "unknown", controllerAuthorized: true });
+  const priorRequests = protectedRequests;
+  advanceWhileAuthorizing = signedCutoff;
+  const expired = await state();
+  assert.equal(expired.status, 410);
+  assert.equal((await expired.json()).code, "operator_session_expired");
+  assert.equal((await first.pair()).status, 410);
+  t.mock.timers.setTime(signedCutoff - 1);
+  assert.equal((await state()).status, 410, "clock regression cannot restore a closed session");
+  assert.equal(protectedRequests, priorRequests);
+  await first.paired.close();
+
+  t.mock.timers.setTime(signedCutoff + 1000);
+  const second = await boot(signedCutoff + 600_000);
+  assert.equal((await second.call("/api/web2/state", { headers: { Cookie: cookie } })).status, 403);
+  assert.equal((await second.pair(first.code)).status, 403);
+  const relink = await second.pair();
+  assert.equal(relink.status, 303, "a newly authenticated session can read the saved original");
+  const newCookie = relink.headers.get("set-cookie")?.split(";")[0];
+  assert(newCookie);
+  const retained = await second.call("/api/web2/state", { headers: { Cookie: newCookie } });
+  assert.equal(retained.status, 200);
+  assert.deepEqual(await retained.json(), { phase: "unknown", controllerAuthorized: true });
+  await second.paired.close();
+
+  const beforeLatePair = await readdir(nonces);
+  const thirdStarted = signedCutoff + 2000;
+  t.mock.timers.setTime(thirdStarted);
+  const third = await boot(thirdStarted + 600_000);
+  t.mock.timers.setTime(thirdStarted + 300_000);
+  const expiredCode = await third.pair();
+  assert.equal(expiredCode.status, 410);
+  assert.equal((await expiredCode.json()).code, "operator_pairing_expired");
+  const expiredPage = await third.call("/?setup=linux-web2");
+  assert.equal(expiredPage.status, 410);
+  assert.deepEqual(await readdir(nonces), beforeLatePair);
+});

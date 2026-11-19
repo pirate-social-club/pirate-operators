@@ -8,6 +8,7 @@ import test from "node:test";
 import { hexToBytes, verifyTypedData } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { CommunityError, hashJson, hashText } from "../../../packages/community/common.ts";
+import { assertHostedRedeemDeadline } from "../../../packages/community-setup/hosted-enrollment-client.ts";
 import { addPin, preparePin } from "../../../packages/community/ipfs.ts";
 import {
   enrollmentTypedData, policyHash, type Enrollment, type HostedPolicy,
@@ -72,7 +73,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
     join(directory, "lease"), "wizard-publisher-identity", "web2-filebase-fixture",
     { purpose: "disposable enrollment" }, await readlink("/proc/self/ns/pid"),
   );
-  const now = 1_800_000_000;
+  let now = 1_800_000_000;
   const controller = privateKeyToAccount(generatePrivateKey());
   const publisherKey = generatePrivateKey();
   const publisher = privateKeyToAccount(publisherKey).address.toLowerCase() as typeof controller.address;
@@ -134,6 +135,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   });
   let enrollment: Enrollment | undefined;
   let redeemRequests = 0, statusRequests = 0, topups = 0;
+  let nextRedeemAdmission: { enter(): void; wait: Promise<void> } | undefined;
   let statusUnavailable = false, registrationSeen = false, withdrawIdentityDuringStatus = false;
   const scope = {
     siteUrl: "https://infisical.invalid", projectId: "00000000-0000-0000-0000-000000000001",
@@ -276,16 +278,26 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
         });
         observedUri = uri;
       },
-      async transport(input, init) {
+      async transport(input, init, context) {
         const payload = JSON.parse(String(init?.body));
         const url = new URL(String(input));
         assert.equal(url.origin, policy.serviceOrigin);
+        if (url.pathname !== "/redeem") assert.equal(context, undefined);
         if (["/redeem", "/status", "/initial-topup"].includes(url.pathname)) {
           assert(enrollment);
           assert.equal(payload.enrollmentId, enrollment.id);
           const typed = enrollmentTypedData(enrollment);
           assert(await verifyTypedData({ ...typed, address: controller.address, signature: payload.controllerSignature }));
           if (url.pathname === "/redeem") {
+            assert.deepEqual(Object.keys(payload).sort(), ["controllerSignature", "enrollmentId"]);
+            assert.equal(context?.redeemExpiresAt, enrollment.expiresAt);
+            const gate = nextRedeemAdmission;
+            if (gate) {
+              nextRedeemAdmission = undefined;
+              gate.enter();
+              await gate.wait;
+            }
+            assertHostedRedeemDeadline(context?.redeemExpiresAt, now);
             redeemRequests++;
             throw Error("disposable lost redeem acknowledgement");
           }
@@ -448,10 +460,51 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   assert.equal(retained.pending, "redeem");
   assert.equal(retained.controllerSignature, controllerProof);
   assert.deepEqual((await first.state()).view.selection, prepared.json.view.selection);
+  const liveClock = now;
+  now = enrollment.expiresAt;
+  try {
+    const late = await first.send("redeem", {});
+    assert.equal(late.status, 410);
+    assert.equal(late.json.code, "web2_registration_challenge_expired");
+    assert.equal(prepared.json.view.registrationExpiresAt, enrollment.expiresAt);
+    assert.equal(redeemRequests, 1, "the expired retained proof cannot reach the hosted Redeem route");
+    const afterExpiry = JSON.parse(await readFile(original, "utf8"));
+    assert.equal(afterExpiry.controllerSignature, controllerProof);
+    assert.deepEqual(afterExpiry.prepared, retained.prepared);
+    const reconciled = await first.send("reconcile", {});
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.json.view.controllerAuthorized, true);
+    assert.deepEqual(reconciled.json.view.enrollment.operations, []);
+
+    let entered!: () => void, resume!: () => void;
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { resume = resolve; });
+    nextRedeemAdmission = { enter: entered, wait: held };
+    now = enrollment.expiresAt - 1;
+    const inFlight = first.send("redeem", {});
+    try {
+      await Promise.race([
+        waiting,
+        inFlight.then(() => assert.fail("Redeem did not reach the live admission fixture")),
+      ]);
+    } finally {
+      now = enrollment.expiresAt;
+      resume();
+    }
+    const crossedCutoff = await inFlight;
+    assert.equal(crossedCutoff.status, 410);
+    assert.equal(crossedCutoff.json.code, "web2_registration_challenge_expired");
+    assert.equal(redeemRequests, 1, "expiry during admission must stop before the hosted fetch");
+    const afterAdmission = JSON.parse(await readFile(original, "utf8"));
+    assert.equal(afterAdmission.controllerSignature, controllerProof);
+    assert.deepEqual(afterAdmission.prepared, retained.prepared);
+  } finally {
+    now = liveClock;
+  }
   registrationSeen = true;
   withdrawIdentityDuringStatus = true;
   assert.equal((await first.send("topup", {})).json.code, "retained_publisher_custody_binding_changed");
-  assert.equal(statusRequests, 3);
+  assert.equal(statusRequests, 4);
   assert.equal(proofRequests + signatures + topups, 0);
   identityCurrent = true;
   withdrawIdentityDuringStatus = false;
@@ -465,7 +518,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   assert.equal(signatures, 1);
   assert.equal(topups, 1);
   assert.equal(redeemRequests, 1);
-  assert.equal(statusRequests, 5);
+  assert.equal(statusRequests, 6);
   assert.deepEqual(funded.json.view.selection, prepared.json.view.selection);
   assert.equal(foregroundKeyAttempts, 0);
   await stop();
@@ -511,7 +564,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   assert.equal(reads, retainedReads);
   assert.equal(hostedPrepares, 1);
   assert.equal(redeemRequests, 1);
-  assert.equal(statusRequests, 5);
+  assert.equal(statusRequests, 6);
   assert.equal(topups, 1);
   assert.equal(signatures, 1);
   assert.equal(pinAdds, 1);

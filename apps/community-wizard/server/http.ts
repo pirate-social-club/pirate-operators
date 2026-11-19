@@ -303,6 +303,7 @@ const web2Corrections: Record<string,string> = {
   hosted_signing_request_changed: "The service returned different signing terms. No wallet request is authorized. Reconnect to the selected service.",
   web2_revision_changed: "Another tab or request advanced setup. Refresh the original runner before continuing.",
   web2_original_selection_changed: "This runner retains an existing community request. Reconcile that original instead of replacing it.",
+  web2_registration_challenge_expired: "The saved registration challenge expired. Reconcile the original enrollment to check its status.",
   hosted_request_refused: "The hosted service refused this step or is unavailable. Keep the original request and check enrollment status.",
   pilot_notice_required: "Read and accept the selected pilot notice before preparation.",
   invalid_invite: "Use the complete 64-character invitation from the pilot service.",

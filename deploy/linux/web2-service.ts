@@ -26,6 +26,7 @@ import { publicIngressFrom } from "./public-ingress.ts";
 import { startWeb2NativeActivityHost, type Web2NativeActivityHostInputs } from "./web2-native-activity-host.ts";
 import {
   startPairedOperator,
+  DEFAULT_OPERATOR_SESSION_MS,
   PairedOperatorStartupFailure,
   type PairedOperatorRuntime,
   type PairedOperatorInputs,
@@ -62,6 +63,8 @@ export interface Web2LocalInstallationConfiguration {
 /** W1 supplies the Wizard implementation; this module owns the paired transport. */
 export interface Web2BootstrapInputs {
   binding: Web2RuntimeBindingInputs;
+  /** Absolute session cutoff from the immutable backend's finite ordinary launch. */
+  operatorSessionExpiresAt?: number;
   /** Allow the installed identity preview to pair without an installation port. */
   pairingOnly?: true;
   activityHost?: Web2NativeActivityHostInputs;
@@ -361,6 +364,7 @@ export async function launchWeb2LocalInstallation(
   );
   const inputs = await loaded.createWeb2BootstrapInputs();
   let nativeActivityHost: Awaited<ReturnType<typeof startWeb2NativeActivityHost>> | undefined;
+  let bindingExpiresAt = 0;
   let protectedPosts: ReturnType<typeof createProtectedPostsMountLifetime> | undefined;
   const installation = await (async () => {
     try {
@@ -378,6 +382,12 @@ export async function launchWeb2LocalInstallation(
       );
       await verifyWeb2BootstrapRelease(config.release, config.trust);
       const policy = verifyRecord(inputs.binding.policy, config.trust);
+      bindingExpiresAt = policy.expiresAt;
+      const selectedCutoff = inputs.operatorSessionExpiresAt;
+      assert(selectedCutoff === undefined || (
+        inputs.pairingOnly !== true && Number.isSafeInteger(selectedCutoff) &&
+        Date.now() < selectedCutoff && selectedCutoff <= bindingExpiresAt
+      ), "web2_operator_session_deadline_invalid");
       if (inputs.pairingOnly === true) {
         assert(!policy.graph.protectedFirstSong && !inputs.binding.protectedFirstSong,
           "protected_posts_pairing_only_refused");
@@ -536,6 +546,8 @@ export async function launchWeb2LocalInstallation(
       frontPort: runtime.frontPort,
       innerPort: runtime.innerPort,
       setup: "linux-web2",
+      sessionExpiresAt: inputs.operatorSessionExpiresAt ??
+        Math.min(bindingExpiresAt, Date.now() + DEFAULT_OPERATOR_SESSION_MS),
       ...(pairingOnly ? { readOnly: true as const } : {}),
       pairingSecret: secret,
       pairingNonceDirectory: runtime.pairingNonceDirectory,
