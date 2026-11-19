@@ -6,6 +6,7 @@ import {createLocalTargetImplementation,type LocalTargetInputs,type LocalTargetC
 import {startManagedKeyAgent} from "./managed-key-channel.ts";
 import {releaseClearedOperation,type readWholeClearance} from "./independent-clearance.ts";
 import {createJSON,hash} from "./backend-state.ts";
+import {CommunityError} from "../../packages/community/common.ts";
 /** Ordinary browser -> authenticated loopback proxy -> existing W6 journal
  * runtime. No new wizard HTTP API, bypass of its CSRF/journal or public bind. */
 export interface LocalTargetBootstrapInputs {
@@ -23,6 +24,7 @@ export interface PairedOperatorRuntime {
 export interface PairedOperatorInputs {
   installationId:string;frontPort:number;innerPort:number;pairingSecret:Uint8Array;pairingNonceDirectory:string;
   setup?:"linux"|"linux-web2";
+  readOnly?:true;
   assertHeld():Promise<void>;
   createRuntime(authorization:{authorize(request:IncomingMessage,action:"read"|"write"):Promise<void>}):Promise<PairedOperatorRuntime>;
 }
@@ -50,11 +52,12 @@ export async function startPairedOperator(value:PairedOperatorInputs){
   const sessionHash=createHash("sha256").update(session).digest();let paired=false,attempts=0,closed=false;
   transient.push(internal,pairing,session,sessionHash);
   const expires=Date.now()+5*60000;
-  const runtime=await input.createRuntime({async authorize(req:IncomingMessage){
+  const runtime=await input.createRuntime({async authorize(req:IncomingMessage,action:"read"|"write"){
       await input.assertHeld();
       const value=req.headers["x-pirate-private-forwarder"];assert(typeof value==="string" && /^[a-f0-9]{64}$/.test(value) &&
         timingSafeEqual(Buffer.from(value,"hex"),internal),"actual_paired_forwarder_required");
       assert(req.socket.remoteAddress==="127.0.0.1" || req.socket.remoteAddress==="::ffff:127.0.0.1");
+      if(input.readOnly && action==="write")throw new CommunityError("web2_pairing_only",403);
     }});
   activeRuntime=runtime;await runtime.listen(input.innerPort);
   const proxy=createServer((req,res)=>{void(async()=>{
@@ -85,7 +88,13 @@ export async function startPairedOperator(value:PairedOperatorInputs){
     const supplied=req.headers.cookie?.split(";").map(x=>x.trim()).find(x=>x.startsWith("pirate_operator_session="))?.slice("pirate_operator_session=".length);
     assert(supplied && /^[a-f0-9]{64}$/.test(supplied) &&
       timingSafeEqual(createHash("sha256").update(Buffer.from(supplied,"hex")).digest(),sessionHash),"operator_session_denied");
-    if(req.method!=="GET" && req.method!=="HEAD")assert(req.headers.origin===origin);
+    if(req.method!=="GET" && req.method!=="HEAD"){
+      assert(req.headers.origin===origin);
+      if(input.readOnly){
+        res.writeHead(403,{"Content-Type":"application/json"}).end('{"code":"web2_pairing_only","error":"This pairing session is read-only."}');
+        return;
+      }
+    }
     // The browser cannot select the private origin or internal credential.
     const forward=httpRequest({hostname:"127.0.0.1",port:input.innerPort,path:req.url,method:req.method,
       headers:{...req.headers,host:"127.0.0.1:"+input.innerPort,origin:"http://127.0.0.1:"+input.innerPort,

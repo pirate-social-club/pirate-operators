@@ -1,6 +1,7 @@
 import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { IncomingMessage } from "node:http";
+import { insist } from "../../../packages/community/common.ts";
 import { createWizardServer } from "./http.ts";
 import { createWeb2Setup, type Web2SetupInputs } from "./web2-setup.ts";
 
@@ -44,6 +45,7 @@ export async function createWeb2WizardRuntime(
       authorizeWeb2: async (request, action) => {
         await input.custody.assertHeld();
         await input.authorization.authorize(request, action);
+        insist(!input.pairingOnly || action === "read", "web2_pairing_only", 403);
       },
     },
   );

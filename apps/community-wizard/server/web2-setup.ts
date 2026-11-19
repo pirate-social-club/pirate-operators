@@ -72,6 +72,7 @@ export interface Web2WizardView {
   revision: number;
   phase: Phase;
   busy: boolean;
+  pairingOnly?: true;
   signingOrigin:string|null;
   serverPublisher: {
     address: `0x${string}`;
@@ -109,6 +110,7 @@ export interface Web2WizardView {
 }
 export interface Web2SetupInputs {
   policy: HostedPolicy;
+  pairingOnly?: true;
   /** Exact public HTTPS helper origin, from authenticated host configuration. */
   signingOrigin?:string;
   /** In restricted custody, select the publisher through the admitted identity-only broker. */
@@ -153,6 +155,8 @@ export async function createWeb2Setup(
     "hosted_notice_changed",
     503,
   );
+  const pairingOnly = input.pairingOnly === true;
+  insist(!pairingOnly || !input.installation, "web2_pairing_only", 403);
   if (input.installation)
     insist(
       typeof input.hostInstallationId === "string" &&
@@ -203,7 +207,7 @@ export async function createWeb2Setup(
     now: clock,
   });
   const serverPublisher = publisherIdentity ? await selectPublisher() : null;
-  const filebase = input.filebaseCredentials;
+  const filebase = pairingOnly ? undefined : input.filebaseCredentials;
   await filebase?.restore();
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
@@ -216,6 +220,7 @@ export async function createWeb2Setup(
       revision: journal.revision,
       phase: journal.phase,
       busy,
+      ...(pairingOnly ? { pairingOnly: true as const } : {}),
       signingOrigin,
       serverPublisher,
       publishing: publishing.snapshot(),
@@ -281,6 +286,7 @@ export async function createWeb2Setup(
     });
   }
   async function run(action: string, value: unknown) {
+    insist(!pairingOnly, "web2_pairing_only", 403);
     const body = object(structuredClone(value));
     const revision = integer(body.revision, 0, Number.MAX_SAFE_INTEGER);
     insist(

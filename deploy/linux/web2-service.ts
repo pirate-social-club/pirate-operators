@@ -61,6 +61,8 @@ export interface Web2LocalInstallationConfiguration {
 /** W1 supplies the Wizard implementation; this module owns the paired transport. */
 export interface Web2BootstrapInputs {
   binding: Web2RuntimeBindingInputs;
+  /** Allow the installed identity preview to pair without an installation port. */
+  pairingOnly?: true;
   activityHost?: Web2NativeActivityHostInputs;
   publicationActivity?: NativePublicationActivityRoute;
   /** Selected owner bootstrap runs only inside the reviewed install apply. */
@@ -81,9 +83,11 @@ export interface Web2BootstrapInputs {
   createWizard(input: {
     directory: string;
     dist: string;
-    installation: LinuxWeb2Installation;
     authorization: Parameters<PairedOperatorInputs["createRuntime"]>[0];
-  }): Promise<PairedOperatorRuntime>;
+  } & (
+    { pairingOnly: true; installation?: never } |
+    { pairingOnly?: never; installation: LinuxWeb2Installation }
+  )): Promise<PairedOperatorRuntime>;
 }
 export function createWeb2SetupLifetime(signal?: AbortSignal) {
   let closed = false, busy = false;
@@ -372,6 +376,27 @@ export async function launchWeb2LocalInstallation(
       );
       await verifyWeb2BootstrapRelease(config.release, config.trust);
       const policy = verifyRecord(inputs.binding.policy, config.trust);
+      if (inputs.pairingOnly === true) {
+        const now = Date.now();
+        assert(
+          policy.schema === "pirate.web2-runtime-binding-policy/1" &&
+          policy.installationId === runtime.installationId &&
+          policy.target.installationId === runtime.installationId &&
+          policy.graph.installationId === runtime.installationId &&
+          policy.graph.releaseRoot === release.root &&
+          policy.graph.stateRoots.configuration === policy.bindingDirectory &&
+          policy.bootstrapArtifactDigest === release.artifactDigest &&
+          policy.bootstrapSourceDigest === release.sourceDigest &&
+          Number.isSafeInteger(policy.issuedAt) && Number.isSafeInteger(policy.expiresAt) &&
+          policy.issuedAt <= now && now < policy.expiresAt,
+          "web2_pairing_selection_changed",
+        );
+        await inputs.binding.lease.assertHeld();
+        signal?.throwIfAborted();
+        // Even a retained start intent must never reach the installer in this entry.
+        return undefined;
+      }
+      assert(inputs.pairingOnly === undefined, "web2_pairing_selection_changed");
       const publication = inputs.publicationActivity;
       const prepare = inputs.prepareExpandedPublication?.bind(inputs);
       const activate = inputs.openExpandedPublication?.bind(inputs);
@@ -480,12 +505,14 @@ export async function launchWeb2LocalInstallation(
   })();
   const secret = randomBytes(32);
   try {
-    await installation.resumeOriginal();
+    await installation?.resumeOriginal();
+    const pairingOnly = !installation;
     const paired = await startPairedOperator({
       installationId: runtime.installationId,
       frontPort: runtime.frontPort,
       innerPort: runtime.innerPort,
       setup: "linux-web2",
+      ...(pairingOnly ? { readOnly: true as const } : {}),
       pairingSecret: secret,
       pairingNonceDirectory: runtime.pairingNonceDirectory,
       assertHeld: () => inputs.binding.lease.assertHeld(),
@@ -493,7 +520,7 @@ export async function launchWeb2LocalInstallation(
         inputs.createWizard({
           directory: runtime.wizardDirectory,
           dist: execution.wizardDist,
-          installation: installation.port,
+          ...(installation ? { installation: installation.port } : { pairingOnly: true as const }),
           authorization,
         }),
     });
@@ -503,7 +530,7 @@ export async function launchWeb2LocalInstallation(
       serviceStop: Promise<void> | undefined;
     const closeSetup = () =>
       (setupClose ??= paired
-        .close(() => installation.port.close())
+        .close(() => installation?.port.close() ?? Promise.resolve())
         .catch((error) => {
           setupClose = undefined;
           throw error;
@@ -515,7 +542,7 @@ export async function launchWeb2LocalInstallation(
       shutdownService: () =>
         (serviceStop ??= (async () => {
           // Close setup and drain the owned attempt while the app proof and activity listener still exist.
-          await installation.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
+          await installation?.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
           await closeSetup();
           await nativeActivityHost?.close();
           await inputs.closeControl();
@@ -527,7 +554,7 @@ export async function launchWeb2LocalInstallation(
   } catch (error) {
     secret.fill(0);
     const cleanup = async () => {
-      await installation.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
+      await installation?.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
       if (error instanceof PairedOperatorStartupFailure) await error.close();
       await nativeActivityHost?.close();
       await inputs.closeControl();

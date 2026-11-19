@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { hexToBytes, verifyTypedData } from "viem";
@@ -217,7 +217,7 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
     await stop();
     await rm(directory, { recursive: true, force: true });
   });
-  async function boot() {
+  async function boot(pairingOnly = false) {
     const filebaseCredentials = createWeb2FilebaseCredentials({
       scope, secretName, auth,
       async bind(bytes) {
@@ -342,9 +342,11 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
       paired = await startPairedOperator({
         installationId: "web2-filebase-fixture", setup: "linux-web2",
         frontPort, innerPort, pairingSecret: pairing, pairingNonceDirectory: nonceDirectory,
+        ...(pairingOnly ? { readOnly: true as const } : {}),
         async assertHeld() {},
         createRuntime: (authorization) => createWeb2WizardRuntime({
           ...inputs, directory: wizardDirectory, dist, authorization,
+          ...(pairingOnly ? { pairingOnly: true as const } : {}),
           custody: { async assertHeld() {} },
         }),
       });
@@ -375,10 +377,17 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
     return { state, send, page };
   }
 
+  const preview = await boot(true);
+  assert.equal((await preview.page()).status, 200);
+  assert.equal((await preview.state()).view.pairingOnly, true);
+  assert.equal((await preview.send("prepare", prepareInput)).json.code, "web2_pairing_only");
+  assert.deepEqual(await readdir(wizardDirectory), []);
+  assert.equal(writes + pinAdds + hostedPrepares + proofRequests, 0);
+  await stop();
   const first = await boot();
   assert.equal((await first.page()).status, 200);
   assert.deepEqual((await first.state()).view.serverPublisher, identity);
-  assert.equal(identityReads, 1);
+  assert.equal(identityReads, 2);
   assert.equal(foregroundKeyAttempts + proofRequests + signatures, 0);
   await general.withSecret("fixture-general-secret", 1, async value => assert.deepEqual(Buffer.from(value), otherSecret));
   await assert.rejects(general.withKey(binding.keyReference, binding.generation, async () => assert.fail("general agent exposed publisher")));
@@ -473,6 +482,40 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   assert.equal(writes, 1);
   assert.equal(pinAdds, 1);
   assert.ok(reads >= 3);
+  await stop();
+  const snapshot = async () => Promise.all((await readdir(wizardDirectory)).sort().map(async name => {
+    const path = join(wizardDirectory, name);
+    const { ino, size, mtimeMs } = await stat(path);
+    return { name, ino, size, mtimeMs, bytes: await readFile(path) };
+  }));
+  const retainedFiles = await snapshot();
+  const retainedReads = reads;
+  const retainedPreview = await boot(true);
+  assert.equal((await retainedPreview.page()).status, 200);
+  const view = (await retainedPreview.state()).view;
+  assert.equal(view.pairingOnly, true);
+  assert.equal(view.phase, "funded");
+  assert.deepEqual(view.selection, latest.view.selection);
+  assert.equal(channelValue, undefined);
+  for (const action of [
+    "prepare", "resume-prepare", "redeem", "topup", "reconcile", "filebase-check", "filebase-save",
+    "publishing-prepare", "publishing-authorize", "publishing-attach", "publishing-reconcile",
+    "installation-prepare", "install", "installation-status",
+  ]) {
+    const denied = await retainedPreview.send(action, action === "prepare" ? prepareInput : {});
+    assert.equal(denied.status, 403, action);
+    assert.equal(denied.json.code, "web2_pairing_only", action);
+  }
+  await stop();
+  assert.deepEqual(await snapshot(), retainedFiles);
+  assert.equal(reads, retainedReads);
+  assert.equal(hostedPrepares, 1);
+  assert.equal(redeemRequests, 1);
+  assert.equal(statusRequests, 5);
+  assert.equal(topups, 1);
+  assert.equal(signatures, 1);
+  assert.equal(pinAdds, 1);
+  assert.equal(writes, 1);
   for (const name of await readdir(wizardDirectory))
     assert.doesNotMatch(await readFile(join(wizardDirectory, name), "utf8"), /disposable-filebase-fixture-bearer|\\.signature/);
 });

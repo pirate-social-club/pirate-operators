@@ -31,7 +31,7 @@ export function Web2Wizard() {
     [study, setStudy] = createSignal(false),
     [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
-  const locked = () => busy() || Boolean(view()?.busy);
+  const locked = () => busy() || Boolean(view()?.busy || view()?.pairingOnly);
   const filebaseReady = () => !view()?.filebase || view()?.filebase?.status === "ready";
   const offeredPractice = () => view()?.privatePracticeSelection ?? (view()?.privateStudyAvailable ? "study-v5" : undefined);
   const practiceSelection = () => {
@@ -109,6 +109,9 @@ export function Web2Wizard() {
       <p>
         Create a community on your Linux host. Names and HNS are separate steps.
       </p>
+      <Show when={view()?.pairingOnly}>
+        <p role="status">This pairing session is read-only.</p>
+      </Show>
       <Show when={error()}>
         <p role="alert">{error()}</p>
       </Show>

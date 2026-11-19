@@ -280,6 +280,7 @@ export function createWizardServer(
 }
 
 const web2Corrections: Record<string,string> = {
+  web2_pairing_only: "This pairing session is read-only.",
   web2_filebase_onboarding_unavailable: "This runner uses its preselected Filebase credential.",
   web2_filebase_cli_unavailable: "Install the Infisical CLI on the wizard runner, then check the folder again.",
   web2_filebase_scope_unavailable: "Check the runner's Infisical login or machine identity and its access to the displayed project, environment and folder.",
