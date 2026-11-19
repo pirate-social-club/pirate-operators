@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {join} from "node:path";
-import type {OperationLease} from "./backend-state.ts";
+import {hash,type OperationLease} from "./backend-state.ts";
 import {pinOriginalFence} from "./final-fence-unlink.ts";
 import {readWholeClearance} from "./independent-clearance.ts";
 import {verifyRecord,type SignedRecord} from "./installed-records.ts";
@@ -21,10 +21,12 @@ export async function releaseOwnedMaintenance(input:{
   const clearance=await readWholeClearance(input.clearance);
   proof=await pinOriginalFence(input.clearance.path,1048576);
   assert.deepEqual(verifyRecord(JSON.parse(proof.bytes.toString("utf8")) as SignedRecord<typeof clearance>,input.clearance.trust),clearance);
+  const clearanceSha256=hash(proof.bytes);
   await input.assertCurrent();
   assert(clearance.expiresAt>Date.now(),"independent_native_clearance_expired_or_wrong_frame");
   proof.assertUnchangedSync();
   await fence.issueUnlink(input.signal); // Sync final identity then issue, no await gap.
   await fence.syncParent();
+  return {clearanceSha256};
  }finally{try{await proof?.close();}finally{await fence.close();}}
 }
