@@ -87,8 +87,9 @@ export async function validateNativeActivityPolicy(input: {
   target: InstalledTarget;
   release: Web2BootstrapRelease;
   expiresAt: number;
+  mode: "setup" | "retained-dance-owner";
 }) {
-  const { policy, study, graph, target, release, expiresAt } = input;
+  const { policy, study, graph, target, release, expiresAt, mode } = input;
   assert(policy.schema === "pirate.web2-native-activities/1" && (policy.karaoke || policy.dance));
   const app = target.containers.find(c => c.key === "application");
   assert(app && childOf(target.stateRoot, policy.socket) &&
@@ -97,9 +98,15 @@ export async function validateNativeActivityPolicy(input: {
     app.mounts.some(m => m.target === m.source && m.readOnly && childOf(m.source, policy.socket)) &&
     !app.mounts.some(m => !m.readOnly && childOf(m.target, policy.socket)), "owned_activity_socket_mount_required");
   await privateDirectory(dirname(policy.socket));
-  const socket = await lstat(policy.socket);
-  assert(socket.isSocket() && socket.uid === process.getuid!() && (socket.mode & 0o077) === 0 &&
-    (await realpath(policy.socket)) === policy.socket, "private_activity_listener_required");
+  const socket = await lstat(policy.socket).catch((error: unknown) => {
+    // The retained owner enters after foreground drain and opens no listener.
+    if (mode === "retained-dance-owner" && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (socket) {
+    assert(socket.isSocket() && socket.uid === process.getuid!() && (socket.mode & 0o077) === 0 &&
+      (await realpath(policy.socket)) === policy.socket, "private_activity_listener_required");
+  }
   const fileOwned = (path: string) => app.mounts.some(m => m.target === m.source && m.readOnly && childOf(m.source, path)) &&
     !app.mounts.some(m => !m.readOnly && childOf(m.target, path));
   const token = (value: string) => assert(/^[A-Za-z0-9_-]{43}$/.test(value), "private_activity_credential_changed");

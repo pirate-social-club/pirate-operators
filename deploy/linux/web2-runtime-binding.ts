@@ -346,7 +346,7 @@ export async function createWeb2RuntimeBinder(
     if (!policy.nativeActivities) return;
     assert(policy.privateStudy, "native_activities_require_private_study_policy");
     await validateNativeActivityPolicy({policy: policy.nativeActivities, study: policy.privateStudy,
-      graph: policy.graph, target: policy.target, release: bootstrap, expiresAt: policy.expiresAt});
+      graph: policy.graph, target: policy.target, release: bootstrap, expiresAt: policy.expiresAt, mode});
   };
   if (policy.privateStudy) {
     validateWeb2LocalStudyPolicy(policy.privateStudy, policy.graph, bootstrap, policy.target, policy.nativeActivities?.socket);
