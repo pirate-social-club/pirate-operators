@@ -6,12 +6,29 @@ import { preparedOperation, type OperationResult, type Reconciliation } from "./
 import { parseTransaction } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { ExternalOperation } from "./publication-store.ts";
-import { reservationId, type PostingBinding } from "../recognition/intent.ts";
+import { type AcceptedIntent, type PostingBinding } from "../recognition/intent.ts";
+import type { ReservationReceipt } from "../recognition/reservation-receipt.ts";
 export interface CatalogPublicationPorts extends CanonicalIntentPorts {
   publisher:PrivateKeyAccount;
   transport?:(request:Request)=>Promise<Response>;
   /** Applied at the actual mutating transport boundary; status remains read-only. */
   beforeCatalogDispatch?(operation:ExternalOperation,finalFence:()=>Promise<void>):Promise<void>;
+}
+/** Stable operation values exclude per-request nonce, issue time and signature. */
+export function catalogOperationResult(
+  intent: AcceptedIntent,
+  metadata: { rating?: string },
+  receipt: Pick<ReservationReceipt, "reservationId" | "recordingId" | "state" | "publicationSha256">,
+): OperationResult {
+  insist(receipt.recordingId, "catalog_pending", 503);
+  const state = receipt.state === "committed" ? "committed" : "ready";
+  const intentSha256 = hashJson(intent);
+  return { kind: "confirmed", providerId: hashJson({ intent: intentSha256, state }), value: {
+    reservationId: receipt.reservationId, intentSha256, recordingId: receipt.recordingId, state,
+    publicationSha256: receipt.publicationSha256,
+    decision: { decision: "publish", rating: metadata.rating === "adult" ? "adult_18" : "general" },
+    evidenceSha256: intentSha256,
+  } };
 }
 export async function catalogPublication(ports:CatalogPublicationPorts,operation:ExternalOperation,lease:string|null|undefined) {
   const {intent:p,config,input}=await readCanonicalIntent(ports,operation.job_id);
@@ -30,16 +47,9 @@ export async function catalogPublication(ports:CatalogPublicationPorts,operation
     },
     current:async()=>{insist(canonical((await readCanonicalIntent(ports,p.jobId)).intent)===canonical(p),"recognition_intent_changed",409);},
     beforeSend:fence});
-  const result=(recordingId:string,state:string,publicationSha256:string|null=null):OperationResult=>({kind:'confirmed',providerId:hashJson({intent:hashJson(p),state}),
-    value:{reservationId:reservationId(p),
-      intentSha256:hashJson(p),recordingId,state,publicationSha256,
-      decision:{decision:'publish',rating:'rating' in input.metadata&&input.metadata.rating==='adult'?'adult_18':'general'},evidenceSha256:hashJson(p)}});
-  // Stable operation values exclude per-request nonce, issue time and signature.
-  const stable=(r:{reservationId:string;recordingId:string|null;state:string;publicationSha256:string|null})=>{
-    insist(r.recordingId,"catalog_pending",503);
-    const v=result(r.recordingId,r.state==='committed'?'committed':'ready',r.publicationSha256);
-    v.value.reservationId=r.reservationId;return v;
-  };
+  const stable = (receipt: ReservationReceipt) => catalogOperationResult(
+    p, "rating" in input.metadata ? input.metadata : {}, receipt,
+  );
   return {
     async reserve(mode:'execute'|'reconcile'):Promise<Reconciliation> {
       let r;

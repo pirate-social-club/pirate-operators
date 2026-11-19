@@ -11,6 +11,8 @@ export const nativePostsQuoteReadyPath = "/_operator/native-publication/posts-qu
 export const nativePostsDispatchPath = "/publication/v1/posts-dispatch";
 export const nativePostsObservationPath = "/publication/v1/posts-observation";
 export const nativePostsDispatchReadyPath = "/_operator/native-publication/posts-dispatch-ready";
+export const nativePostsCatalogReservationPath = "/publication/v1/posts-catalog-reservation";
+export const nativePostsCatalogResponsePath = "/publication/v1/posts-catalog-respond";
 
 export interface NativePostsPublicationReference {
   schema: "pirate.native-posts-publication-reference/1";

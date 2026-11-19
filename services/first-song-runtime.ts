@@ -4,13 +4,19 @@ import { ownerAuthorizationRecord } from "../packages/community/owner-authorizat
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
 import { canonical, hashJson } from "../packages/community/common.ts";
 import { recognitionProfile } from "../packages/recognition/intent.ts";
+import { readCanonicalSource, type CanonicalSource } from "../packages/recognition/canonical-community.ts";
+import { protectedPostsDbClock } from "../packages/community/protected-posts-fees.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { insist, jsonBody } from "../packages/community/common.ts";
 import { address } from "../packages/community/manifest-core.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
-import type { FirstSongDriverPorts } from "./first-song-driver.ts";
+import type { ManagedClient, ProtectedManagedPin } from "../packages/community/managed-client.ts";
+import type { FirstSongDriverPorts, ProtectedPostsDriverPorts } from "./first-song-driver.ts";
+import { protectedFirstSongCatalog } from "./protected-first-song-catalog.ts";
+import type { ProtectedCatalogTransport } from "./protected-catalog-reservation.ts";
+import { protectedPostsJob, type ProtectedPostsJobTransport } from "./protected-posts-job.ts";
 import { ownerOnly, catalogOwner } from "../packages/community/owner-policy.ts";
 import {
   reserveOwnerBudget,
@@ -24,7 +30,7 @@ import { isWeb2Deployment, communityIpfsTransport, type CommunityDeploymentProfi
 export interface FirstSongRuntimeEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
-  COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
+  COMMUNITY_PUBLISHER_PRIVATE_KEY?: string;
   MANAGED_PROFILE_HASH: string;
   /** Registered release policy only. */
   CREATOR_PROFILE_HASH?: string;
@@ -121,22 +127,17 @@ const postingLimits = {
  * registration client, creator service or their health checks; readiness is
  * the managed owner release holding this same grant.
  */
-export function ownerSongRuntime(
+function ownerSongAuthority(
   env: FirstSongRuntimeEnv,
   configuration: CommunityConfig,
-  currentConfiguration: () => Promise<CommunityConfig>,
-  managedReady: (grant: OwnerBudgetGrant) => Promise<boolean> = (grant) =>
-    managedOwnerReleaseConfigured(env, grant, deployment),
-  deployment: CommunityDeploymentProfile = firstSong,
-): FirstSongDriverPorts {
+  deployment: CommunityDeploymentProfile,
+) {
   insist(
-    /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&
-      env.OWNER_GRANT_JSON &&
-      env.OWNER_AUTHORIZATION_JSON,
+    env.OWNER_GRANT_JSON && env.OWNER_AUTHORIZATION_JSON,
     "owner_runtime_unconfigured",
     503,
   );
-  let grant: OwnerBudgetGrant, ownerAuthorization: unknown;
+  let grant: OwnerBudgetGrant, ownerAuthorization: ReturnType<typeof ownerAuthorizationRecord>;
   try {
     grant = validateOwnerGrant(JSON.parse(env.OWNER_GRANT_JSON));
     ownerAuthorization = ownerAuthorizationRecord(JSON.parse(env.OWNER_AUTHORIZATION_JSON));
@@ -144,7 +145,7 @@ export function ownerSongRuntime(
     insist(false, "owner_runtime_unconfigured", 503);
   }
   requireOwnerGrantScope(grant!, configuration);
-  if ((ownerAuthorization as {authorization?:{schema?:string}})?.authorization?.schema === "pirate.owner-publishing-authorization/2") {
+  if (ownerAuthorization.authorization.schema === "pirate.owner-publishing-authorization/2") {
     insist(env.WEB2_PUBLISHING_ATTACHMENT_JSON,"web2_publishing_authority_unavailable",503);
     let attached:ReturnType<typeof publishingAttachment>;
     try {attached=publishingAttachment(JSON.parse(env.WEB2_PUBLISHING_ATTACHMENT_JSON));}
@@ -157,13 +158,97 @@ export function ownerSongRuntime(
       scope.origin === configuration.app.origin && scope.controller === configuration.controller && scope.publisher === configuration.publisher &&
       scope.chainId === configuration.chainId && scope.postsContract === configuration.postsContract &&
       scope.deploymentDigest === hashJson(deployment),"web2_publishing_attachment_changed",403);
-    const a = ownerAuthorizationRecord(ownerAuthorization).authorization;
+    const a = ownerAuthorization.authorization;
     insist(a.communityId === grant!.communityId && a.ownerWallet === grant!.ownerWallet && canonical(a.policy) === canonical(grant!.policy) &&
       a.validFrom === grant!.validFrom && a.expiresAt === grant!.expiresAt,"owner_authorization_grant_mismatch",403);
     insist(/^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_ATTACHMENT_SHA256 ?? "") &&
       /^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_SELECTION_SHA256 ?? "") &&
       env.OWNER_GRANT_ADMISSION_REFERENCE,"web2_publishing_authority_unavailable",503);
   }
+  return { grant, ownerAuthorization };
+}
+
+export interface ProtectedFirstSongServices {
+  posts: ProtectedPostsJobTransport;
+  protectedPin: ProtectedManagedPin;
+  catalog: ProtectedCatalogTransport;
+}
+
+export function protectedOwnerSongRuntime(
+  env: FirstSongRuntimeEnv,
+  configuration: CommunityConfig,
+  currentConfiguration: () => Promise<CommunityConfig>,
+  deployment: CommunityDeploymentProfile,
+  services: ProtectedFirstSongServices,
+) {
+  insist(env.COMMUNITY_PUBLISHER_PRIVATE_KEY === undefined && !env.LOCAL_POSTS_EFFECT_FENCE,
+    "protected_owner_runtime_legacy_key_present", 503);
+  insist(isWeb2Deployment(deployment) && configuration.schema === "pirate.community-config/4" &&
+    configuration.chainId === 6343 && configuration.configurationRevision === 1 &&
+    catalogOwner(configuration.policies.admission) && services.posts.installationId === configuration.installationId,
+  "protected_owner_runtime_scope_unavailable", 503);
+  const { grant, ownerAuthorization } = ownerSongAuthority(env, configuration, deployment);
+  insist(ownerAuthorization.authorization.schema === "pirate.owner-publishing-authorization/2",
+    "protected_owner_authorization_unavailable", 503);
+  insist(env.RECOGNITION_PROFILE_JSON &&
+    canonical(recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON))) === canonical(configuration.policies.recognition),
+  "recognition_pin_changed", 503);
+  const managed: ManagedClient = {
+    origin: deployment.managedOrigin, configuration, protectedPin: services.protectedPin,
+  };
+  insist(env.CATALOG_ACCOUNT_FENCE, "protected_owner_account_fence_unavailable", 503);
+  const ownerVerification = {
+    client: megaethReadClient(undefined, deployment.rpcUrl), currentConfiguration,
+    now: () => Math.floor(Date.now() / 1000), maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
+  };
+  const readPorts = {
+    db: env.DB, media: env.MEDIA, currentConfiguration, currentAccount: env.CATALOG_ACCOUNT_FENCE,
+    ownerAuthorization: async () => ownerAuthorization, ownerVerification,
+  };
+  const catalog = protectedFirstSongCatalog(readPorts, services.catalog);
+  const runtime: FirstSongDriverPorts<ProtectedPostsDriverPorts> = {
+    db: env.DB, media: env.MEDIA, managed, ownerAuthorization,
+    release: { client: managed, grantHash: grant.sha256, ownerGrant: grant, ipfs: communityIpfsTransport(deployment) },
+    posting: {
+      ownerGrant: grant, profile: publicPostsProfile(deployment), config: configuration,
+      bounds: { period: `owner-${grant.validFrom}-${grant.expiresAt}`, ...postingLimits, expiresAt: grant.expiresAt },
+      protectedPosts: protectedPostsJob({ db: env.DB, ownerGrant: grant, maximumTotalFee: postingLimits.maximumTotalFee }, services.posts),
+    },
+    protectedCatalog: catalog.operation,
+    acrEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
+    ownerVerification,
+    async checkServices() {
+      insist(await managedOwnerReleaseConfigured(env, grant, deployment), "release_service_unavailable", 503);
+    },
+  };
+  const authorize = async (source: CanonicalSource, operationId: string, expiresAtMs: number, signal: AbortSignal) => {
+    await readCanonicalSource(readPorts, source);
+    requireOwnerGrantScope(grant, await currentConfiguration());
+    await reserveOwnerBudget(env.DB, grant, "recognition_requests", operationId, hashJson(source), "1", undefined, async () => {
+      const owner = await requireAuthorizedOwner(ownerAuthorization, configuration, grant.ownerWallet, undefined, ownerVerification);
+      signal.throwIfAborted();
+      insist(Date.now() < expiresAtMs, "canonical_request_scope_changed", 403);
+      return {
+        clause: `unixepoch()>=? AND unixepoch()<? AND ?>${protectedPostsDbClock}`,
+        binds: [Math.max(owner.validFrom, grant.validFrom), Math.min(owner.expiresAt, grant.expiresAt), expiresAtMs],
+        code: "owner_authorization_outside_window",
+      };
+    });
+    await readCanonicalSource(readPorts, source);
+  };
+  return { runtime, configuration, maximumTotalFee: postingLimits.maximumTotalFee, catalogReady: catalog.ready, authorize };
+}
+
+export function ownerSongRuntime(
+  env: FirstSongRuntimeEnv,
+  configuration: CommunityConfig,
+  currentConfiguration: () => Promise<CommunityConfig>,
+  managedReady: (grant: OwnerBudgetGrant) => Promise<boolean> = (grant) =>
+    managedOwnerReleaseConfigured(env, grant, deployment),
+  deployment: CommunityDeploymentProfile = firstSong,
+): FirstSongDriverPorts {
+  insist(/^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY ?? ""), "owner_runtime_unconfigured", 503);
+  const { grant, ownerAuthorization } = ownerSongAuthority(env, configuration, deployment);
   const publisher = privateKeyToAccount(
       env.COMMUNITY_PUBLISHER_PRIVATE_KEY as `0x${string}`,
     ),
@@ -224,6 +309,7 @@ export function ownerSongRuntime(
     const pin=recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON));
     insist(canonical(pin)===canonical(configuration.policies.recognition) && pin.signer!==grant!.ownerWallet,"recognition_pin_changed",503);
     runtime.catalog={db:env.DB,media:env.MEDIA,currentConfiguration,ownerAuthorization:async()=>ownerAuthorization,ownerVerification:runtime.ownerVerification,
+      publicIpfs:communityIpfsTransport(deployment),
       posting:runtime.posting,publisher,transport:env.CATALOG_TRANSPORT,
       beforeCatalogDispatch:async(_operation,finalFence)=>{
         const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
@@ -249,7 +335,7 @@ export function firstSongRuntime(
   insist(!env.LOCAL_POSTS_EFFECT_FENCE && !isWeb2Deployment(deployment) && configuration.schema!=="pirate.community-config/4",
     "historical_registered_release_profile_required", 503);
   insist(
-    /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&
+    /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY ?? "") &&
       /^0x[0-9a-f]{64}$/.test(env.RELEASE_GRANT_HASH ?? ""),
     "release_runtime_unconfigured",
     503,

@@ -1,3 +1,4 @@
+import type { ProtectedCatalogPosting } from "./protected-catalog.ts";
 import { sha256 } from "viem";
 import { canonical, hashJson, insist } from "../community/common.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
@@ -7,6 +8,7 @@ import {
   canonicalPublication,
   readCanonicalIntent,
   type CanonicalIntentPorts,
+  type CanonicalIntentReadPorts,
 } from "./canonical-intent.ts";
 import type { AcceptedIntent, PostingBinding } from "./intent.ts";
 import type { VerifiedPublication } from "./model.ts";
@@ -20,6 +22,23 @@ export interface CanonicalSnapshot {
   ownerAuthorization: unknown;
 }
 export type CanonicalSource = AcceptedIntent | VerifiedPublication;
+export async function readCanonicalSource(
+  ports: CanonicalIntentReadPorts,
+  source: CanonicalSource,
+) {
+  let jobId: string;
+  if ("schema" in source) jobId = source.jobId;
+  else {
+    const row = await ports.db.withSession("first-primary").prepare(
+      `SELECT j.job_id FROM publication_jobs j
+        JOIN media_submissions s ON s.submission_id=j.submission_id WHERE s.post_id=?`,
+    ).bind(source.postId).first<{ job_id: string }>();
+    insist(row, "recognition_publication_unverified", 403);
+    jobId = row.job_id;
+  }
+  const { intent } = await readCanonicalIntent(ports, jobId);
+  return requireSameCanonicalSource(intent, source);
+}
 export function requireSameCanonicalSource(
   current: AcceptedIntent,
   p: CanonicalSource,
@@ -58,7 +77,7 @@ export interface CanonicalCommunity {
   posting(intent: AcceptedIntent, claimed: unknown): Promise<PostingBinding>;
   publication(
     intent: AcceptedIntent,
-    posting: PostingBinding,
+    posting: PostingBinding | ProtectedCatalogPosting,
   ): Promise<VerifiedPublication>;
   findPublication(
     postId: string,
@@ -84,24 +103,7 @@ export function localCanonicalCommunity(
       ownerAuthorization: await ports.ownerAuthorization(),
     };
   };
-  const source = async (p: CanonicalSource) => {
-    let jobId: string;
-    if ("schema" in p) jobId = p.jobId;
-    else {
-      const row = await ports.db
-        .withSession("first-primary")
-        .prepare(
-          `SELECT j.job_id FROM publication_jobs j
-        JOIN media_submissions s ON s.submission_id=j.submission_id WHERE s.post_id=?`,
-        )
-        .bind(p.postId)
-        .first<{ job_id: string }>();
-      insist(row, "recognition_publication_unverified", 403);
-      jobId = row.job_id;
-    }
-    const current = (await read(jobId)).intent;
-    return requireSameCanonicalSource(current, p);
-  };
+  const source = (p: CanonicalSource) => readCanonicalSource(ports, p);
   return {
     currentConfiguration: () => ports.currentConfiguration(),
     read,

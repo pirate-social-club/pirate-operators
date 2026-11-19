@@ -217,3 +217,5 @@ export async function verifyProtectedCatalogCanonical(input: unknown, bound: Pro
     allowsDerivatives: p.allowsDerivatives, publicationEvidenceSha256: hashJson(value),
   }) };
 }
+
+export { readPosting as readProtectedCatalogPosting };

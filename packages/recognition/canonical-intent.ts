@@ -1,3 +1,4 @@
+import type { IpfsTransport } from "../community/ipfs.ts";
 import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import { keccak256, parseTransaction, recoverTransactionAddress, type TransactionSerializedLegacy } from "viem";
 import { canonical, CommunityError, hashJson, insist, object } from "../community/common.ts";
@@ -12,6 +13,8 @@ import { reconcilePosting, type PostingPorts } from "../community/publication-po
 import type { ExternalOperation } from "../community/publication-store.ts";
 import { acceptedIntent, type AcceptedIntent, type PostingBinding } from "./intent.ts";
 import { verifiedPublication } from "./model.ts";
+import { compactCanonicalRead, compactCanonicalWitnessSchema, isCompactPosting } from "./compact-catalog-read.ts";
+import { readProtectedCatalogPosting, type ProtectedCatalogPosting } from "./protected-catalog.ts";
 
 /** The service selects these private ports from its pinned community registry.
  * A signed publisher request cannot select a database, object, RPC or owner. */
@@ -21,12 +24,17 @@ export interface CanonicalIntentPorts {
   ownerAuthorization():Promise<unknown>;
   ownerVerification?:OwnerVerification;
   posting:PostingPorts;
+  /** Selected installation gateway for compact public manifest verification. */
+  publicIpfs?:IpfsTransport;
   /** Existing linked-account fence, mandatory in connected authority compositions. */
   currentAccount(accountId:string,wallet:string,authorId:string):Promise<void>;
   /** Existing owner recognition allowance; same operation never replenishes it. */
   authorizeRecognition(operationId:string,requestHash:string):Promise<void>;
 }
-export async function readCanonicalIntent(ports:CanonicalIntentPorts,jobId:string) {
+export type CanonicalIntentReadPorts = Pick<CanonicalIntentPorts,
+  "db" | "media" | "currentConfiguration" | "ownerAuthorization" | "ownerVerification" | "currentAccount">;
+
+export async function readCanonicalIntent(ports:CanonicalIntentReadPorts,jobId:string) {
   const snapshot=()=>ports.db.withSession('first-primary').prepare(`SELECT j.input_hash,j.authority_json,j.created_at,s.*,
       o.intent_json,o.intent_sha256 FROM publication_jobs j JOIN media_submissions s ON s.submission_id=j.submission_id
       JOIN publication_catalog_obligations o ON o.job_id=j.job_id JOIN community_accounts a ON a.account_id=s.account_id AND a.author_id=s.author_id
@@ -86,7 +94,33 @@ export async function canonicalPosting(ports:CanonicalIntentPorts,p:AcceptedInte
   insist(canonical((await readCanonicalIntent(ports,p.jobId)).intent)===canonical(p),"recognition_intent_changed",409);
   return binding;
 }
-export async function canonicalPublication(ports:CanonicalIntentPorts,p:AcceptedIntent,posting:PostingBinding) {
+export async function canonicalCompactWitness(ports:CanonicalIntentPorts,p:AcceptedIntent,input:unknown) {
+  const current=await readCanonicalIntent(ports,p.jobId),posting=readProtectedCatalogPosting(input);
+  insist(canonical(current.intent)===canonical(p),"recognition_intent_changed",409);
+  const obligation=await catalogObligation(ports.db,p.jobId);
+  const operation=await ports.db.withSession("first-primary").prepare(`SELECT * FROM external_operations
+    WHERE operation_id=? AND job_id=? AND step='publication' AND status='confirmed'`)
+    .bind(posting.operationId,p.jobId).first<ExternalOperation>();
+  insist(obligation.state==="complete"&&obligation.posting_json===canonical(posting)&&operation?.result_json&&
+    operation.provider_id===posting.transactionHash&&operation.request_hash===posting.requestHash&&
+    hashJson(JSON.parse(operation.request_json))===posting.requestHash&&
+    obligation.chain_receipt_json===operation.result_json&&obligation.promotion_receipt_json,
+    "compact_catalog_original_unavailable",409);
+  insist(ports.publicIpfs,"compact_catalog_gateway_unavailable",503);
+  const witness={schema:compactCanonicalWitnessSchema,intent:current.intent,posting,chain:JSON.parse(operation.result_json),
+    receipt:JSON.parse(obligation.promotion_receipt_json),ownerAuthorization:await ports.ownerAuthorization()};
+  const checked=await compactCanonicalRead(witness,current.config,{client:ports.posting.client,posts:ports.posting.profile,
+    ipfs:ports.publicIpfs,ownerVerification:ports.ownerVerification},Math.floor(Date.now()/1000));
+  const after=await catalogObligation(ports.db,p.jobId);
+  insist(canonical(after)===canonical(obligation)&&canonical((await readCanonicalIntent(ports,p.jobId)).intent)===canonical(p),
+    "compact_catalog_original_changed",409);
+  return {witness,publication:checked.publication};
+}
+export async function canonicalPublication(ports:CanonicalIntentPorts,p:AcceptedIntent,posting:PostingBinding|ProtectedCatalogPosting) {
+  if("schema" in posting) {
+    insist(isCompactPosting(posting),"compact_catalog_witness_invalid",409);
+    return (await canonicalCompactWitness(ports,p,posting)).publication;
+  }
   await canonicalPosting(ports,p,posting);
   const operation=await ports.db.withSession('first-primary').prepare("SELECT * FROM external_operations WHERE operation_id=? AND job_id=? AND step='publication' AND status='confirmed'")
     .bind(posting.operationId,p.jobId).first<ExternalOperation>();

@@ -1,15 +1,21 @@
 import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
 import { nativePublicationLookupFetch, nativePublicationSelectionReadback } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
+import { nativePostsDispatchReadyPath, nativePostsQuoteReadyPath } from "./native-posts-publication.ts";
 import { nativeDanceDispatchReadyPath, nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
 import { installedNativeDanceOriginals, installedNativeDanceReadyFetch } from "./linux-web2-dance-retained-transport.ts";
 import { installedNativeDanceDispatchReadyFetch } from "./linux-web2-dance-dispatch.ts";
 import { nativeApplicationOriginal, web2ApplicationOriginal } from "./application-native-readback.ts";
 import {
-  communityFetch, communityQueue, communityScheduled, installedDanceActionRevalidator, web2PrivateDanceHostPorts,
-  type CommunityEnv,
+  communityFetch, communityQueue, communityScheduled, installedDanceActionRevalidator, protectedPostsConfigurationReader,
+  web2PrivateDanceHostPorts, type CommunityEnv, type InstalledProtectedFirstSong,
 } from "./community-application.ts";
-import { readCommunityDeploymentProfile, isWeb2Deployment, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
+import { readCommunityDeploymentProfile, isWeb2Deployment, type CommunityDeploymentProfile,
+  type Web2CommunityDeploymentProfile } from "./community-deployment-profile.ts";
+import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import { firstSongDriver } from "./first-song-driver.ts";
+import { protectedOwnerSongRuntime } from "./first-song-runtime.ts";
+import { bindInstalledProtectedPosts, hasProtectedPostsBindings, protectedPostsPrimaryFetch } from "./linux-web2-protected-posts.ts";
 import { canonical, insist } from "../packages/community/common.ts";
 import type { CommunityQueueJob } from "./community-private-dance.ts";
 import {nativeDigest} from "../packages/community/native-business-binding.ts";
@@ -64,6 +70,44 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
   await nativeApplicationOriginal(env);return env;
 }
 
+async function openProtectedFirstSong(
+  env: LinuxCommunityEnv, deployment: Web2CommunityDeploymentProfile,
+  config: CommunityConfig, current: () => Promise<CommunityConfig>,
+) {
+  const original = await web2ApplicationOriginal(env);
+  const mount = await bindInstalledProtectedPosts(env, original);
+  insist(mount && canonical(original.record.body.draft.deployment) === canonical(deployment),
+    "protected_posts_mount_unavailable", 503);
+  const { runtime, configuration, maximumTotalFee, catalogReady, authorize } = protectedOwnerSongRuntime(
+    env, config, current, deployment, mount,
+  );
+  const scope = mount.scope(env.DB, configuration, runtime.posting.ownerGrant, deployment.managedOrigin, maximumTotalFee);
+  return { mount, runtime, scope, catalogReady, authorize };
+}
+
+function selectProtectedFirstSong(
+  env: LinuxCommunityEnv, deployment: CommunityDeploymentProfile,
+): InstalledProtectedFirstSong | undefined {
+  if (!isWeb2Deployment(deployment) || !hasProtectedPostsBindings(env)) return;
+  return {
+    async runtime(config, current) {
+      return (await openProtectedFirstSong(env, deployment, config, current)).runtime;
+    },
+    async canonical(config, current) {
+      const { mount, authorize } = await openProtectedFirstSong(env, deployment, config, current);
+      return {
+        respond: mount.respond,
+        authorize,
+        async currentConfiguration() {
+          const live = await current();
+          mount.assertCurrent();
+          return live;
+        },
+      };
+    },
+  };
+}
+
 /** Explicit Linux composition. Missing/invalid server inputs never select First Song. */
 export default {
   async fetch(request:Request, env:LinuxCommunityEnv) {
@@ -84,6 +128,28 @@ export default {
     }
     if (isWeb2Deployment(deployment) && new URL(request.url).pathname === nativePostsCustodyPath)
       return nativePostsCustody(request, env, deployment);
+    if (path === nativePostsQuoteReadyPath || path === nativePostsDispatchReadyPath) {
+      const reverse = env.WEB2_PROTECTED_POSTS_REVERSE_AUTH;
+      if (!isWeb2Deployment(deployment) || !reverse || !/^[a-f0-9]{64}(?![\s\S])/.test(reverse))
+        return protectedPostsPrimaryFetch(request, undefined);
+      const selected = deployment;
+      return protectedPostsPrimaryFetch(request, {
+        origin: selected.origin, reverse,
+        async open() {
+          const bound = await installedOriginal(env, selected);
+          const current = protectedPostsConfigurationReader(bound);
+          const { mount, scope, runtime, catalogReady } = await openProtectedFirstSong(bound, selected, await current(), current);
+          const driver = firstSongDriver(runtime);
+          return {
+            scope, assertCurrent: mount.assertCurrent,
+            async revalidate(operation) {
+              const { ownerExpiresAtMs } = await driver.revalidateProtectedPostsOwner(operation);
+              return { ownerExpiresAtMs, catalogExpiresAtMs: await catalogReady(operation) };
+            },
+          };
+        },
+      });
+    }
     const bound=await installedOriginal(env,deployment);
     if (isWeb2Deployment(deployment)) {
       const path = new URL(request.url).pathname;
@@ -100,13 +166,15 @@ export default {
       }
     }
     return await communityFetch(request, bound, undefined,
-      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined);
+      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined,
+      selectProtectedFirstSong(bound, deployment));
   },
   async queue(batch, env) {
     const deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);
     const bound=isWeb2Deployment(deployment)?await installedOriginal(env,deployment):env;
     await communityQueue(batch, bound, undefined,
-      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined);
+      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined,
+      selectProtectedFirstSong(bound, deployment));
   },
   async scheduled(_event, env) {
     const deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);

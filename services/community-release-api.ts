@@ -30,7 +30,7 @@ import type {
 } from "../packages/community/application-api.ts";
 import {
   resumeFirstSongAdmission,
-  type FirstSongDriverPorts,
+  type FirstSongExecutionPorts,
 } from "./first-song-driver.ts";
 
 import type { PublicationWakeQueue } from "./community-jobs.ts";
@@ -48,7 +48,7 @@ interface ReleaseApiEnv {
 }
 export interface ReleaseRuntime {
   config: CommunityConfig;
-  ports: FirstSongDriverPorts;
+  ports: FirstSongExecutionPorts;
 }
 export async function communityReleaseApi(
   request: Request,

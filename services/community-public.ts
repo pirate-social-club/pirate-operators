@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import { canonical, hashJson, insist } from "../packages/community/common.ts";
+import { canonical, hashJson, insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicSongView } from "../packages/community/application-api.ts";
 import {
@@ -18,6 +18,7 @@ import {
 import type { PostsProfile } from "../packages/community/post-chain.ts";
 import type { RecognitionProfile } from "../packages/recognition/intent.ts";
 import type { PostManifest } from "../packages/community/post-manifest.ts";
+import { isCompactPosting } from "../packages/recognition/compact-catalog-read.ts";
 import { catalogSongPublicProof, type CatalogSongRecord, type RetainedCatalogSongProof } from "./catalog-song-public-proof.ts";
 
 export interface PublicReadPorts {
@@ -28,7 +29,7 @@ export interface PublicReadPorts {
   configurationHistory?: () => Promise<readonly CommunityConfig[]>;
   manifestAvailable?: (hash: import("viem").Hex) => Promise<boolean>;
 }
-export async function publicSongs(
+async function visiblePublicSongs(
   db: D1Database,
   config: CommunityConfig,
   ports: PublicReadPorts,
@@ -57,15 +58,30 @@ export async function publicSongs(
     scan.head,
     postId,
   );
-  const visible:typeof records=[];
+  const visible: { record: (typeof records)[number]; compact?: Awaited<ReturnType<typeof catalogSongPublicProof>> }[]=[];
   for(const record of records) {
-    if (!await catalogSongPromoted(db, record.post)) {
-      if (postId) insist(false, "catalog_pending", 503);
+    if(record.post.schema!=="pirate.community-post/4") { visible.push({record}); continue; }
+    const row=await retainedCatalogSong(db,record.post);
+    if(!row) {
+      if(postId) insist(false,"catalog_pending",503);
       continue;
     }
-    visible.push(record);
+    const posting:unknown=row.posting_json?JSON.parse(row.posting_json):null;
+    if(!isCompactPosting(posting)) {
+      insist(!posting||!Object.hasOwn(object(posting),"schema"),"catalog_public_proof_invalid",503);
+      visible.push({record});
+      continue;
+    }
+    const issued=history.find(c=>c.configurationRevision===record.post.configurationRevision);
+    insist(issued?.policies.recognition&&row.chain_receipt_json&&row.promotion_receipt_json,"catalog_pending",503);
+    const compact=await catalogSongPublicProof(row,{record,profile:issued.policies.recognition,
+      now:Math.floor(Date.now()/1000),compact:{config:issued,client:ports.client,posts:ports.profile,ipfs:ports.transport}});
+    visible.push({record,compact});
   }
   return visible;
+}
+export async function publicSongs(db:D1Database,config:CommunityConfig,ports:PublicReadPorts,postId?:string) {
+  return (await visiblePublicSongs(db,config,ports,postId)).map(item=>item.record);
 }
 const completedCatalogSong = `FROM publication_catalog_obligations o
   JOIN publication_jobs j ON j.job_id=o.job_id JOIN media_submissions s ON s.submission_id=j.submission_id
@@ -77,26 +93,24 @@ function catalogSongKeys(post: PostManifest) {
   return [r.reservationId, r.intentSha256, post.postId, post.communityId] as const;
 }
 
-/** /4 becomes visible only after the installation retains the promotion receipt. */
-async function catalogSongPromoted(db: D1Database, post: PostManifest) {
-  return post.schema !== "pirate.community-post/4" ||
-    !!await db.withSession("first-primary").prepare("SELECT o.state " + completedCatalogSong)
-      .bind(...catalogSongKeys(post)).first<{ state: string }>();
+function retainedCatalogSong(db: D1Database,post: PostManifest) {
+  return db.withSession("first-primary").prepare(
+    "SELECT o.posting_json, o.chain_receipt_json, o.promotion_receipt_json " + completedCatalogSong,
+  ).bind(...catalogSongKeys(post)).first<RetainedCatalogSongProof>();
 }
 
 export async function publicCatalogSongProof(
-  db: D1Database, record: CatalogSongRecord, config: CommunityConfig, approved: RecognitionProfile, now: number,
+  db: D1Database, record: CatalogSongRecord, config: CommunityConfig, approved: RecognitionProfile, now: number, ports?: PublicReadPorts,
 ) {
   const { post } = record;
   insist(post.schema === "pirate.community-post/4" && post.recognition && config.policies.recognition &&
     config.communityId === post.communityId && config.postsContract === post.postsContract &&
     config.configurationRevision === post.configurationRevision &&
     canonical(config.policies.recognition) === canonical(approved), "public_catalog_song_not_found", 404);
-  const row = await db.withSession("first-primary").prepare(
-    "SELECT o.posting_json, o.chain_receipt_json, o.promotion_receipt_json " + completedCatalogSong,
-  ).bind(...catalogSongKeys(post)).first<RetainedCatalogSongProof>();
+  const row = await retainedCatalogSong(db,post);
   insist(row && row.posting_json && row.chain_receipt_json && row.promotion_receipt_json, "catalog_pending", 503);
-  return catalogSongPublicProof(row, { record, profile: approved, now });
+  return catalogSongPublicProof(row, { record, profile: approved, now,
+    ...(ports?{compact:{config,client:ports.client,posts:ports.profile,ipfs:ports.transport}}:{}) });
 }
 type PublicPost = Awaited<ReturnType<typeof publicSongs>>[number]["post"];
 /** A published post's pinned lyric manifest, bound to that exact post. */
@@ -181,10 +195,10 @@ export async function publicSongResource(
     405,
   );
   if (match[2] === "catalog-proof")
-    insist(catalogProof && request.method === "GET", "public_catalog_song_not_found", 404);
-  const records = await publicSongs(db, config, ports, match[1]);
+    insist(request.method === "GET", "public_catalog_song_not_found", 404);
+  const records = await visiblePublicSongs(db, config, ports, match[1]);
   insist(records.length === 1, "public_song_not_found", 404);
-  const record = records[0]!,
+  const {record,compact} = records[0]!,
     headers = new Headers({
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
@@ -196,6 +210,8 @@ export async function publicSongResource(
       { headers },
     );
   if (match[2] === "catalog-proof") {
+    if(compact) return Response.json(compact,{headers});
+    insist(catalogProof,"public_catalog_song_not_found",404);
     const history = ports.configurationHistory ? await ports.configurationHistory() : [config];
     const issued = history.find(item => item.configurationRevision === record.post.configurationRevision);
     insist(issued, "publication_configuration_missing", 503);

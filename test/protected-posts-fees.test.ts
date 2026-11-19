@@ -23,11 +23,13 @@ import {
 } from "../services/first-song-driver.ts";
 import { protectedPostsJob } from "../services/protected-posts-job.ts";
 import { readProtectedPostsPlanned, readProtectedPostsReady } from "../services/protected-posts-ready.ts";
+import { protectedPostsPrimaryFetch } from "../services/linux-web2-protected-posts.ts";
 import {
   nativePostsDispatchPath,
   nativePostsObservationPath,
   nativePostsPublicationResponse,
   nativePostsQuotePath,
+  nativePostsQuoteReadyPath,
   readNativePostsDispatchProof,
   readNativePostsDispatchRequest,
   readNativePostsPublicationReference,
@@ -247,6 +249,24 @@ test("reverse proof binds the sealed primary original and both live authority de
     const ownerExpiresAtMs = quote.expiresAtMs - 1_000;
     const catalogExpiresAtMs = ownerExpiresAtMs - 1_000;
     const authority = { ownerExpiresAtMs, catalogExpiresAtMs };
+    const reverse = "a".repeat(64);
+    let opened = 0;
+    const reverseRequest = (credential: string) => new Request(scope.configuration.app.origin + nativePostsQuoteReadyPath, {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + credential },
+      body: canonical(ref),
+    });
+    const mount = {
+      origin: scope.configuration.app.origin,
+      reverse,
+      async open() { opened++; return { scope, async revalidate() { return authority; } }; },
+    };
+    assert.equal((await protectedPostsPrimaryFetch(reverseRequest("b".repeat(64)), mount)).status, 404);
+    assert.equal(opened, 0);
+    const privateReply = await protectedPostsPrimaryFetch(reverseRequest(reverse), mount);
+    assert.equal(privateReply.status, 200);
+    assert.equal(readNativePostsQuoteProof(await privateReply.text(), ref).expiresAtMs, catalogExpiresAtMs);
+    assert.equal(opened, 1);
+    assert.equal(reservationCount(), 0);
     const planned = await readProtectedPostsPlanned(scope, ref, async (captured) => {
       assert.equal(captured.status, "planned");
       assert.equal(captured.prepared_json, null);

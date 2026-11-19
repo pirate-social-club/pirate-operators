@@ -14,7 +14,7 @@ import {
 } from "./common.ts";
 import { ipfsUri } from "./manifest-core.ts";
 import { fetchPublicIpfs, publicGateways, type IpfsTransport } from "./ipfs.ts";
-import { managedRequest, type ManagedClient } from "./managed-client.ts";
+import { managedRequest, type ManagedClient, type ManagedPinOriginal } from "./managed-client.ts";
 import type { PublicationInput } from "./publication-input.ts";
 import { observeRootRegistration } from "./registration-chain.ts";
 import { validatePost, validateRegistration } from "./post-manifest.ts";
@@ -90,10 +90,11 @@ async function response(
   action: Parameters<typeof managedRequest>[2],
   body: Record<string, unknown>,
   operationId: string,
+  original?: ManagedPinOriginal,
 ) {
   let reply: Awaited<ReturnType<typeof managedRequest>>;
   try {
-    reply = await managedRequest(ports.client, path, action, body);
+    reply = await managedRequest(ports.client, path, action, body, original);
   } catch (error) {
     // Owner budget refusals happen before any provider spend, so they are a
     // definite outcome, not an uncertain one.
@@ -122,6 +123,7 @@ export async function releasePin(
   ports: ReleasePorts,
   role: ReleaseRole,
   mode: "execute" | "reconcile",
+  original?: ManagedPinOriginal,
 ): Promise<Reconciliation> {
   const id = releasePinId(input, ports, role),
     value = await response(
@@ -133,6 +135,7 @@ export async function releasePin(
       mode === "reconcile" ? "release_pin_status" : "release_pin",
       { context: input.context, role },
       id,
+      original,
     );
   if (value.state === "absent")
     return {

@@ -4,7 +4,8 @@ import { bytes32, canonical, hashJson } from "../../packages/community/common.ts
 import { nativeDigest } from "../../packages/community/native-business-binding.ts";
 import type { Web2NativeOriginal } from "../../packages/community/web2-native-business-binding.ts";
 import type { Hex } from "viem";
-import { nativePostsDispatchPath, nativePostsObservationPath, nativePostsQuotePath } from "../../services/native-posts-publication.ts";
+import { nativePostsCatalogReservationPath, nativePostsCatalogResponsePath, nativePostsDispatchPath,
+  nativePostsObservationPath, nativePostsQuotePath } from "../../services/native-posts-publication.ts";
 import { hash, privateDirectory, privateFile, type OperationLease } from "./backend-state.ts";
 import type { NativeGraph } from "./full-native-config.ts";
 import type { InstalledTarget } from "./local-target-controller.ts";
@@ -55,6 +56,7 @@ export const protectedPostsBinding = {
 } as const;
 export const protectedPostsRoute = (path?: string) => path === nativePostsQuotePath ||
   path === nativePostsDispatchPath || path === nativePostsObservationPath ||
+  path === nativePostsCatalogReservationPath || path === nativePostsCatalogResponsePath ||
   path === "/publication/v1/posts-catalog-commit" || path === "/publication/v1/posts-catalog-status" ||
   path === "/publication/v1/managed-request";
 

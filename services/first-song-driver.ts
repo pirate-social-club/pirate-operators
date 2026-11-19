@@ -54,6 +54,10 @@ export interface ProtectedPostsDriverPorts extends Pick<PostingPorts, "bounds" |
   ownerGrant: OwnerBudgetGrant;
   localPostsFence?: never;
 }
+export type ProtectedCatalogOperation = (
+  operation: Readonly<ExternalOperation>,
+  job: Readonly<PublicationJob> | undefined,
+) => Promise<Pick<Awaited<ReturnType<typeof catalogPublication>>, "reserve" | "commit">>;
 
 export interface FirstSongDriverPorts<TPosting extends PostingPorts | ProtectedPostsDriverPorts = PostingPorts> {
   db: D1Database;
@@ -67,6 +71,7 @@ export interface FirstSongDriverPorts<TPosting extends PostingPorts | ProtectedP
   ownerAuthorization?: unknown;
   ownerVerification?: OwnerVerification;
   catalog?: CatalogPublicationPorts;
+  protectedCatalog?: ProtectedCatalogOperation;
   clock?: import("../packages/community/publication.ts").PublicationClock;
 }
 export type FirstSongExecutionPorts = FirstSongDriverPorts<PostingPorts | ProtectedPostsDriverPorts>;
@@ -199,6 +204,14 @@ export function firstSongDriver(
       ownerExpiresAtMs: Math.min(safeAnchorExpiresAtMs, authorization.expiresAt * 1000, posting.ownerGrant.expiresAt * 1000),
     };
   };
+  const catalogOperation = async (operation: ExternalOperation, job?: PublicationJob) => {
+    if ("protectedPosts" in ports.posting) {
+      insist(ports.protectedCatalog && !ports.catalog, "protected_catalog_runtime_unavailable", 503);
+      return ports.protectedCatalog(operation, job);
+    }
+    insist(ports.catalog, "recognition_runtime_unconfigured", 503);
+    return catalogPublication(ports.catalog, operation, job?.lease_token);
+  };
   return {
     async revalidateProtectedPostsOwner(operation) {
       const posting = ports.posting;
@@ -232,7 +245,8 @@ export function firstSongDriver(
       await ports.checkServices();
       await authorizeOwner();
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
-        insist(ports.catalog, "recognition_runtime_unconfigured",503);
+        insist("protectedPosts" in ports.posting ? ports.protectedCatalog && !ports.catalog : ports.catalog,
+          "recognition_runtime_unconfigured", 503);
         return {replay:{kind:"provider_idempotency",provider:"pirate-recognition-reservation/1",key:operation.operation_id},payload:{intentHash:input.job.input_hash}};
       }
       if (operation.step === "publication") {
@@ -262,8 +276,7 @@ export function firstSongDriver(
       await ports.checkServices();
       await authorizeOwner();
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
-        insist(ports.catalog,"recognition_runtime_unconfigured",503);
-        const c=await catalogPublication(ports.catalog,operation,job?.lease_token);
+        const c = await catalogOperation(operation, job);
         return confirmed(await (operation.step === "catalog_reserve" ? c.reserve("execute") : c.commit("execute")));
       }
       if (operation.step === "admission")
@@ -312,14 +325,14 @@ export function firstSongDriver(
           ports.release,
           roleFor(operation.step),
           "execute",
+          { operation, job },
         ),
       );
     },
     async reconcile(operation,job) {
       const input = await load(operation);
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
-        insist(ports.catalog,"recognition_runtime_unconfigured",503);
-        const c=await catalogPublication(ports.catalog,operation,job?.lease_token);
+        const c = await catalogOperation(operation, job);
         return operation.step === "catalog_reserve" ? c.reserve("reconcile") : c.commit("reconcile");
       }
       if (operation.step === "admission")
@@ -337,13 +350,14 @@ export function firstSongDriver(
         ports.release,
         roleFor(operation.step),
         "reconcile",
+        { operation, job },
       );
     },
     async validate(operation, result,job) {
       const input = await load(operation);
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
-        insist(ports.catalog,"recognition_runtime_unconfigured",503);
-        const c=await catalogPublication(ports.catalog,operation,job?.lease_token),fresh=await (operation.step === "catalog_reserve" ? c.reserve("reconcile") : c.commit("reconcile"));
+        const c = await catalogOperation(operation, job);
+        const fresh = await (operation.step === "catalog_reserve" ? c.reserve("reconcile") : c.commit("reconcile"));
         insist(canonical(fresh)===canonical(result),"catalog_receipt_changed",503);return;
       }
       if (operation.step === "admission")

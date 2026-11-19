@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import {
   firstSongDriver,
   resumeFirstSongAdmission,
-  type FirstSongDriverPorts,
+  type FirstSongExecutionPorts,
 } from "./first-song-driver.ts";
 import { publicationStep } from "../packages/community/publication.ts";
 import {
@@ -19,7 +19,7 @@ export interface PublicationWakeQueue {
   ): Promise<unknown>;
 }
 export async function runCommunityJob(
-  ports: FirstSongDriverPorts,
+  ports: FirstSongExecutionPorts,
   jobs: PublicationWakeQueue,
   id: string,
 ) {

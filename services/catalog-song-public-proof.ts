@@ -3,6 +3,8 @@ import { bytes32, exact, hashJson, insist, object } from "../packages/community/
 import { postsAbi, publicationData } from "../packages/community/post-chain.ts";
 import type { PostManifest } from "../packages/community/post-manifest.ts";
 import { canonicalPostingBinding } from "../packages/recognition/canonical-chain.ts";
+import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import { compactCatalogRead, isCompactPosting, type CompactReadPorts } from "../packages/recognition/compact-catalog-read.ts";
 import type { RecognitionProfile } from "../packages/recognition/intent.ts";
 import { reservationReceipt, verifyReservation } from "../packages/recognition/reservation-receipt.ts";
 
@@ -17,6 +19,7 @@ interface CatalogSongProofContext {
   record: CatalogSongRecord;
   profile: RecognitionProfile;
   now: number;
+  compact?: CompactReadPorts & {config:CommunityConfig};
 }
 
 export interface RetainedCatalogSongProof {
@@ -88,8 +91,16 @@ export async function catalogSongPublicProof(row: RetainedCatalogSongProof, cont
       (context.record.blockHash === undefined || chain.blockHash === context.record.blockHash),
     "catalog_public_receipt_changed", 503,
   );
+  const posting:unknown=JSON.parse(row.posting_json), receipt:unknown=JSON.parse(row.promotion_receipt_json);
+  if(isCompactPosting(posting)) {
+    const selected=context.compact;
+    insist(selected,"compact_catalog_read_unavailable",503);
+    const observed=await compactCatalogRead({posting,chain,receipt},selected.config,context.profile,selected,context.now,context.record.post);
+    return {schema:"pirate.catalog-song-public-proof/2" as const,posting:observed.posting,receipt:observed.receipt};
+  }
+  insist(!Object.hasOwn(object(posting),"schema"),"catalog_public_proof_invalid",503);
   return verifyCatalogSongPublicProof({
     schema: "pirate.catalog-song-public-proof/1",
-    posting: JSON.parse(row.posting_json), receipt: JSON.parse(row.promotion_receipt_json),
+    posting, receipt,
   }, context);
 }

@@ -26,7 +26,10 @@ import { dancePublicationReviewerFetch, dancePublicationReviewerRoute } from "./
 import { MAX_MEDIA_BYTES } from "../packages/community-media/validation.ts";
 import { web2ApplicationOriginal } from "./application-native-readback.ts";
 import { nativeBusinessResponse } from "./application-native-readback.ts";
-import { communityCanonicalFetch } from "./community-canonical.ts";
+import {
+  communityCanonicalFetch, protectedCanonicalFetch, protectedCanonicalSelectionFetch,
+  type ProtectedCanonicalApplication, type ProtectedCanonicalSelectionResponder,
+} from "./community-canonical.ts";
 import { canonicalPath } from "../packages/recognition/canonical-protocol.ts";
 import { withKaraokeRequestSession } from "./karaoke-request-session.ts";
 import { communityProfilesApi } from "./community-profiles.ts";
@@ -169,7 +172,8 @@ import type {
 import { canonicalDanceRewardSource } from "./dance-reward-source.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
-import type { FirstSongDriverPorts } from "./first-song-driver.ts";
+import type { FirstSongDriverPorts, FirstSongExecutionPorts, ProtectedPostsDriverPorts } from "./first-song-driver.ts";
+import { hasProtectedPostsBindings, type Web2ProtectedPostsBindings } from "./linux-web2-protected-posts.ts";
 import {
   ownerCurated,
   ownerOnly,
@@ -190,7 +194,7 @@ export interface Web2ManualRewardCloseInputs {
   readonly offer: { readonly offerId: string; readonly inputHash: string };
 }
 
-export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePublicationApplicationEnv, InstalledDanceRewardBindings {
+export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePublicationApplicationEnv, InstalledDanceRewardBindings, Web2ProtectedPostsBindings {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<CommunityQueueJob>;
@@ -200,7 +204,6 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePubli
   APPLICATION_PROFILE_HASH: string;
   /** Registered release policy only; owner-only publishing has no creator service. */
   CREATOR_PROFILE_HASH?: string;
-  COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
   /** Pirate's provider key for the one forced alignment per lyric revision. */
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
   /** Selects the bounded Web2 shared song feed with exact remote catalog proof origins. */
@@ -228,6 +231,7 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePubli
 }
 export interface CommunityDependencies {
   deployment?: CommunityDeploymentProfile;
+  protectedCanonicalSelection?: ProtectedCanonicalSelectionResponder;
   /** Fresh canonical read for asynchronous publication fences; no request memo. */
   freshConfiguration?():Promise<CommunityConfig>;
   /** Required server-side connected composition: authenticate explicit action,
@@ -258,6 +262,11 @@ export interface CommunityDependencies {
   /** Admitted private Dance runtime. Absent until source, authority and renderer are selected. */
   privateDance?(config: CommunityConfig): CommunityPrivateDance | Promise<CommunityPrivateDance>;
 }
+/** Request-owned inputs supplied by the verified Linux installation mount. */
+export interface InstalledProtectedFirstSong {
+  runtime(config: CommunityConfig, current: () => Promise<CommunityConfig>): Promise<FirstSongDriverPorts<ProtectedPostsDriverPorts>>;
+  canonical?(config: CommunityConfig, current: () => Promise<CommunityConfig>): Promise<ProtectedCanonicalApplication>;
+}
 export function communityPrivateDanceDefaults(env: CommunityEnv) {
   const factory = createDanceProductionDefaults({
     db: env.DB, bucket: env.MEDIA, enqueue: async job => { await env.JOBS.send(job); },
@@ -280,6 +289,12 @@ export function web2PrivateDanceHostPorts(env:CommunityEnv) {
   insist(ports.deployment && isWeb2Deployment(ports.deployment) && ports.publicReads &&
     ports.freshConfiguration && ports.privateDance, "dance_private_runtime_unavailable",503);
   return { reads:ports.publicReads, current:ports.freshConfiguration, runtime:ports.privateDance };
+}
+export function protectedPostsConfigurationReader(env: CommunityEnv) {
+  const ports = dependencies(env, undefined, true);
+  insist(ports.deployment && isWeb2Deployment(ports.deployment) && ports.freshConfiguration,
+    "protected_posts_configuration_unavailable", 503);
+  return ports.freshConfiguration;
 }
 /** The private effect callback rebuilds the exact ordinary action from its
  * committed row. Only the independently authenticated reverse route calls it. */
@@ -439,6 +454,7 @@ function headers(env: Pick<CommunityEnv, "KARAOKE_OPERATOR_ORIGIN" | "PRIVATE_DA
 export async function communityFetch(
   request: Request, env: CommunityEnv, provided?: CommunityDependencies,
   readDanceScope?: InstalledDanceOwnerScopeReader,
+  protectedFirstSong?: InstalledProtectedFirstSong,
 ): Promise<Response> {
   try {
     insist(!provided?.installedDance && (!readDanceScope || !provided), "dance_installed_runtime_required", 503);
@@ -498,7 +514,7 @@ export async function communityFetch(
     return await nativeBusinessResponse({request,env,
       configuration:freshAuthority(actual, deployment),
       privateDance:actual.privateDance,
-      business:()=>communityFetchBusiness(request,env,actual,{installedRewards,danceRewardDiscovery})});
+      business:()=>communityFetchBusiness(request,env,actual,{installedRewards,danceRewardDiscovery},protectedFirstSong)});
   } catch(error) {
     if(error instanceof CommunityError)return Response.json({error:error.code},{status:error.status,headers:{"cache-control":"no-store"}});
     throw error;
@@ -507,6 +523,18 @@ export async function communityFetch(
 function freshAuthority(ports: CommunityDependencies, deployment: CommunityDeploymentProfile) {
   if (isWeb2Deployment(deployment)) insist(ports.freshConfiguration, "fresh_community_authority_required", 503);
   return ports.freshConfiguration??ports.configuration;
+}
+async function publicationRuntime(
+  env: CommunityEnv,
+  ports: CommunityDependencies,
+  config: CommunityConfig,
+  deployment: CommunityDeploymentProfile,
+  protectedFirstSong?: InstalledProtectedFirstSong,
+  currentConfiguration = freshAuthority(ports, deployment),
+): Promise<FirstSongExecutionPorts> {
+  if (protectedFirstSong) return protectedFirstSong.runtime(config, currentConfiguration);
+  insist(!hasProtectedPostsBindings(env), "protected_owner_runtime_unavailable", 503);
+  return ports.releaseRuntime?.(config) ?? firstSongRuntime(env, config, currentConfiguration, deployment);
 }
 const isPublicationConsentPath = (path: string) => path.startsWith("/api/publication-consent/v1/");
 function isInstalledDanceRewardRequest(method: string, path: string) {
@@ -542,6 +570,7 @@ async function communityFetchBusiness(
   env: CommunityEnv,
   ports?: CommunityDependencies,
   rewards?: { installedRewards?: InstalledDanceRewards; danceRewardDiscovery: boolean },
+  protectedFirstSong?: InstalledProtectedFirstSong,
 ): Promise<Response> {
   const deployment=ports?.deployment??deploymentProfile(env);
   const web2 = isWeb2Deployment(deployment);
@@ -653,8 +682,17 @@ async function communityFetchBusiness(
     }
     if (url.pathname === canonicalPath) {
       insist(web2, "not_found", 404);
-      const config = await configuration(true), runtime = ports.releaseRuntime?.(config) ??
-        firstSongRuntime(env, config, () => configuration(true), deployment);
+      const config = await configuration(true);
+      if (protectedFirstSong) {
+        insist(protectedFirstSong.canonical, "protected_catalog_runtime_unavailable", 503);
+        return protectedCanonicalFetch(request, config,
+          await protectedFirstSong.canonical(config, () => configuration(true)));
+      }
+      const protectedSelection = await protectedCanonicalSelectionFetch(
+        request, config, ports.protectedCanonicalSelection,
+      );
+      if (protectedSelection) return protectedSelection;
+      const runtime = await publicationRuntime(env, ports, config, deployment, protectedFirstSong, () => configuration(true));
       insist(runtime.catalog, "canonical_community_unconfigured", 503);
       return communityCanonicalFetch(request, runtime.catalog);
     }
@@ -763,9 +801,7 @@ async function communityFetchBusiness(
     };
     const ready = async () => {
       const config = await configuration(true);
-      const runtime =
-        ports.releaseRuntime?.(config) ??
-        firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
+      const runtime = await publicationRuntime(env, ports, config, deployment, protectedFirstSong);
       if(ownerOnly(config.policies.admission)) {
         insist(runtime.release.ownerGrant,"owner_grant_unavailable",503);
         await requireAuthorizedOwner(runtime.ownerAuthorization,config,runtime.release.ownerGrant.ownerWallet,undefined,runtime.ownerVerification);
@@ -780,9 +816,7 @@ async function communityFetchBusiness(
       try {
         const config = await configuration(true);
         if (ownerOnly(config.policies.admission)) {
-          const runtime =
-            ports.releaseRuntime?.(config) ??
-            firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
+          const runtime = await publicationRuntime(env, ports, config, deployment, protectedFirstSong);
           await requireAuthorizedOwner(
             runtime.ownerAuthorization,
             config,
@@ -1172,7 +1206,7 @@ async function communityFetchBusiness(
       async()=>{
         // Authenticated owned uncertain jobs may wake original reconciliation.
         // Their driver enforces live eligibility only at NEW-effect boundaries.
-        const config=await configuration(true),runtime=ports.releaseRuntime?.(config) ?? firstSongRuntime(env,config,freshAuthority(ports,deployment),deployment);
+        const config=await configuration(true),runtime=await publicationRuntime(env, ports, config, deployment, protectedFirstSong);
         if(web2) insist(canonical(await configuration(true))===canonical(config),"community_authority_changed",409);
         return {config,ports:runtime};
       },
@@ -1608,7 +1642,7 @@ async function communityFetchBusiness(
         insist(!env.OWNER_GRANT_JSON, "creator_connection_unavailable", 503);
         insist(await ports.creatorHealth(), "creator_service_unavailable", 503);
         insist(
-          /^0x[0-9a-f]{64}$/i.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY),
+          /^0x[0-9a-f]{64}$/i.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY ?? ""),
           "community_publisher_unavailable",
           503,
         );
@@ -1806,6 +1840,7 @@ export async function communityQueue(
   env: CommunityEnv,
   provided?: CommunityDependencies,
   readDanceScope?: InstalledDanceOwnerScopeReader,
+  protectedFirstSong?: InstalledProtectedFirstSong,
 ) {
   insist(!provided?.installedDance && (!readDanceScope || !provided), "dance_installed_runtime_required", 503);
   const deployment=provided?.deployment??deploymentProfile(env);
@@ -1817,7 +1852,7 @@ export async function communityQueue(
     "community_configuration_changed",
     503,
   );
-  let publication: FirstSongDriverPorts | undefined;
+  let publication: FirstSongExecutionPorts | undefined;
   let privateDance: CommunityPrivateDance | undefined;
   for (const message of batch.messages) {
     try {
@@ -1842,9 +1877,7 @@ export async function communityQueue(
         );
         await privateDance.process(job);
       } else {
-        publication ??=
-          ports.releaseRuntime?.(config) ??
-          firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
+        publication ??= await publicationRuntime(env, ports, config, deployment, protectedFirstSong);
         if (env.LOCAL_POSTS_EFFECT_FENCE)
           insist(publication.posting.localPostsFence === env.LOCAL_POSTS_EFFECT_FENCE,
             "local_posts_custody_runtime_changed", 503);

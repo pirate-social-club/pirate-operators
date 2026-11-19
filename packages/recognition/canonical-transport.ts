@@ -1,3 +1,4 @@
+import { compactCanonicalRead, compactCanonicalWitnessSchema, isCompactPosting } from "./compact-catalog-read.ts";
 import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import {
   canonicalPath,
@@ -42,6 +43,7 @@ import type {
   CanonicalSource,
 } from "./canonical-community.ts";
 import { requireSameCanonicalSource } from "./canonical-community.ts";
+import { readProtectedSelectionResult } from "./protected-selection-wire.ts";
 
 async function snapshot(
   input: unknown,
@@ -135,6 +137,10 @@ export function canonicalCommunityClient(
   ready(
     intent: import("./intent.ts").AcceptedIntent,
   ): Promise<ReservationReceipt>;
+  protectedSelection(
+    intent: import("./intent.ts").AcceptedIntent,
+    admittedProofSigner: string,
+  ): Promise<ReturnType<typeof readProtectedSelectionResult>>;
 } {
   const call = async (
     action: CanonicalAction,
@@ -156,7 +162,8 @@ export function canonicalCommunityClient(
         body: canonical(wire),
       }),
     );
-    insist(response.ok, "canonical_community_unavailable", 503);
+    insist(action === "protected_selection" ? response.status === 200 : response.ok,
+      "canonical_community_unavailable", 503);
     insist(
       response.headers.get("content-type") ===
         (action === "audio" ? "application/octet-stream" : "application/json"),
@@ -180,6 +187,13 @@ export function canonicalCommunityClient(
       403,
     );
     deadline.throwIfAborted();
+    if (action === "protected_selection") {
+      insist(Date.now() < wire.payload.expiresAt * 1000, "canonical_response_scope_changed", 403);
+      const raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const data = JSON.parse(raw);
+      insist(raw === canonical(data), "canonical_response_invalid", 503);
+      return { config, wire, data };
+    }
     return {
       config,
       wire,
@@ -195,6 +209,13 @@ export function canonicalCommunityClient(
   };
   return {
     currentConfiguration: () => inputs.currentConfiguration(),
+    async protectedSelection(intent, admittedProofSigner) {
+      const p = acceptedIntent(intent);
+      const response = await call("protected_selection", {
+        jobId: p.jobId, intentSha256: hashJson(p), reservationId: reservationId(p),
+      });
+      return readProtectedSelectionResult(response.data, response.config, p, admittedProofSigner);
+    },
     async read(jobId) {
       const r = await call("read", { jobId }),
         value = await snapshot(r.data, r.config, inputs.chain.ownerVerification);
@@ -224,11 +245,9 @@ export function canonicalCommunityClient(
           intent: p,
           posting: claimed,
         }),
-        witness = await independentCanonicalPublication(
-          response.data,
-          response.config,
-          inputs.chain,
-        );
+        witness = isCompactPosting(claimed)
+          ? await compactCanonicalRead(response.data,response.config,inputs.chain,Math.floor(Date.now()/1000))
+          : await independentCanonicalPublication(response.data,response.config,inputs.chain);
       insist(
         canonical(witness.intent) === canonical(p) &&
           canonical(witness.posting) === canonical(claimed),
@@ -247,9 +266,10 @@ export function canonicalCommunityClient(
       requireFirstSongRevision(revision);
       const r = await call("find_publication", { postId, revision });
       if (r.data === null) return null;
-      const value = (
-        await independentCanonicalPublication(r.data, r.config, inputs.chain)
-      ).publication;
+      const compact=object(r.data).schema===compactCanonicalWitnessSchema;
+      const value=(compact
+        ? await compactCanonicalRead(r.data,r.config,inputs.chain,Math.floor(Date.now()/1000))
+        : await independentCanonicalPublication(r.data,r.config,inputs.chain)).publication;
       insist(
         value.communityId === r.config.communityId &&
           value.postId === postId &&

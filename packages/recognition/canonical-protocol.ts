@@ -34,6 +34,7 @@ const actions = [
   "audio",
   "authorize",
   "ready",
+  "protected_selection",
 ] as const;
 export type CanonicalAction = (typeof actions)[number];
 interface RequestPayload {
@@ -52,6 +53,18 @@ export interface CanonicalWireRequest {
   payload: RequestPayload;
   body: Record<string, unknown>;
   signature: Hex;
+}
+export function readProtectedSelectionRequest(value: unknown) {
+  const body = object(value);
+  exact(body, ["jobId", "intentSha256", "reservationId"]);
+  insist(typeof body.jobId === "string" &&
+    /^publication:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/.test(body.jobId),
+    "protected_catalog_selection_request_invalid", 403);
+  return {
+    jobId: body.jobId,
+    intentSha256: bytes32(body.intentSha256),
+    reservationId: bytes32(body.reservationId),
+  };
 }
 const sign = (
   signer: PrivateKeyAccount,
@@ -186,6 +199,10 @@ export async function authorizeCanonicalRequest(
     "canonical_caller_forbidden",
     403,
   );
+  if (payload.action === "protected_selection") {
+    insist(payload.signer === profile.signer, "canonical_caller_forbidden", 403);
+    readProtectedSelectionRequest(body);
+  }
   insist(
     (await recovered(requestDomain, payload, v.signature)) === payload.signer,
     "canonical_signature_invalid",
@@ -262,7 +279,7 @@ export async function readCanonicalBytes(
     reader.releaseLock();
   }
 }
-export async function canonicalRequestBody(request: Request) {
+export async function canonicalRequestBody(request: Pick<Request, "headers" | "body" | "signal">) {
   insist(
     request.headers.get("content-type")?.split(";")[0] === "application/json",
     "json_required",
