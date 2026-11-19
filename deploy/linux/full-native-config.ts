@@ -5,6 +5,8 @@ import { nativePublicationBindingNames, nativePublicationPaths, nativePublicatio
 import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/shared-song-feed-settings.ts";
 import type { Web2DanceRewardIntent } from "../../packages/community/web2-dance-reward-attachment.ts";
 import { web2DanceActivationBindings } from "./web2-dance-retained-files.ts";
+import { protectedPostsBinding, protectedPostsPaths,
+  type ProtectedFirstSongGraph, type ProtectedPostsBootSnapshot } from "./web2-protected-posts-mount.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
   installationId:string;durableScope:string;releaseRoot:string;schemaPath:string;stateRoots:Record<string,string>;socket:string;
@@ -14,6 +16,7 @@ export interface NativeGraph {
   requiredRoles:string[];queueConfiguration:unknown;maintenanceConfiguration:unknown;
   directoryRuntimeBinding:string;allowedOrigins:string[];
   localActivitySocket?:string;
+  protectedFirstSong?: ProtectedFirstSongGraph;
   nativePublication?:Web2NativePublicationGraph;
   danceRewardIntent?:Web2DanceRewardIntent;
   /** Signed opt-in. The immutable registration still uses revision one. */
@@ -41,7 +44,7 @@ const binding=(v:NativeBinding)=>{
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
 export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket, requireRetainedWeb2=false,
   trustedPublication?: Readonly<{ selector: string; initialization: string; expiresAtMs: number }>,
-  danceActivation?: Parameters<typeof web2DanceActivationBindings>[2]) {
+  danceActivation?: Parameters<typeof web2DanceActivationBindings>[2], protectedPosts?: ProtectedPostsBootSnapshot) {
   const initialize=mode!=="serve";
   assert(!requireRetainedWeb2 || mode==="initialize" && nativeOriginalFile &&
     g.publicationExpansion==="retained-registry-revision-two/1" && !g.fixtureTransport,
@@ -119,11 +122,26 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     '(name="internet",network=(allow=["public"]))',
     worker("deny","deny.worker.mjs",""),
   ];
-  if (g.localActivitySocket !== undefined) {
-    assert(/^\/[a-zA-Z0-9_./-]{1,100}\.sock$/.test(g.localActivitySocket) &&
-      !g.localActivitySocket.split("/").some(part => part === "." || part === ".."), "private_activity_socket_required");
-    services.push('(name="web2-local-activities",external=(address='+q("unix:"+g.localActivitySocket)+',http=()))');
+  const postsPaths = protectedPostsPaths(g);
+  const reservedPosts = new Set<string>(Object.values(protectedPostsBinding));
+  assert(![...g.applicationBindings, ...g.secretBindings, ...g.actors.flatMap(actor => actor.bindings)]
+    .some(binding => reservedPosts.has(binding.name)), "protected_posts_prebound_refused");
+  assert(!protectedPosts || postsPaths && mode === "serve" && nativeOriginalFile && !trustedPublication && !danceActivation &&
+    [protectedPosts.selection, protectedPosts.forward, protectedPosts.reverse].every(
+      file => file.startsWith(nativeOriginalFile.slice(0, nativeOriginalFile.lastIndexOf("/") + 1))),
+    "protected_posts_boot_snapshot_required");
+  const activitySocket = g.localActivitySocket ?? (protectedPosts ? postsPaths!.socket : undefined);
+  if (activitySocket !== undefined) {
+    assert(/^\/[a-zA-Z0-9_./-]{1,100}\.sock$/.test(activitySocket) &&
+      !activitySocket.split("/").some(part => part === "." || part === ".."), "private_activity_socket_required");
+    services.push('(name="web2-local-activities",external=(address='+q("unix:"+activitySocket)+',http=()))');
   }
+  const postsApp = protectedPosts ? [
+    binding({name: protectedPostsBinding.owner, service: nativePublicationService}),
+    binding({name: protectedPostsBinding.selection, file: protectedPosts.selection}),
+    binding({name: protectedPostsBinding.forward, file: protectedPosts.forward}),
+    binding({name: protectedPostsBinding.reverse, file: protectedPosts.reverse}),
+  ] : [];
   const reservedPublication = new Set<string>(nativePublicationBindingNames);
   assert(![...g.applicationBindings, ...g.secretBindings, ...g.actors.flatMap(actor => actor.bindings)]
     .some(binding => reservedPublication.has(binding.name)), "prebound_native_publication_refused");
@@ -189,7 +207,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +(nativeOriginalFile?'(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+'),'
       +'(name="NATIVE_READBACK_KEY",text=embed '+q(g.readbackKeyFile)+'),':'')
     +[...web2DanceActivationBindings(g,mode,danceActivation,Boolean(trustedPublication)).map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
-      ...publicationApp].join(","),"",undefined,"egress"));
+      ...publicationApp,...postsApp].join(","),"",undefined,"egress"));
   assert(g.stateRoots.readiness?.startsWith("/"),"persistent_handler_readback_root_required");
   services.push(disk("readback-storage",g.stateRoots.readiness!));
   services.push(worker("readiness","selected-handler-observer.worker.mjs",

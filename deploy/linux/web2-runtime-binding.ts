@@ -57,6 +57,7 @@ import {
 } from "./web2-trusted-revision-two.ts";
 import type { Web2PublicationActivation, Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { postsSelectorPath, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
+import { validateProtectedPostsTarget, type ProtectedFirstSongInstallationInputs } from "./web2-protected-posts-mount.ts";
 import {
   assertNoBootstrapPractice, assertWeb2LocalStudyInputs,
   validateWeb2LocalStudyPolicy, withWeb2LocalStudy,
@@ -116,6 +117,7 @@ export interface Web2RuntimeBindingInputs {
   publication?: Web2PublicationInstallationInputs;
   activateTrustedPublication?(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody): Promise<void>;
   posts?: Web2PostsInstallationInputs;
+  protectedFirstSong?: ProtectedFirstSongInstallationInputs;
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
   signApplicationRelease(
     body: Web2NativeOriginal["release"]["body"],
@@ -341,6 +343,10 @@ export async function createWeb2RuntimeBinder(
   const posts = input.posts;
   assert(Boolean(postsSelectorPath(policy.graph, policy.target)) === Boolean(posts),
     "native_posts_install_owner_unavailable");
+  const protectedFirstSong = input.protectedFirstSong;
+  const protectedPosts = validateProtectedPostsTarget(policy.graph, policy.target);
+  assert(Boolean(protectedFirstSong) === (Boolean(protectedPosts) && !retainedOwner),
+    "protected_posts_install_owner_unavailable");
   const privatePracticeSelection = offeredPractice(policy.privateStudy, policy.nativeActivities);
   const checkNative = async () => {
     if (!policy.nativeActivities) return;
@@ -628,6 +634,7 @@ export async function createWeb2RuntimeBinder(
       ...(publication ? { publication } : {}),
       ...(activateTrustedPublication ? { activateTrustedPublication } : {}),
       ...(posts ? { posts } : {}),
+      ...(protectedFirstSong ? { protectedFirstSong } : {}),
       ...(trusted ? { recheckTrustedPublishing: recheckExpandedAttachment } : {}),
       signProfile: async (body,generation) => {
         assert(!stageCurrent, "web2_stage_signing_refused");

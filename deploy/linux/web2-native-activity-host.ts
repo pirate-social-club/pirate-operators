@@ -24,6 +24,7 @@ import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
 import { publicationAcceptSessionHeader, publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
 import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
 import { nativeDanceDispatchPath, nativeDanceHostPath, nativeDanceObservationPath } from "../../services/native-dance-retained-reference.ts";
+import { protectedPostsRoute, type ProtectedFirstSongRoute } from "./web2-protected-posts-mount.ts";
 
 const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath ||
   path === nativeDanceDispatchPath || path === nativeDanceObservationPath;
@@ -63,7 +64,7 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
     const session = incoming.headers[publicationAcceptSessionHeader];
     if (typeof session === "string") headers.set(publicationAcceptSessionHeader, session);
   }
-  const base = publicationRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
+  const base = publicationRoute(incoming.url) || protectedPostsRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
   return new Request(base + incoming.url, { method: "POST", headers,
     body: Readable.toWeb(incoming), signal, duplex: "half" } as RequestInit);
 }
@@ -71,17 +72,22 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
 /** The existing installed Wizard service owns this Unix listener and its
  * bounded subprocesses. No public socket, provider fallback or second stack. */
 export async function startWeb2NativeActivityHost(options: {
-  selected: Web2NativeActivityPolicy; study: Web2LocalStudyPolicy; host: Web2NativeActivityHostInputs;
   ingress: PublicIngress; stateRoot: string; lease: OperationLease;
   publication?: NativePublicationActivityRoute;
   deferredPublication?: () => NativePublicationActivityRoute | undefined;
-}) {
-  const { selected, study, host, ingress, lease, publication, deferredPublication } = options;
-  const socket = selected.socket;
-  assert(socket === join(options.stateRoot, "activity-transport", "host.sock"), "selected_activity_socket_changed");
-  assert(study.asr.upstream === "unix:" + socket &&
-    Boolean(selected.karaoke) === Boolean(host.karaoke) && Boolean(selected.dance) === Boolean(host.dance),
-    "selected_activity_host_mismatch");
+  deferredProtectedPosts?: () => ProtectedFirstSongRoute | undefined;
+} & (
+  { selected: Web2NativeActivityPolicy; study: Web2LocalStudyPolicy; host: Web2NativeActivityHostInputs } |
+  { selected?: never; study?: never; host?: never }
+)) {
+  const { selected, study, host, ingress, lease, publication, deferredPublication, deferredProtectedPosts } = options;
+  const socket = join(options.stateRoot, "activity-transport", "host.sock");
+  if (selected) {
+    assert(selected.socket === socket, "selected_activity_socket_changed");
+    assert(study.asr.upstream === "unix:" + socket &&
+      Boolean(selected.karaoke) === Boolean(host.karaoke) && Boolean(selected.dance) === Boolean(host.dance),
+      "selected_activity_host_mismatch");
+  } else assert(deferredProtectedPosts && !publication && !deferredPublication, "selected_activity_host_mismatch");
   assert(!(publication && deferredPublication) &&
     (!publication || publication.lease === lease && publication.socket === socket),
     "native_publication_listener_scope_changed");
@@ -89,21 +95,21 @@ export async function startWeb2NativeActivityHost(options: {
   await privateDirectory(dirname(socket));
   try { await lstat(socket); throw Error("activity_socket_original_held"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  const studyAsr = await selectLocalAsr();
-  assert(studyAsr?.selectedProgramSha256 === study.asr.selectedProgramSha256,
+  const studyAsr = study ? await selectLocalAsr() : undefined;
+  if (study) assert(studyAsr?.selectedProgramSha256 === study.asr.selectedProgramSha256,
     "native_study_program_selection_changed");
-  const studyAuth = await privateText(study.asr.authFile);
-  const karo = host.karaoke;
+  const studyAuth = study ? await privateText(study.asr.authFile) : undefined;
+  const karo = host?.karaoke;
   if (karo) {
-    assert(selected.karaoke && karo.python.sha256 === selected.karaoke.pythonSha256 &&
+    assert(selected?.karaoke && karo.python.sha256 === selected.karaoke.pythonSha256 &&
       karo.script.sha256 === selected.karaoke.scriptSha256, "karaoke_program_selection_changed");
     await Promise.all([checkTool(karo.python), checkTool(karo.script)]);
     assert(karo.model.startsWith("/") && "0x"+hash(await readFile(karo.model)) === selected.karaoke.modelSha256,
       "karaoke_model_selection_changed");
   }
-  const dance = host.dance;
+  const dance = host?.dance;
   if (dance) {
-    assert(selected.dance && dance.ffmpeg.sha256 === selected.dance.ffmpegSha256 &&
+    assert(selected?.dance && dance.ffmpeg.sha256 === selected.dance.ffmpegSha256 &&
       dance.ffprobe.sha256 === selected.dance.ffprobeSha256 &&
       dance.tempRoot === join(options.stateRoot, "activity-scratch"), "dance_processor_selection_changed");
     await privateDirectory(dance.tempRoot);
@@ -111,8 +117,8 @@ export async function startWeb2NativeActivityHost(options: {
   }
   const ca = dance ? await readFile(ingress.upstreamCaFile) : undefined;
   if (ca) assert(hash(ca) === ingress.upstreamCaSha256, "native_activity_upstream_ca_changed");
-  const danceAuth = selected.dance ? await privateText(selected.dance.authorityFile) : undefined;
-  const karaoke = karo && selected.karaoke ? localKaraokeTranscriber({
+  const danceAuth = selected?.dance ? await privateText(selected.dance.authorityFile) : undefined;
+  const karaoke = karo && selected?.karaoke ? localKaraokeTranscriber({
     python: karo.python.path, script: karo.script.path, model: karo.model, modelSha256: selected.karaoke.modelSha256,
   }) : undefined;
   const upstream = new URL(ingress.upstream), origin = new URL(ingress.origin);
@@ -169,19 +175,25 @@ export async function startWeb2NativeActivityHost(options: {
       throw error;
     }
     request.signal.throwIfAborted();
+    if (protectedPostsRoute(url.pathname) && deferredProtectedPosts) {
+      const posts = deferredProtectedPosts();
+      if (!posts) return new Response(null, { status: 503 });
+      assert(posts.lease === lease && posts.socket === socket, "protected_posts_listener_scope_changed");
+      return await posts.fetch(request) ?? new Response(null, { status: 404 });
+    }
     if (publicationRoute(url.pathname) && (publication || deferredPublication)) {
       const route = publication ?? deferredPublication?.();
       if (!route) return new Response(null, { status: 503 });
       assert(route.lease === lease && route.socket === socket, "native_publication_listener_scope_changed");
       return route.fetch(request);
     }
-    if(url.pathname==="/transcribe") {
+    if(url.pathname==="/transcribe" && studyAsr && studyAuth) {
       // The Study bridge checks its scoped bearer before running the model.
       const bytes = await readMediaBody(request,MAX_STUDY_AUDIO_BYTES).catch(error => {
         if (!request.signal.aborted) noteStudyAsrStage("host_body");
         throw error;
       });
-      return studyAsr!.route(studyAuth,"POST",request.headers.get("authorization")??"",Buffer.from(bytes),request.signal);
+      return studyAsr.route(studyAuth,"POST",request.headers.get("authorization")??"",Buffer.from(bytes),request.signal);
     }
     if(url.pathname==="/recognize" && karaoke && karo) {
       await Promise.all([checkTool(karo.python), checkTool(karo.script)]);
@@ -207,10 +219,12 @@ export async function startWeb2NativeActivityHost(options: {
     }
     return new Response(null,{status:404});
   }
-  let active: Promise<void> | undefined, stopping = false;
+  let active: Promise<void> | undefined, activePosts: Promise<void> | undefined;
+  let stopping = false, postsStopping = false;
   const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
-    if (stopping || active) {outgoing.writeHead(429,{connection:"close"}).end();return;}
-    const processingMs = publicationRoute(incoming.url) && (publication || deferredPublication)
+    const isPosts = protectedPostsRoute(incoming.url) && Boolean(deferredProtectedPosts);
+    if (stopping || active || (isPosts && postsStopping)) {outgoing.writeHead(429,{connection:"close"}).end();return;}
+    const processingMs = isPosts ? 55000 : publicationRoute(incoming.url) && (publication || deferredPublication)
       ? (incoming.url === nativeDanceDispatchPath ? 20000 : 10000) : PROCESSING_MS.get(incoming.url ?? "");
     if (incoming.method !== "POST" || processingMs === undefined) {
       outgoing.writeHead(404, { connection: "close" }).end();
@@ -290,14 +304,15 @@ export async function startWeb2NativeActivityHost(options: {
     })();
     // A cancelled transport never concedes the host's one active slot.
     // Release it only when the original processing and response settle.
-    active = operation.finally(() => { active = undefined; });
+    active = operation.finally(() => { active = undefined; if (isPosts) activePosts = undefined; });
+    if (isPosts) activePosts = active;
     void active.catch(() => outgoing.destroy());
   });
   const close = async () => {
     stopping=true;
     server.closeAllConnections();
     if(server.listening) await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));
-    await active;await karaoke?.close();await studyAsr!.settled();
+    await active;await karaoke?.close();await studyAsr?.settled();
   };
   try {
     await new Promise<void>((resolve,reject)=>{server.once("error",reject);server.listen(socket,()=>{
@@ -306,6 +321,6 @@ export async function startWeb2NativeActivityHost(options: {
     await chmod(socket,0o600);
     assert((await realpath(socket))===socket);
     await lease.assertHeld();
-    return {close};
+    return {close, async drainProtectedPosts() { postsStopping = true; await activePosts; }};
   } catch (error) { await close(); throw error; }
 }

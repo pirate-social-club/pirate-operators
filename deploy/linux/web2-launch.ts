@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { constants, readFileSync } from "node:fs";
-import { open, readFile, realpath } from "node:fs/promises";
+import { lstat, open, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { request } from "node:http";
@@ -46,6 +46,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { nativePublicationPaths, publicationMountFor, type Web2NativePublicationInitialization,
   type Web2NativePublicationMount } from "./web2-publication-selection.ts";
 import { readNativePostsRole } from "./web2-native-posts-role.ts";
+import { protectedPostsPaths, readRetainedProtectedPostsMount, type ProtectedPostsBootSnapshot } from "./web2-protected-posts-mount.ts";
 import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
 import { readApprovedTrustedRevisionTwo, readTrustedRevisionTwoPolicy, trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 
@@ -223,6 +224,29 @@ export async function runWeb2Native(configPath: string) {
     approvalSha256: string | null; publication: TrustedPublication; expiresAtMs: number | null;
   } | undefined;
   let publicationSnapshot: { selector: string; initialization: string; expiresAtMs: number } | undefined;
+  const protectedPosts = protectedPostsPaths(graph);
+  let postsAtBoot: {
+    mount: Awaited<ReturnType<typeof readRetainedProtectedPostsMount>>;
+    expiresAtMs: number;
+    socketIdentity: string;
+  } | undefined;
+  let postsSnapshot: ProtectedPostsBootSnapshot | undefined;
+  async function pinPostsAtBoot(expiresAtMs: number) {
+    if (!protectedPosts) return;
+    const mount = await readRetainedProtectedPostsMount(graph, original);
+    const socket = await lstat(protectedPosts.socket, { bigint: true });
+    assert(socket.isSocket() && socket.uid === BigInt(process.getuid!()) && !(socket.mode & 0o077n) &&
+      await realpath(protectedPosts.socket) === protectedPosts.socket, "protected_posts_private_listener_required");
+    const socketIdentity = `${socket.dev}/${socket.ino}`;
+    postsAtBoot ??= { mount, expiresAtMs, socketIdentity };
+    assert(Date.now() < postsAtBoot.expiresAtMs && postsAtBoot.expiresAtMs <= expiresAtMs &&
+      postsAtBoot.socketIdentity === socketIdentity && canonical(postsAtBoot.mount) === canonical(mount),
+      "protected_posts_boot_selection_changed");
+    if (postsSnapshot)
+      assert(await readFile(postsSnapshot.selection, "utf8") === canonical({ selection: mount.selection, expiresAtMs: postsAtBoot.expiresAtMs }) &&
+        await readFile(postsSnapshot.forward, "utf8") === mount.forward && await readFile(postsSnapshot.reverse, "utf8") === mount.reverse,
+        "protected_posts_boot_snapshot_changed");
+  }
   type DanceBootArtifacts = { scope?: string; reward: string; custody?: { recordSha256: string } };
   const danceAtBoot: { artifacts?: DanceBootArtifacts | null } = {};
   let danceSnapshot: Web2DanceBootSnapshot | undefined;
@@ -295,6 +319,7 @@ export async function runWeb2Native(configPath: string) {
           "trusted_web2_publication_boot_snapshot_changed");
       }
       const currentAdmission = await admission();
+      if (!approved) await pinPostsAtBoot(Math.min(policy.expiresAt, startAdmission.expiresAt, currentAdmission.expiresAt));
       // The approval already incorporates the owner grant's whole-second
       // expiry. A refreshed current admission cannot extend this boot.
       const expiresAtMs = selected && approved ? Math.min(
@@ -324,7 +349,9 @@ export async function runWeb2Native(configPath: string) {
       }
     } else await authenticateWeb2Enrollment(chain, plan.draft);
     await assertDanceSnapshot();
-    await admission();
+    const currentAdmission = await admission();
+    if (!graph.publicationExpansion)
+      await pinPostsAtBoot(Math.min(startAdmission.expiresAt, currentAdmission.expiresAt));
   };
   await current();
   const trustedSelection = authorityAtBoot?.publication, trustedExpiry = authorityAtBoot?.expiresAtMs;
@@ -334,6 +361,14 @@ export async function runWeb2Native(configPath: string) {
   const scratch = await createBootDirectory(config.privateRuntimeDirectory);
   const nativeOriginalFile = join(scratch, "web2-original.json");
   await writeExclusive(nativeOriginalFile, JSON.stringify(original) + "\n");
+  if (postsAtBoot) {
+    const { mount, expiresAtMs } = postsAtBoot;
+    postsSnapshot = { selection: join(scratch, "protected-posts-selection.json"),
+      forward: join(scratch, "protected-posts-owner.auth"), reverse: join(scratch, "protected-posts-primary.auth") };
+    await writeExclusive(postsSnapshot.selection, canonical({ selection: mount.selection, expiresAtMs }));
+    await writeExclusive(postsSnapshot.forward, mount.forward);
+    await writeExclusive(postsSnapshot.reverse, mount.reverse);
+  }
   if (trustedSelection) {
     assert(trustedExpiry != null, "trusted_web2_publication_boot_window_changed");
     const snapshot = {
@@ -399,7 +434,7 @@ export async function runWeb2Native(configPath: string) {
     await writeExclusive(
       file,
       renderFullNativeConfig(graph, mode, bootId, nativeOriginalFile, socket, requireRetainedState,
-        publicationSnapshot, mode === "serve" ? danceSnapshot : undefined),
+        publicationSnapshot, mode === "serve" ? danceSnapshot : undefined, mode === "serve" ? postsSnapshot : undefined),
     );
     await syncDirectory(scratch);
     await current();

@@ -86,6 +86,7 @@ import {
   readDanceActivationArtifact, readDanceActivationPublicationMount, readTrustedPublicDanceArtifacts, stageWeb2DanceActivation, type Web2DanceActivationOwner,
 } from "./web2-dance-retained-activation.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
+import { validateProtectedPostsTarget, type ProtectedFirstSongInstallationInputs } from "./web2-protected-posts-mount.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
 export interface Web2InstallationHostInputs {
@@ -105,6 +106,7 @@ export interface Web2InstallationHostInputs {
   publication?: Web2PublicationInstallationInputs;
   activateTrustedPublication?(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody): Promise<void>;
   posts?: Web2PostsInstallationInputs;
+  protectedFirstSong?: ProtectedFirstSongInstallationInputs;
   recheckTrustedPublishing?(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>): Promise<void>;
   signProfile(
     body: Web2InstallPlan,
@@ -160,6 +162,10 @@ export async function createWeb2Installation(
   const posts = input.posts;
   assert(Boolean(postsSelectorPath(release.graph, selected.target)) === Boolean(posts),
     "native_posts_install_owner_unavailable");
+  const protectedFirstSong = input.protectedFirstSong;
+  const protectedPosts = validateProtectedPostsTarget(graph, selected.target);
+  assert(Boolean(protectedFirstSong) === (Boolean(protectedPosts) && !retainedOwner),
+    "protected_posts_install_owner_unavailable");
   assert(
     release.schema === "pirate.complete-linux-web2-release/1",
     "explicit_web2_release_required",
@@ -704,6 +710,16 @@ export async function createWeb2Installation(
         if (posts) {
           await stagePostsSelector({original, graph: release.graph, target: selected.target,
             owner: posts, startRetained: prior !== null, assertCurrent: current});
+        }
+        if (protectedFirstSong && !admitted.expanded) {
+          await protectedFirstSong.open({ original: structuredClone(original), graph: structuredClone(graph),
+            startRetained: prior !== null, async assertCurrent() {
+              await current();
+              assert(canonicalDigest(await readPrivateJSON(originalPath)) === canonicalDigest(record),
+                "protected_posts_install_original_changed");
+              await open();
+            } });
+          await current();
         }
         if (admitted.trustedPublication) {
           assert(prior && activateTrustedPublication, "trusted_web2_publication_original_start_required");

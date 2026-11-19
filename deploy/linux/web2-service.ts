@@ -51,6 +51,7 @@ import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } 
 import type { Web2PublicDanceServeCustody } from "./web2-public-dance-custody.ts";
 import type { Web2DanceActivationOwner } from "./web2-dance-retained-activation.ts";
 import type { Web2DanceBindPrepareOwner } from "./web2-dance-bind-prepare.ts";
+import { createProtectedPostsMountLifetime, validateProtectedPostsTarget } from "./web2-protected-posts-mount.ts";
 
 export interface Web2LocalInstallationConfiguration {
   schema: "pirate.web2-local-installation/1";
@@ -360,6 +361,7 @@ export async function launchWeb2LocalInstallation(
   );
   const inputs = await loaded.createWeb2BootstrapInputs();
   let nativeActivityHost: Awaited<ReturnType<typeof startWeb2NativeActivityHost>> | undefined;
+  let protectedPosts: ReturnType<typeof createProtectedPostsMountLifetime> | undefined;
   const installation = await (async () => {
     try {
       assert(
@@ -377,6 +379,8 @@ export async function launchWeb2LocalInstallation(
       await verifyWeb2BootstrapRelease(config.release, config.trust);
       const policy = verifyRecord(inputs.binding.policy, config.trust);
       if (inputs.pairingOnly === true) {
+        assert(!policy.graph.protectedFirstSong && !inputs.binding.protectedFirstSong,
+          "protected_posts_pairing_only_refused");
         const now = Date.now();
         assert(
           policy.schema === "pirate.web2-runtime-binding-policy/1" &&
@@ -482,10 +486,17 @@ export async function launchWeb2LocalInstallation(
         originalActivation = { identity, task };
         return task;
       }
-      const binding = openTrusted ? { ...inputs.binding, activateTrustedPublication: openSelectedPublication } :
+      let binding = openTrusted ? { ...inputs.binding, activateTrustedPublication: openSelectedPublication } :
         prepare && activate && ports ? { ...inputs.binding, publication: {
           ...ports, prepareExpansion: prepare, activateAfterStaging: openSelectedPublication,
         } } : inputs.binding;
+      const postsPaths = validateProtectedPostsTarget(policy.graph, policy.target);
+      assert(Boolean(postsPaths) === Boolean(binding.protectedFirstSong), "protected_posts_install_owner_unavailable");
+      if (binding.protectedFirstSong) {
+        protectedPosts = createProtectedPostsMountLifetime(binding.protectedFirstSong, binding.lease);
+        binding = { ...binding, protectedFirstSong: protectedPosts };
+      }
+      const postsHost = protectedPosts ? { deferredProtectedPosts: protectedPosts.route } : {};
       if (policy.nativeActivities) {
         assert(policy.privateStudy && inputs.activityHost && policy.installationId === runtime.installationId &&
           policy.target.installationId === runtime.installationId && Date.now() < policy.expiresAt && !signal?.aborted &&
@@ -494,15 +505,28 @@ export async function launchWeb2LocalInstallation(
         nativeActivityHost = await startWeb2NativeActivityHost({selected:policy.nativeActivities,study:policy.privateStudy,
           host:structuredClone(inputs.activityHost), ingress:publicIngressFrom(policy.ingress),
           stateRoot:policy.target.stateRoot,lease:inputs.binding.lease,publication,
+          ...postsHost,
           ...(opener ? { deferredPublication: () => stagedRoute } : {})});
-      } else assert(!inputs.activityHost, "unselected_activity_host_refused");
+      } else {
+        assert(!inputs.activityHost, "unselected_activity_host_refused");
+        if (protectedPosts) nativeActivityHost = await startWeb2NativeActivityHost({
+          ingress: publicIngressFrom(policy.ingress), stateRoot: policy.target.stateRoot,
+          lease: inputs.binding.lease, ...postsHost,
+        });
+      }
       return await createWeb2BootstrapInstallation(binding, signal, startFirstGrant);
     } catch (error) {
-      const cleanup = async () => { await nativeActivityHost?.close(); await inputs.closeControl(); };
+      const cleanup = async () => {
+        await nativeActivityHost?.close(); await protectedPosts?.close(); await inputs.closeControl();
+      };
       try { await cleanup(); } catch (failure) { throw new Web2ServiceStartupFailure([error,failure],cleanup); }
       throw error;
     }
   })();
+  async function drainPublication() {
+    if (protectedPosts) await nativeActivityHost?.drainProtectedPosts();
+    await inputs.drainExpandedFirstGrant?.();
+  }
   const secret = randomBytes(32);
   try {
     await installation?.resumeOriginal();
@@ -542,9 +566,10 @@ export async function launchWeb2LocalInstallation(
       shutdownService: () =>
         (serviceStop ??= (async () => {
           // Close setup and drain the owned attempt while the app proof and activity listener still exist.
-          await installation?.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
+          await installation?.shutdownService(drainPublication);
           await closeSetup();
           await nativeActivityHost?.close();
+          await protectedPosts?.close();
           await inputs.closeControl();
         })().catch((error) => {
           serviceStop = undefined;
@@ -554,9 +579,10 @@ export async function launchWeb2LocalInstallation(
   } catch (error) {
     secret.fill(0);
     const cleanup = async () => {
-      await installation?.shutdownService(inputs.drainExpandedFirstGrant?.bind(inputs));
+      await installation?.shutdownService(drainPublication);
       if (error instanceof PairedOperatorStartupFailure) await error.close();
       await nativeActivityHost?.close();
+      await protectedPosts?.close();
       await inputs.closeControl();
     };
     try {
