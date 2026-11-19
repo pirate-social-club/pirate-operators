@@ -11,6 +11,7 @@ import type { InstalledTarget } from "./local-target-controller.ts";
 import { verifyRecord, type SignedRecord } from "./installed-records.ts";
 import { publishingAttachment } from "./web2-publishing-attachment.ts";
 import { optionalWeb2Record, retainWeb2Record } from "./web2-runtime-binding.ts";
+import type { ProtectedPostsReadLane } from "./web2-protected-posts-scheduling.ts";
 
 export interface ProtectedFirstSongGraph {
   schema: "pirate.web2-protected-posts-transport/1";
@@ -22,6 +23,7 @@ export interface ProtectedFirstSongRoute {
   lease: OperationLease;
   socket: string;
   fetch(request: Request): Promise<Response | null>;
+  fetchNested?(request: Request, lane: ProtectedPostsReadLane): Promise<Response | null>;
   close(): Promise<void>;
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
@@ -25,11 +25,15 @@ import { publicationAcceptSessionHeader, publicationHostOrigin, publicationHostP
 import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
 import { nativeDanceDispatchPath, nativeDanceHostPath, nativeDanceObservationPath } from "../../services/native-dance-retained-reference.ts";
 import { protectedPostsRoute, type ProtectedFirstSongRoute } from "./web2-protected-posts-mount.ts";
+import { protectedPostsMixedLimit, protectedPostsMixedRoute, protectedPostsReadLane,
+  type ProtectedPostsMixedRoute, type ProtectedPostsReadLane } from "./web2-protected-posts-scheduling.ts";
 
+const postsRoute = (path?: string) => protectedPostsRoute(path) || protectedPostsMixedRoute(path) !== undefined;
 const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath ||
   path === nativeDanceDispatchPath || path === nativeDanceObservationPath;
 
 const UPLOAD_IDLE_MS = 15_000;
+const MIXED_POSTS_UPLOAD_MS = 5_000;
 const PROCESSING_MS = new Map<string, number>([
   ["/recognize", 20_000], // 10 s model child plus pinned input checks.
   ["/transcribe", 30_000], // 20 s model child plus pinned input checks.
@@ -54,7 +58,7 @@ async function privateText(path: string) {
     return text;
   } finally { await file.close(); }
 }
-function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
+function inputRequest(incoming: IncomingMessage, signal: AbortSignal, bytes?: Uint8Array) {
   const headers = new Headers();
   for (const key of ["authorization", "content-type", "content-length"]) {
     const value = incoming.headers[key];
@@ -64,9 +68,9 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
     const session = incoming.headers[publicationAcceptSessionHeader];
     if (typeof session === "string") headers.set(publicationAcceptSessionHeader, session);
   }
-  const base = publicationRoute(incoming.url) || protectedPostsRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
+  const base = publicationRoute(incoming.url) || postsRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
   return new Request(base + incoming.url, { method: "POST", headers,
-    body: Readable.toWeb(incoming), signal, duplex: "half" } as RequestInit);
+    body: bytes ? new Uint8Array(bytes) : Readable.toWeb(incoming), signal, duplex: "half" } as RequestInit);
 }
 
 /** The existing installed Wizard service owns this Unix listener and its
@@ -166,7 +170,7 @@ export async function startWeb2NativeActivityHost(options: {
       now:Date.now,
     });
   }
-  async function route(request: Request) {
+  async function route(request: Request, lane?: ProtectedPostsReadLane) {
     const url = new URL(request.url);
     if (url.search) return new Response(null,{status:404});
     try { await lease.assertHeld(); }
@@ -175,10 +179,14 @@ export async function startWeb2NativeActivityHost(options: {
       throw error;
     }
     request.signal.throwIfAborted();
-    if (protectedPostsRoute(url.pathname) && deferredProtectedPosts) {
+    if (postsRoute(url.pathname) && deferredProtectedPosts) {
       const posts = deferredProtectedPosts();
       if (!posts) return new Response(null, { status: 503 });
       assert(posts.lease === lease && posts.socket === socket, "protected_posts_listener_scope_changed");
+      if (lane) {
+        if (!posts.fetchNested) return new Response(null, { status: 503 });
+        return await posts.fetchNested(request, lane) ?? new Response(null, { status: 404 });
+      }
       return await posts.fetch(request) ?? new Response(null, { status: 404 });
     }
     if (publicationRoute(url.pathname) && (publication || deferredPublication)) {
@@ -221,9 +229,18 @@ export async function startWeb2NativeActivityHost(options: {
   }
   let active: Promise<void> | undefined, activePosts: Promise<void> | undefined;
   let stopping = false, postsStopping = false;
-  const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
-    const isPosts = protectedPostsRoute(incoming.url) && Boolean(deferredProtectedPosts);
-    if (stopping || active || (isPosts && postsStopping)) {outgoing.writeHead(429,{connection:"close"}).end();return;}
+  const activeReads = new Map<ProtectedPostsReadLane, Promise<void>>();
+  const readingBodies = new Set<ProtectedPostsMixedRoute>();
+  const serialOccupied = () => Boolean(active) || activeReads.size > 0;
+
+  function dispatch(incoming: IncomingMessage, outgoing: ServerResponse, bytes?: Uint8Array, lane?: ProtectedPostsReadLane) {
+    const isPosts = postsRoute(incoming.url) && Boolean(deferredProtectedPosts);
+    const readStopped = postsStopping && !activePosts && (lane !== "canonical" || !activeReads.has("ready"));
+    const occupied = lane
+      ? activeReads.has(lane) || Boolean(active && !activePosts) || readStopped
+      : serialOccupied() || (isPosts && postsStopping);
+    if (stopping || occupied) { outgoing.writeHead(429, { connection: "close" }).end(); return; }
+    if (outgoing.destroyed) return;
     const processingMs = isPosts ? 55000 : publicationRoute(incoming.url) && (publication || deferredPublication)
       ? (incoming.url === nativeDanceDispatchPath ? 20000 : 10000) : PROCESSING_MS.get(incoming.url ?? "");
     if (incoming.method !== "POST" || processingMs === undefined) {
@@ -267,11 +284,12 @@ export async function startWeb2NativeActivityHost(options: {
     outgoing.once("close", disconnected);
     incoming.once("end", finishUpload);
     incoming.once("timeout", uploadTimeout);
-    incoming.setTimeout(UPLOAD_IDLE_MS);
+    if (bytes) finishUpload();
+    else incoming.setTimeout(UPLOAD_IDLE_MS);
     const operation = (async () => {
       let sendingResponse = false;
       try {
-        const response = await route(inputRequest(incoming, requestLifetime.signal));
+        const response = await route(inputRequest(incoming, requestLifetime.signal, bytes), lane);
         if (requestLifetime.signal.aborted || outgoing.destroyed) {
           await response.body?.cancel();
           return;
@@ -302,17 +320,79 @@ export async function startWeb2NativeActivityHost(options: {
         outgoing.removeListener("close", disconnected);
       }
     })();
-    // A cancelled transport never concedes the host's one active slot.
-    // Release it only when the original processing and response settle.
-    active = operation.finally(() => { active = undefined; if (isPosts) activePosts = undefined; });
-    if (isPosts) activePosts = active;
-    void active.catch(() => outgoing.destroy());
+    // A cancelled transport keeps its slot until processing and delivery settle.
+    const settled = operation.finally(() => {
+      if (lane) activeReads.delete(lane);
+      else {
+        active = undefined;
+        if (isPosts) activePosts = undefined;
+      }
+    });
+    if (lane) activeReads.set(lane, settled);
+    else {
+      active = settled;
+      if (isPosts) activePosts = settled;
+    }
+    void settled.catch(() => outgoing.destroy());
+  }
+
+  async function classify(incoming: IncomingMessage, outgoing: ServerResponse, mixed: ProtectedPostsMixedRoute) {
+    if (stopping || readingBodies.has(mixed)) {
+      outgoing.writeHead(429, { connection: "close" }).end();
+      return;
+    }
+    const auth = incoming.headers.authorization;
+    if (incoming.headers["content-type"] !== "application/json" || !auth?.startsWith("Bearer ")) {
+      outgoing.writeHead(404, { connection: "close" }).end();
+      return;
+    }
+    // An ordinary request that arrived while a slot was busy cannot use
+    // body classification as a queue for the serial effect slot.
+    const serialBusyOnArrival = serialOccupied() || postsStopping;
+    readingBodies.add(mixed);
+    const timer = setTimeout(() => incoming.destroy(), MIXED_POSTS_UPLOAD_MS);
+    timer.unref();
+    let bytes: Buffer;
+    let lane: ProtectedPostsReadLane | undefined;
+    try {
+      let size = 0;
+      const chunks: Buffer[] = [];
+      for await (const chunk of incoming.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>) {
+        size += chunk.length;
+        if (size > protectedPostsMixedLimit(mixed)) {
+          outgoing.writeHead(413, { connection: "close" }).end();
+          return;
+        }
+        chunks.push(chunk);
+      }
+      bytes = Buffer.concat(chunks, size);
+      lane = protectedPostsReadLane(mixed, bytes);
+    } catch {
+      if (!outgoing.destroyed) outgoing.writeHead(400, { connection: "close" }).end();
+      return;
+    } finally {
+      clearTimeout(timer);
+      readingBodies.delete(mixed);
+    }
+    if (!lane && serialBusyOnArrival) {
+      if (!outgoing.destroyed) outgoing.writeHead(429, { connection: "close" }).end();
+      return;
+    }
+    dispatch(incoming, outgoing, bytes, lane);
+  }
+
+  const server = createServer({ requestTimeout: 30000, headersTimeout: 5000, maxHeaderSize: 8192 }, (incoming, outgoing) => {
+    const mixed = deferredProtectedPosts && incoming.method === "POST" ? protectedPostsMixedRoute(incoming.url) : undefined;
+    if (mixed) void classify(incoming, outgoing, mixed).catch(() => outgoing.destroy());
+    else dispatch(incoming, outgoing);
   });
   const close = async () => {
-    stopping=true;
+    stopping = true;
     server.closeAllConnections();
-    if(server.listening) await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));
-    await active;await karaoke?.close();await studyAsr?.settled();
+    if (server.listening) await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve()));
+    await Promise.all([active, ...activeReads.values()]);
+    await karaoke?.close();
+    await studyAsr?.settled();
   };
   try {
     await new Promise<void>((resolve,reject)=>{server.once("error",reject);server.listen(socket,()=>{
@@ -321,6 +401,14 @@ export async function startWeb2NativeActivityHost(options: {
     await chmod(socket,0o600);
     assert((await realpath(socket))===socket);
     await lease.assertHeld();
-    return {close, async drainProtectedPosts() { postsStopping = true; await activePosts; }};
+    return {
+      close,
+      async drainProtectedPosts() {
+        postsStopping = true;
+        await activePosts;
+        await activeReads.get("ready");
+        await activeReads.get("canonical");
+      },
+    };
   } catch (error) { await close(); throw error; }
 }
