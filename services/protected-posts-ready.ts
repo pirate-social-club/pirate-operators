@@ -26,7 +26,7 @@ interface PrimaryReadyRow {
   catalogAuthority: string | null;
 }
 
-interface ReadyScope {
+export interface ProtectedPostsPrimaryScope {
   db: D1Database;
   applicationOriginalSha256: Hex;
   releaseSha256: Hex;
@@ -41,7 +41,7 @@ type RevalidatePosts = (operation: Readonly<ExternalOperation>) =>
   Promise<{ ownerExpiresAtMs: number; catalogExpiresAtMs?: number }>;
 
 async function readProtectedPostsPrimary(
-  scope: Readonly<ReadyScope>,
+  scope: Readonly<ProtectedPostsPrimaryScope>,
   reference: Readonly<NativePostsPublicationReference>,
   revalidate: RevalidatePosts,
   dispatch?: Readonly<NativePostsDispatchRequest>,
@@ -168,7 +168,7 @@ async function readProtectedPostsPrimary(
 
 /** The quote reader exposes read-only facts for the selected owner qualifier. */
 export async function readProtectedPostsPlanned(
-  scope: Readonly<ReadyScope>,
+  scope: Readonly<ProtectedPostsPrimaryScope>,
   reference: Readonly<NativePostsPublicationReference>,
   revalidate: RevalidatePosts,
 ): Promise<Readonly<NativePostsQuoteProof>> {
@@ -182,7 +182,7 @@ export async function readProtectedPostsPlanned(
 
 /** Dispatch requires the same initiating lease and its reserved quote. */
 export async function readProtectedPostsReady(
-  scope: Readonly<ReadyScope>,
+  scope: Readonly<ProtectedPostsPrimaryScope>,
   request: Readonly<NativePostsDispatchRequest>,
   revalidate: RevalidatePosts,
 ): Promise<Readonly<NativePostsDispatchProof>> {

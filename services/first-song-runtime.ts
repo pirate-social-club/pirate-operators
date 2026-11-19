@@ -236,7 +236,7 @@ export function protectedOwnerSongRuntime(
     });
     await readCanonicalSource(readPorts, source);
   };
-  return { runtime, configuration, maximumTotalFee: postingLimits.maximumTotalFee, catalogReady: catalog.ready, authorize };
+  return { runtime, configuration, maximumTotalFee: postingLimits.maximumTotalFee, catalogReady: catalog.ready, authorize, readPorts };
 }
 
 export function ownerSongRuntime(

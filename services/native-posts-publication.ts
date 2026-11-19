@@ -13,6 +13,9 @@ export const nativePostsObservationPath = "/publication/v1/posts-observation";
 export const nativePostsDispatchReadyPath = "/_operator/native-publication/posts-dispatch-ready";
 export const nativePostsCatalogReservationPath = "/publication/v1/posts-catalog-reservation";
 export const nativePostsCatalogResponsePath = "/publication/v1/posts-catalog-respond";
+export const nativePostsAuxiliaryPrimaryPath = "/_operator/native-publication/posts-auxiliary-primary";
+export const nativePostsTerminalPrimaryPath = "/_operator/native-publication/posts-terminal-primary";
+export const nativePostsCanonicalPrimaryPath = "/_operator/native-publication/posts-canonical-primary";
 
 export interface NativePostsPublicationReference {
   schema: "pirate.native-posts-publication-reference/1";
@@ -74,13 +77,19 @@ function digest(value: unknown) {
   return checked;
 }
 
+export function readNativePostsJobId(value: unknown): string {
+  insist(typeof value === "string" &&
+    /^publication:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/.test(value),
+  "native_posts_original_changed");
+  return value;
+}
+
 function readReference(value: unknown): NativePostsPublicationReference {
   const row = object(value);
   exact(row, ["schema", "installationId", "releaseSha256", "jobId", "operationId", "requestHash"]);
-  const jobId = row.jobId;
+  const jobId = readNativePostsJobId(row.jobId);
   const operationId = digest(row.operationId);
-  insist(row.schema === "pirate.native-posts-publication-reference/1" && typeof jobId === "string" &&
-    /^publication:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![\s\S])/.test(jobId) &&
+  insist(row.schema === "pirate.native-posts-publication-reference/1" &&
     operationId === hashJson({ job: jobId, step: "publication" }), "native_posts_original_changed");
   return {
     schema: row.schema, installationId: digest(row.installationId), releaseSha256: digest(row.releaseSha256),

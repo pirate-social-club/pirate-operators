@@ -1,7 +1,6 @@
 import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
 import { nativePublicationLookupFetch, nativePublicationSelectionReadback } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
-import { nativePostsDispatchReadyPath, nativePostsQuoteReadyPath } from "./native-posts-publication.ts";
 import { nativeDanceDispatchReadyPath, nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
 import { installedNativeDanceOriginals, installedNativeDanceReadyFetch } from "./linux-web2-dance-retained-transport.ts";
 import { installedNativeDanceDispatchReadyFetch } from "./linux-web2-dance-dispatch.ts";
@@ -15,7 +14,8 @@ import { readCommunityDeploymentProfile, isWeb2Deployment, type CommunityDeploym
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import { firstSongDriver } from "./first-song-driver.ts";
 import { protectedOwnerSongRuntime } from "./first-song-runtime.ts";
-import { bindInstalledProtectedPosts, hasProtectedPostsBindings, protectedPostsPrimaryFetch } from "./linux-web2-protected-posts.ts";
+import { bindInstalledProtectedPosts, hasProtectedPostsBindings, protectedPostsPrimaryFetch, protectedPostsPrimaryPath } from "./linux-web2-protected-posts.ts";
+import { protectedPostsPrimarySelection } from "./protected-posts-primary-selection.ts";
 import { canonical, insist } from "../packages/community/common.ts";
 import type { CommunityQueueJob } from "./community-private-dance.ts";
 import {nativeDigest} from "../packages/community/native-business-binding.ts";
@@ -78,11 +78,11 @@ async function openProtectedFirstSong(
   const mount = await bindInstalledProtectedPosts(env, original);
   insist(mount && canonical(original.record.body.draft.deployment) === canonical(deployment),
     "protected_posts_mount_unavailable", 503);
-  const { runtime, configuration, maximumTotalFee, catalogReady, authorize } = protectedOwnerSongRuntime(
+  const { runtime, configuration, maximumTotalFee, catalogReady, authorize, readPorts } = protectedOwnerSongRuntime(
     env, config, current, deployment, mount,
   );
   const scope = mount.scope(env.DB, configuration, runtime.posting.ownerGrant, deployment.managedOrigin, maximumTotalFee);
-  return { mount, runtime, scope, catalogReady, authorize };
+  return { mount, runtime, scope, catalogReady, authorize, readPorts };
 }
 
 function selectProtectedFirstSong(
@@ -128,7 +128,7 @@ export default {
     }
     if (isWeb2Deployment(deployment) && new URL(request.url).pathname === nativePostsCustodyPath)
       return nativePostsCustody(request, env, deployment);
-    if (path === nativePostsQuoteReadyPath || path === nativePostsDispatchReadyPath) {
+    if (protectedPostsPrimaryPath(path)) {
       const reverse = env.WEB2_PROTECTED_POSTS_REVERSE_AUTH;
       if (!isWeb2Deployment(deployment) || !reverse || !/^[a-f0-9]{64}(?![\s\S])/.test(reverse))
         return protectedPostsPrimaryFetch(request, undefined);
@@ -138,10 +138,11 @@ export default {
         async open() {
           const bound = await installedOriginal(env, selected);
           const current = protectedPostsConfigurationReader(bound);
-          const { mount, scope, runtime, catalogReady } = await openProtectedFirstSong(bound, selected, await current(), current);
+          const { mount, scope, runtime, catalogReady, readPorts } = await openProtectedFirstSong(bound, selected, await current(), current);
           const driver = firstSongDriver(runtime);
           return {
             scope, assertCurrent: mount.assertCurrent,
+            selection: protectedPostsPrimarySelection(scope, runtime, readPorts),
             async revalidate(operation) {
               const { ownerExpiresAtMs } = await driver.revalidateProtectedPostsOwner(operation);
               return { ownerExpiresAtMs, catalogExpiresAtMs: await catalogReady(operation) };

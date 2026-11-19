@@ -9,13 +9,15 @@ import { readCanonicalBytes, type CanonicalWireRequest } from "../packages/recog
 import { checkedPublicationCapability, nativePublicationAuthorized, publicationHostOrigin } from "./native-publication-reference.ts";
 import {
   nativePostsDispatchReadyPath, nativePostsPublicationResponse, nativePostsQuoteReadyPath,
-  nativePostsCatalogResponsePath,
+  nativePostsAuxiliaryPrimaryPath, nativePostsCanonicalPrimaryPath, nativePostsCatalogResponsePath, nativePostsTerminalPrimaryPath,
   readNativePostsDispatchRequest, readNativePostsPublicationReference,
 } from "./native-posts-publication.ts";
 import { publicationResponseBytes } from "./publication-app-documents.ts";
 import type { ProtectedPostsJobTransport } from "./protected-posts-job.ts";
 import type { ProtectedCatalogTransport } from "./protected-catalog-reservation.ts";
 import { readProtectedPostsPlanned, readProtectedPostsReady } from "./protected-posts-ready.ts";
+import { readPostsAuxiliaryPrimaryRequest, readPostsCanonicalPrimaryRequest, readPostsTerminalPrimaryRequest } from "./native-posts-primary-reference.ts";
+import type { protectedPostsPrimarySelection } from "./protected-posts-primary-selection.ts";
 
 export interface Web2ProtectedPostsBindings {
   WEB2_PROTECTED_POSTS_OWNER?: Fetcher;
@@ -119,21 +121,67 @@ type PrimaryMount = {
   open(): Promise<{
     scope: Parameters<typeof readProtectedPostsPlanned>[0];
     revalidate: Parameters<typeof readProtectedPostsPlanned>[2];
+    selection?: ReturnType<typeof protectedPostsPrimarySelection>;
     assertCurrent?(): void;
   }>;
 };
 
+export function protectedPostsPrimaryPath(path: string) {
+  return path === nativePostsQuoteReadyPath || path === nativePostsDispatchReadyPath ||
+    path === nativePostsAuxiliaryPrimaryPath || path === nativePostsTerminalPrimaryPath ||
+    path === nativePostsCanonicalPrimaryPath;
+}
+
 export async function protectedPostsPrimaryFetch(request: Request, mount: PrimaryMount | undefined) {
   const url = new URL(request.url), path = url.pathname;
-  if (!mount || url.origin !== mount.origin || url.search || request.method !== "POST" ||
-    (path !== nativePostsQuoteReadyPath && path !== nativePostsDispatchReadyPath) ||
+  if (!mount || url.origin !== mount.origin || url.search || url.hash || request.method !== "POST" ||
+    !protectedPostsPrimaryPath(path) ||
     request.headers.get("content-type") !== "application/json" || request.headers.has("cookie") ||
     !await nativePublicationAuthorized(request, mount.reverse))
     return new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
   try {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(15000)]);
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readCanonicalBytes(request, 4096, signal));
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await readCanonicalBytes(
+      request, path === nativePostsCanonicalPrimaryPath ? 64 * 1024 : 4096, signal,
+    ));
     signal.throwIfAborted();
+    if (path === nativePostsAuxiliaryPrimaryPath || path === nativePostsTerminalPrimaryPath || path === nativePostsCanonicalPrimaryPath) {
+      const body = object(JSON.parse(raw));
+      insist(raw === canonical(body), "protected_posts_primary_wire_invalid", 400);
+      const command = path === nativePostsAuxiliaryPrimaryPath
+        ? { kind: "auxiliary", request: readPostsAuxiliaryPrimaryRequest(body) } as const
+        : path === nativePostsTerminalPrimaryPath
+          ? { kind: "terminal", request: readPostsTerminalPrimaryRequest(body) } as const
+          : { kind: "canonical", request: readPostsCanonicalPrimaryRequest(body) } as const;
+      const binary = request.headers.get("accept") === "application/octet-stream";
+      const ifMatch = request.headers.get("if-match");
+      insist(binary === (ifMatch !== null) && (!binary || command.kind === "canonical"),
+        "protected_posts_primary_audio_purpose_changed", 409);
+      const { selection, assertCurrent } = await mount.open();
+      insist(selection, "protected_posts_primary_selection_unavailable", 503);
+      const reply = command.kind === "canonical"
+        ? await selection.canonical(command.request, signal, ifMatch)
+        : { result: await (command.kind === "auxiliary" ? selection.auxiliary(command.request, signal)
+          : selection.terminal(command.request, signal)) };
+      const { result } = reply;
+      signal.throwIfAborted();
+      mount.assertCurrent?.();
+      assertCurrent?.();
+      insist(Date.now() < result.expiresAtMs, "protected_posts_primary_proof_expired", 403);
+      const reference = hashJson(body);
+      if ("audioBody" in reply && reply.audioBody) {
+        const { bytes, etag, sha256, byteLength } = reply.audioBody;
+        return new Response(bytes, { headers: {
+          "content-type": "application/octet-stream", "cache-control": "no-store",
+          "content-length": String(byteLength), etag: '"' + etag + '"',
+          "x-pirate-primary-request-sha256": reference, "x-pirate-primary-audio-sha256": sha256,
+          "x-pirate-primary-expires-at-ms": String(result.expiresAtMs),
+        } });
+      }
+      return new Response(canonical({ reference, result }), {
+        headers: { "content-type": "application/json", "cache-control": "no-store" },
+      });
+    }
     const planned = path === nativePostsQuoteReadyPath;
     const dispatch = planned ? undefined : readNativePostsDispatchRequest(raw);
     const reference = dispatch?.reference ?? readNativePostsPublicationReference(raw);

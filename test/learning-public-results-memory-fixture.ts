@@ -76,7 +76,7 @@ class MemoryStatement {
   }
   execute() {
     const statement = this.owner.sqlite.prepare(this.sql),
-      rows = statement.all(...this.values),
+      rows = statement.all(...this.values).map((row) => ({ ...row })),
       changes = Number(
         this.owner.sqlite.prepare("SELECT changes() n").get()!.n,
       );
