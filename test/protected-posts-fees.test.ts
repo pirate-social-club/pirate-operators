@@ -404,7 +404,10 @@ test("real Posts driver limits both proofs to the sampled owner safe block", asy
     media: [mediaRef("audio", audio), mediaRef("lyrics", lyricsPin)],
     registration: { status: "absent", reason: "deferred_for_launch" },
   }), "application/json");
-  const managed = { origin: request.serviceOrigin, configuration: config, publisher };
+  const managed = {
+    origin: request.serviceOrigin, configuration: config,
+    async protectedPin() { throw new Error("the reverse proof never calls managed pinning"); },
+  };
   const unexpectedMedia = () => { throw new Error("the reverse proof only reads media metadata"); };
   const driverPorts: FirstSongDriverPorts<ProtectedPostsDriverPorts> = {
     db: ports.db,

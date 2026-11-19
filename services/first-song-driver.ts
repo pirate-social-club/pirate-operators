@@ -14,7 +14,7 @@ import {
   publicationInput,
   type PublicationInput,
 } from "../packages/community/publication-input.ts";
-import type { ManagedClient } from "../packages/community/managed-client.ts";
+import type { ProtectedManagedClient, PublisherManagedClient } from "../packages/community/managed-client.ts";
 import {
   executeAdmission,
   reconcileAdmission,
@@ -62,7 +62,7 @@ export type ProtectedCatalogOperation = (
 export interface FirstSongDriverPorts<TPosting extends PostingPorts | ProtectedPostsDriverPorts = PostingPorts> {
   db: D1Database;
   media: R2Bucket;
-  managed: ManagedClient;
+  managed: TPosting extends ProtectedPostsDriverPorts ? ProtectedManagedClient : PublisherManagedClient;
   release: ReleasePorts;
   posting: TPosting;
   acrEndpoint: string;

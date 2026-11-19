@@ -12,7 +12,7 @@ import { address } from "../packages/community/manifest-core.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
-import type { ManagedClient, ProtectedManagedPin } from "../packages/community/managed-client.ts";
+import type { ProtectedManagedClient, ProtectedManagedPin } from "../packages/community/managed-client.ts";
 import type { FirstSongDriverPorts, ProtectedPostsDriverPorts } from "./first-song-driver.ts";
 import { protectedFirstSongCatalog } from "./protected-first-song-catalog.ts";
 import type { ProtectedCatalogTransport } from "./protected-catalog-reservation.ts";
@@ -193,7 +193,7 @@ export function protectedOwnerSongRuntime(
   insist(env.RECOGNITION_PROFILE_JSON &&
     canonical(recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON))) === canonical(configuration.policies.recognition),
   "recognition_pin_changed", 503);
-  const managed: ManagedClient = {
+  const managed: ProtectedManagedClient = {
     origin: deployment.managedOrigin, configuration, protectedPin: services.protectedPin,
   };
   insist(env.CATALOG_ACCOUNT_FENCE, "protected_owner_account_fence_unavailable", 503);

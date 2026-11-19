@@ -27,14 +27,23 @@ export interface ManagedPinOriginal {
   job?: PublicationJob;
 }
 
-export type ManagedClient = {
+interface ManagedClientScope {
   origin: string;
   configuration: CommunityConfig;
   transport?: (request: Request) => Promise<Response>;
-} & (
-  { publisher: PrivateKeyAccount; protectedPin?: never } |
-  { protectedPin: ProtectedManagedPin; publisher?: never }
-);
+}
+
+export interface PublisherManagedClient extends ManagedClientScope {
+  publisher: PrivateKeyAccount;
+  protectedPin?: never;
+}
+
+export interface ProtectedManagedClient extends ManagedClientScope {
+  protectedPin: ProtectedManagedPin;
+  publisher?: never;
+}
+
+export type ManagedClient = PublisherManagedClient | ProtectedManagedClient;
 
 function protectedPinRequest(
   path: string,
