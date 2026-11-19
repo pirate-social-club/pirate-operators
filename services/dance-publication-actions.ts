@@ -319,7 +319,8 @@ export async function revalidateAcceptedDancePublicationAction(
   const result = await applyDancePublicationAction(input, { ready: { ...expected }, session: acceptedSession });
   insist(
     result.commandId === expected.command_id &&
-      result.state === "awaiting_publisher" && result.dispatchAuthority,
+      result.state === "awaiting_publisher" &&
+      "dispatchAuthority" in result && result.dispatchAuthority,
     "dance_publication_original_not_dispatchable",
     409,
   );

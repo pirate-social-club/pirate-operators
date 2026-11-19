@@ -295,9 +295,10 @@ export async function createNativeDanceDispatch(input: DispatchInputs) {
         await reconcile(signal);
         await assertSignerCurrent();
         await current(signal);
-        const nonce = store.get<number>("op:nonce");
-        assert(typeof nonce === "number" && Number.isSafeInteger(nonce) && nonce >= 0 &&
-          nonce < 2 ** 32 - 1, "native_dance_dispatch_nonce_unavailable");
+        const storedNonce = store.get<number>("op:nonce");
+        assert(typeof storedNonce === "number" && Number.isSafeInteger(storedNonce) && storedNonce >= 0 &&
+          storedNonce < 2 ** 32 - 1, "native_dance_dispatch_nonce_unavailable");
+        const nonce = storedNonce;
         const gasPrice = BigInt(fee.gasPrice), gas = BigInt(fee.gas);
         const tx = Object.freeze({
           type: "legacy", chainId, nonce, to: verifier, data: calldata, value: 0n, gas, gasPrice,

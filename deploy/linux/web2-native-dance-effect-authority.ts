@@ -17,11 +17,12 @@ export function pinNativeDanceEffectFile(path: string, limit: number, expectedSh
   function read() {
     assert(realpathSync(path) === path, "native_dance_effect_file_changed");
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    let bytes: Buffer | undefined;
+    let bytesToWipe: Buffer | undefined;
     try {
       const before = fstatSync(fd, { bigint: true });
       const identity = stamp(before);
-      bytes = Buffer.alloc(Number(before.size));
+      const bytes = Buffer.alloc(Number(before.size));
+      bytesToWipe = bytes;
       let offset = 0;
       while (offset < bytes.length) {
         const count = readSync(fd, bytes, offset, bytes.length - offset, offset);
@@ -33,7 +34,7 @@ export function pinNativeDanceEffectFile(path: string, limit: number, expectedSh
         realpathSync(path) === path, "native_dance_effect_file_changed");
       return { identity, digest: hash(bytes) };
     } finally {
-      bytes?.fill(0);
+      bytesToWipe?.fill(0);
       closeSync(fd);
     }
   }
