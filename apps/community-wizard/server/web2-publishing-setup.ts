@@ -128,7 +128,7 @@ export async function createWeb2PublishingSetup(
   directory: string,
   input: {
     hostInstallationId?: string;
-    publisher?: PublisherProofSigner;
+    publisher?: Pick<PublisherProofSigner, "selected">;
     publishing?: Web2PublishingInputs;
     now(): number;
   },

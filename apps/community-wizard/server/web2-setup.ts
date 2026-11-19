@@ -35,6 +35,7 @@ import {
   address,
   httpsOrigin,
 } from "../../../packages/community/manifest-core.ts";
+import { sharedBytes32 } from "../../../packages/community/shared-identity.ts";
 import type { Web2CommunityConfig } from "../../../packages/community/web2-config-manifest.ts";
 import {
   ownPolicy,
@@ -110,6 +111,9 @@ export interface Web2SetupInputs {
   policy: HostedPolicy;
   /** Exact public HTTPS helper origin, from authenticated host configuration. */
   signingOrigin?:string;
+  /** In restricted custody, select the publisher through the admitted identity-only broker. */
+  publisherIdentity?: Pick<PublisherProofSigner, "selected">;
+  /** Native publisher authorization is needed only when obtaining its enrollment proof. */
   publisherProof?: PublisherProofSigner;
   publishing?: Web2PublishingInputs;
   filebaseCredentials?: Web2FilebaseCredentials;
@@ -182,15 +186,23 @@ export async function createWeb2Setup(
       clock,
     );
   const client = createHostedEnrollmentClient(policy, input.transport, clock);
+  const publisherIdentity = input.publisherIdentity ?? input.publisherProof;
+  async function selectPublisher() {
+    insist(publisherIdentity, "publisher_custody_binding_unavailable", 503);
+    const selected = await publisherIdentity.selected();
+    exact(object(selected), ["address", "custodyBindingDigest"]);
+    return {
+      address: address(selected.address),
+      custodyBindingDigest: sharedBytes32(selected.custodyBindingDigest),
+    };
+  }
   const publishing = await createWeb2PublishingSetup(directoryInput, {
     hostInstallationId: input.hostInstallationId,
-    publisher: input.publisherProof,
+    publisher: publisherIdentity && { selected: selectPublisher },
     publishing: input.publishing,
     now: clock,
   });
-  const serverPublisher = input.publisherProof
-    ? await input.publisherProof.selected()
-    : null;
+  const serverPublisher = publisherIdentity ? await selectPublisher() : null;
   const filebase = input.filebaseCredentials;
   await filebase?.restore();
   let busy = false,
@@ -342,11 +354,11 @@ export async function createWeb2Setup(
         };
         if (!journal.request) {
           insist(
-            input.publisherProof && serverPublisher,
+            serverPublisher,
             "publisher_custody_binding_unavailable",
             503,
           );
-          const selectedPublisher = await input.publisherProof.selected();
+          const selectedPublisher = await selectPublisher();
           insist(
             canonical(selectedPublisher) === canonical(serverPublisher) &&
               selected.publisher === serverPublisher.address &&
@@ -481,8 +493,17 @@ export async function createWeb2Setup(
                 signature: journal.controllerSignature,
               });
             else {
+              // A retained signature may come from a redeem whose outcome is unknown.
+              const observed = await client.status(journal.prepared, journal.controllerSignature);
               insist(
-                r.address === serverPublisher.address,
+                observed.operations.some(op => op.kind === "registration" && op.state === "consumed"),
+                "safe_registration_required",
+                409,
+              );
+              const currentPublisher = await selectPublisher();
+              insist(
+                r.address === serverPublisher.address &&
+                  canonical(currentPublisher) === canonical(serverPublisher),
                 "web2_server_publisher_changed",
                 409,
               );

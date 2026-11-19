@@ -2,19 +2,25 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:net";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { hashJson, hashText } from "../../../packages/community/common.ts";
+import { hexToBytes, verifyTypedData } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { CommunityError, hashJson, hashText } from "../../../packages/community/common.ts";
 import { addPin, preparePin } from "../../../packages/community/ipfs.ts";
 import {
-  enrollmentTypedData, policyHash, type HostedPolicy,
+  enrollmentTypedData, policyHash, type Enrollment, type HostedPolicy,
 } from "../../../packages/community/hosted-enrollment.ts";
 import {
   CATALOG_OWNER_POLICY_HASH, CATALOG_OWNER_POLICY_VERSION,
 } from "../../../packages/community/owner-policy.ts";
-import { directoryV3Build, parseWeb2ProfileDocument } from "../../../packages/community/web2-directory.ts";
+import { directoryV3Build, parseWeb2ProfileDocument, web2ProfileDocument } from "../../../packages/community/web2-directory.ts";
 import { prepareWeb2Registration } from "../../../packages/community/web2-registration-chain.ts";
+import { acquireOperation } from "../../../deploy/linux/backend-state.ts";
+import { createManagedKeyClient, startManagedKeyAgent } from "../../../deploy/linux/managed-key-channel.ts";
+import { createWeb2PublisherProofSigner } from "../../../deploy/linux/web2-publisher-proof.ts";
+import { createWeb2RetainedPublisherIdentityReader } from "../../../deploy/linux/web2-retained-publisher-identity.ts";
 import { startPairedOperator } from "../../../deploy/linux/bootstrap-local-target.ts";
 import { createWeb2WizardRuntime } from "../server/web2-runtime.ts";
 import { infisicalAuth } from "../server/infisical-auth.ts";
@@ -38,11 +44,7 @@ const policy: HostedPolicy = {
   registrationGas: "3000000", topupGas: "50000", maxFeePerGas: "1000000",
   maxPriorityFeePerGas: "1", extraFeeCeiling: "0", extraFeeField: "none",
   globalCeiling: "1000000000000000000", communityCeiling: "100000000000000000",
-  recipientCeiling: "100000000000000000", controllerInitialWei: "0", publisherInitialWei: "0",
-};
-const prepareInput = {
-  name: "Credential fixture", origin: "https://web2.example", controller: address("4"),
-  publisher: address("5"), inviteToken: "a".repeat(64), noticeAccepted: true,
+  recipientCeiling: "100000000000000000", controllerInitialWei: "0", publisherInitialWei: "2000000000000000",
 };
 
 async function availablePort() {
@@ -63,6 +65,76 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   const dist = join(directory, "dist");
   for (const path of [wizardDirectory, nonceDirectory, dist]) await mkdir(path, { mode: 0o700 });
   await writeFile(join(dist, "index.html"), "<title>Disposable wizard fixture</title>");
+  const agentDirectory = join(directory, "agent");
+  await mkdir(agentDirectory, { mode: 0o700 });
+  await mkdir(join(directory, "lease"), { mode: 0o700 });
+  const lease = await acquireOperation(
+    join(directory, "lease"), "wizard-publisher-identity", "web2-filebase-fixture",
+    { purpose: "disposable enrollment" }, await readlink("/proc/self/ns/pid"),
+  );
+  const now = 1_800_000_000;
+  const controller = privateKeyToAccount(generatePrivateKey());
+  const publisherKey = generatePrivateKey();
+  const publisher = privateKeyToAccount(publisherKey).address.toLowerCase() as typeof controller.address;
+  const prepareInput = {
+    name: "Credential fixture", origin: "https://web2.example",
+    controller: controller.address.toLowerCase(), publisher,
+    inviteToken: "a".repeat(64), noticeAccepted: true,
+  };
+  const binding = {
+    keyReference: "fixture-restricted-publisher", generation: 1,
+    installationId: lease.installationId, publisher,
+  };
+  const originalBinding = { ...binding, custodyBindingDigest: hashJson(binding) };
+  const identity = { address: publisher, custodyBindingDigest: originalBinding.custodyBindingDigest };
+  const request = {
+    installationId: lease.installationId, operationId: lease.operationId,
+    leaseIntentSha256: lease.intentRef.sha256,
+    keyReference: binding.keyReference, generation: binding.generation,
+  };
+  const socket = join(agentDirectory, "key.sock"), authenticationKey = randomBytes(32);
+  const otherSecret = Buffer.from("disposable-general-agent-secret");
+  const otherSecretFile = join(agentDirectory, "general.fixture");
+  await writeFile(otherSecretFile, otherSecret, { mode: 0o400 });
+  const generalAgent = await startManagedKeyAgent({
+    socket, directory: agentDirectory, installationId: lease.installationId,
+    authenticationKey, lease,
+    keys: [{ ref: "fixture-general-secret", generation: 1, path: otherSecretFile, bytes: otherSecret.length }],
+    signingKeyFile: join(agentDirectory, "unused"), trust: { keyId: "fixture", spki: "unused" },
+    permittedProfileDigests: new Set(), capturedRoots: [wizardDirectory],
+  });
+  t.after(() => generalAgent.close());
+  const general = await createManagedKeyClient({ socket, installationId: lease.installationId, authenticationKey, lease });
+  authenticationKey.fill(0);
+  t.after(() => general.dispose());
+  const restrictedKey = {
+    async withKey<T>(ref: string, generation: number, use: (value: Uint8Array) => Promise<T>) {
+      assert.equal(ref, binding.keyReference);
+      assert.equal(generation, binding.generation);
+      const bytes = hexToBytes(publisherKey);
+      try { return await use(bytes); }
+      finally { bytes.fill(0); }
+    },
+  };
+  let identityCurrent = true, signingAuthorized = false;
+  let identityReads = 0, foregroundKeyAttempts = 0, proofRequests = 0, signatures = 0;
+  const reader = createWeb2RetainedPublisherIdentityReader({
+    lease, original: originalBinding, keys: restrictedKey,
+    async readCurrentBinding() {
+      return identityCurrent ? originalBinding : { ...originalBinding, generation: 2 };
+    },
+  });
+  const ownerSigner = createWeb2PublisherProofSigner({
+    ...binding, key: restrictedKey, lease, policy, now: () => now,
+    async currentBinding() { return binding; },
+  });
+  const legacySelection = createWeb2PublisherProofSigner({
+    ...binding, key: general, lease, policy, now: () => now,
+    async currentBinding() { return binding; },
+  });
+  let enrollment: Enrollment | undefined;
+  let redeemRequests = 0, statusRequests = 0, topups = 0;
+  let statusUnavailable = false, registrationSeen = false, withdrawIdentityDuringStatus = false;
   const scope = {
     siteUrl: "https://infisical.invalid", projectId: "00000000-0000-0000-0000-000000000001",
     environment: "dev", secretPath: "/communities/filebase-fixture",
@@ -153,13 +225,27 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
         channelValue = new TextDecoder().decode(bytes);
       },
     });
-    const now = 1_800_000_000;
     const inputs: Web2SetupInputs = {
       policy, notice, configuration: config, hostInstallationId: "web2-filebase-fixture", filebaseCredentials,
       clock: () => now,
+      publisherIdentity: {
+        async selected() {
+          identityReads++;
+          return reader.read(request);
+        },
+      },
       publisherProof: {
-        async selected() { return { address: address("5"), custodyBindingDigest: hashText("fixture publisher") }; },
-        async signEnrollment() { throw Error("prepare cannot sign"); },
+        async selected() {
+          foregroundKeyAttempts++;
+          return legacySelection.selected();
+        },
+        async signEnrollment(value) {
+          proofRequests++;
+          if (!signingAuthorized) throw new CommunityError("publisher_custody_binding_unavailable", 503);
+          const proof = await ownerSigner.signEnrollment(value);
+          signatures++;
+          return proof;
+        },
       },
       deployment: {
         postingPeriod: "fixture", rpcUrl: "https://rpc.example", ipfsGateways: ["https://ipfs.filebase.io"],
@@ -191,15 +277,52 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
         observedUri = uri;
       },
       async transport(input, init) {
-        assert.equal(String(input), policy.serviceOrigin + "/prepare");
-        hostedPrepares++;
         const payload = JSON.parse(String(init?.body));
+        const url = new URL(String(input));
+        assert.equal(url.origin, policy.serviceOrigin);
+        if (["/redeem", "/status", "/initial-topup"].includes(url.pathname)) {
+          assert(enrollment);
+          assert.equal(payload.enrollmentId, enrollment.id);
+          const typed = enrollmentTypedData(enrollment);
+          assert(await verifyTypedData({ ...typed, address: controller.address, signature: payload.controllerSignature }));
+          if (url.pathname === "/redeem") {
+            redeemRequests++;
+            throw Error("disposable lost redeem acknowledgement");
+          }
+          if (url.pathname === "/status") {
+            statusRequests++;
+            if (statusUnavailable) throw Error("disposable status unavailable");
+            if (withdrawIdentityDuringStatus) identityCurrent = false;
+          }
+          const topup = url.pathname === "/initial-topup";
+          if (topup) {
+            assert(registrationSeen);
+            assert.equal(payload.recipientProofs.length, 1);
+            const proof = payload.recipientProofs[0];
+            assert.equal(proof.recipient, publisher);
+            assert(await verifyTypedData({ ...typed, address: publisher, signature: proof.signature }));
+            topups++;
+          }
+          return Response.json({
+            schema: "pirate.hosted-enrollment-status/1", enrollmentId: enrollment.id,
+            communityId: enrollment.plan.profile.communityId, installationId: enrollment.plan.profile.installationId,
+            profile: web2ProfileDocument(enrollment.plan.profile), configurationUri: enrollment.plan.uri,
+            operations: [
+              ...(registrationSeen ? [
+                { kind: "registration", state: "consumed", transactionHash: hashText("registration fixture"), receipt: null },
+              ] : []),
+              ...(topup ? [{ kind: "topup", state: "consumed", transactionHash: hashText("topup fixture"), receipt: null }] : []),
+            ],
+          });
+        }
+        assert.equal(url.pathname, "/prepare");
+        hostedPrepares++;
         assert.equal(payload.uri, observedUri);
         assert.ok(!String(init?.body).includes(secret));
         const profile = parseWeb2ProfileDocument(payload.profile);
         const plan = prepareWeb2Registration(profile, payload.config, payload.uri, policy.registrar, 1n);
         const inviteId = hashText("fixture invite"), id = hashText("hosted-enrollment:" + inviteId);
-        const enrollment = {
+        enrollment = {
           schema: "pirate.hosted-enrollment/1" as const, id, inviteId,
           allowanceId: hashText("fixture allowance"), expiresAt: now + 60,
           noticeSha256: policy.noticeSha256, policyHash: policyHash(policy), plan,
@@ -248,10 +371,17 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
       assert.ok(!raw.includes(secret) && !raw.includes(authToken));
       return { status: response.status, json: JSON.parse(raw) };
     }
-    return { state, send };
+    const page = () => fetch(origin + "/?setup=linux-web2", { headers: { cookie } });
+    return { state, send, page };
   }
 
   const first = await boot();
+  assert.equal((await first.page()).status, 200);
+  assert.deepEqual((await first.state()).view.serverPublisher, identity);
+  assert.equal(identityReads, 1);
+  assert.equal(foregroundKeyAttempts + proofRequests + signatures, 0);
+  await general.withSecret("fixture-general-secret", 1, async value => assert.deepEqual(Buffer.from(value), otherSecret));
+  await assert.rejects(general.withKey(binding.keyReference, binding.generation, async () => assert.fail("general agent exposed publisher")));
   const original = join(wizardDirectory, "web2-wizard-original.json");
   await assert.rejects(readFile(original), { code: "ENOENT" });
   assert.equal((await first.send("filebase-save", { token: secret }, false)).status, 403);
@@ -273,16 +403,71 @@ test("paired Web2 saves once, recovers the selected Filebase key, prepares and r
   assert.equal((await first.send("filebase-save", { token: "different-fixture-token" })).json.code,
     "web2_filebase_credential_conflict");
   assert.equal(writes, 1);
+  identityCurrent = false;
+  assert.equal((await first.send("prepare", prepareInput)).json.code, "retained_publisher_custody_binding_changed");
+  assert.equal(hostedPrepares + pinAdds + proofRequests, 0);
+  identityCurrent = true;
   const prepared = await first.send("prepare", prepareInput);
   assert.equal(prepared.status, 200, JSON.stringify(prepared));
   assert.equal(prepared.json.view.phase, "prepared");
   assert.equal(pinAdds, 1);
   assert.equal(hostedPrepares, 1);
+  assert.equal(foregroundKeyAttempts + proofRequests + signatures, 0);
+  assert.equal((await first.send("topup", {})).json.code, "web2_controller_proof_required");
+  assert.equal(proofRequests, 0);
+  assert(enrollment);
+  const controllerProof = await controller.signTypedData(enrollmentTypedData(enrollment));
+  const unknown = await first.send("redeem", { signature: controllerProof });
+  assert.equal(unknown.json.view.phase, "unknown");
+  assert.deepEqual(unknown.json.view.selection, prepared.json.view.selection);
+  assert.equal(redeemRequests, 1);
+  assert.equal((await first.send("topup", { proofs: [{ recipient: publisher, signature: controllerProof }] })).json.code,
+    "web2_browser_publisher_proof_refused");
+  assert.equal(statusRequests, 0);
+  statusUnavailable = true;
+  const unavailable = await first.send("topup", {});
+  assert.equal(proofRequests, 0, "unknown redeem and unavailable hosted status must not request a publisher proof");
+  assert.equal(unavailable.json.view.phase, "unknown");
+  assert.equal(statusRequests, 1);
+  assert.equal(proofRequests + signatures + topups, 0);
+  statusUnavailable = false;
+  const pending = await first.send("topup", {});
+  assert.equal(pending.json.code, "safe_registration_required");
+  assert.equal(statusRequests, 2);
+  assert.equal(proofRequests + signatures + topups, 0);
+  const retained = JSON.parse(await readFile(original, "utf8"));
+  assert.equal(retained.pending, "redeem");
+  assert.equal(retained.controllerSignature, controllerProof);
+  assert.deepEqual((await first.state()).view.selection, prepared.json.view.selection);
+  registrationSeen = true;
+  withdrawIdentityDuringStatus = true;
+  assert.equal((await first.send("topup", {})).json.code, "retained_publisher_custody_binding_changed");
+  assert.equal(statusRequests, 3);
+  assert.equal(proofRequests + signatures + topups, 0);
+  identityCurrent = true;
+  withdrawIdentityDuringStatus = false;
+  assert.equal((await first.send("topup", {})).json.code, "publisher_custody_binding_unavailable");
+  assert.equal(proofRequests, 1);
+  assert.equal(signatures + topups, 0);
+  signingAuthorized = true;
+  const funded = await first.send("topup", {});
+  assert.equal(funded.status, 200, JSON.stringify(funded));
+  assert.equal(funded.json.view.phase, "funded");
+  assert.equal(signatures, 1);
+  assert.equal(topups, 1);
+  assert.equal(redeemRequests, 1);
+  assert.equal(statusRequests, 5);
+  assert.deepEqual(funded.json.view.selection, prepared.json.view.selection);
+  assert.equal(foregroundKeyAttempts, 0);
   await stop();
   assert.equal(channelValue, undefined);
   const reopened = await boot();
   const latest = await reopened.state();
   assert.equal(latest.view.filebase.status, "ready");
+  assert.equal(latest.view.phase, "funded");
+  assert.deepEqual(latest.view.serverPublisher, identity);
+  assert.equal(foregroundKeyAttempts, 0);
+  assert.equal(signatures, 1);
   assert.equal(latest.view.selection.configurationUri, observedUri);
   assert.equal(channelValue, secret);
   assert.equal(writes, 1);
