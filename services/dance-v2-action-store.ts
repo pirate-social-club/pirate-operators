@@ -1,4 +1,5 @@
 import type { Address, Hex } from "viem";
+import type { AccountSession } from "../packages/community/accounts.ts";
 import { canonical, hashJson, insist } from "../packages/community/common.ts";
 import type { DanceFence } from "../packages/dance/contracts.ts";
 import { DANCE_DB_NOW, DanceStore } from "../packages/dance/store.ts";
@@ -8,7 +9,8 @@ import { DANCE_DB_NOW, DanceStore } from "../packages/dance/store.ts";
 export const DANCE_V2_ACTIONS_SCHEMA_PROPOSAL = [
   "CREATE TABLE dance_v2_action_originals(community_id TEXT NOT NULL,capture_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('register','verdict')),account_id TEXT NOT NULL,command_id TEXT NOT NULL UNIQUE,request_sha256 TEXT NOT NULL,bound_at_ms INTEGER NOT NULL CHECK(bound_at_ms>0),input_json TEXT NOT NULL CHECK(json_valid(input_json)),context_sha256 TEXT NOT NULL,PRIMARY KEY(community_id,capture_id,kind))",
   "CREATE TABLE dance_v2_ready_commands(command_id TEXT PRIMARY KEY REFERENCES dance_v2_action_originals(command_id),source_hash TEXT NOT NULL,publisher TEXT NOT NULL,command_hash TEXT NOT NULL,encoded TEXT NOT NULL,calldata TEXT NOT NULL,resource_id TEXT NOT NULL)",
-  ...["dance_v2_action_originals", "dance_v2_ready_commands"].flatMap(
+  "CREATE TABLE dance_v2_dispatch_sessions(command_id TEXT PRIMARY KEY REFERENCES dance_v2_ready_commands(command_id),session_sha256 TEXT NOT NULL)",
+  ...["dance_v2_action_originals", "dance_v2_ready_commands", "dance_v2_dispatch_sessions"].flatMap(
     (table) => [
       `CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'dance_v2_action_immutable'); END`,
       `CREATE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'dance_v2_action_immutable'); END`,
@@ -39,7 +41,55 @@ export interface DanceV2ReadyCommand {
   resource_id: Hex;
 }
 
+/** This private pin binds the accepting session incarnation without retaining
+ * its cookie, CSRF token or session digest in the action journal. */
+export function danceDispatchSessionPin(session: Readonly<AccountSession>) {
+  return hashJson({
+    schema: "pirate.dance-v2-dispatch-session/1",
+    session: session.session_hash,
+    account: session.account_id,
+    binding: session.binding_id,
+    author: session.author_id,
+    wallet: session.wallet.toLowerCase(),
+    csrf: session.csrf_token,
+    expiresAt: session.expires_at,
+  });
+}
+
 export class DanceV2ActionStore extends DanceStore {
+  prepareDispatchSession(value: DanceV2ReadyCommand, session: Readonly<AccountSession>) {
+    return this.stmt(
+      "INSERT INTO dance_v2_dispatch_sessions(command_id,session_sha256) VALUES(?,?)",
+      value.command_id, danceDispatchSessionPin(session),
+    );
+  }
+
+  dispatchSessionFence(action: DanceV2Action, origin: string, session: Readonly<AccountSession>): DanceFence {
+    return {
+      sql: `EXISTS(SELECT 1 FROM dance_v2_dispatch_sessions p
+        JOIN community_sessions s ON s.session_hash=? AND s.community_id=? AND s.community_origin=?
+          AND s.account_id=? AND s.binding_id=? AND s.csrf_token=? AND s.expires_at=?
+        JOIN community_accounts a ON a.account_id=s.account_id AND a.author_id=?
+        JOIN credential_bindings b ON b.binding_id=s.binding_id AND b.account_id=s.account_id
+          AND b.namespace='moss' AND b.network=6343 AND lower(b.subject)=?
+        WHERE p.command_id=? AND p.session_sha256=? AND s.expires_at>${DANCE_DB_NOW})`,
+      values: [
+        session.session_hash, action.community_id, origin, action.account_id, session.binding_id,
+        session.csrf_token, session.expires_at, session.author_id, session.wallet.toLowerCase(),
+        action.command_id, danceDispatchSessionPin(session),
+      ],
+    };
+  }
+
+  readyFence(ready: DanceV2ReadyCommand): DanceFence {
+    return {
+      sql: `EXISTS(SELECT 1 FROM dance_v2_ready_commands WHERE command_id=? AND source_hash=?
+        AND publisher=? AND command_hash=? AND encoded=? AND calldata=? AND resource_id=?)`,
+      values: [ready.command_id, ready.source_hash, ready.publisher, ready.command_hash,
+        ready.encoded, ready.calldata, ready.resource_id],
+    };
+  }
+
   read(community: Hex, capture: Hex, kind: Kind) {
     return this.stmt(
       "SELECT * FROM dance_v2_action_originals WHERE community_id=? AND capture_id=? AND kind=?",

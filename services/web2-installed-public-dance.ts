@@ -31,6 +31,7 @@ export interface NativeInstalledDanceAuthority {
 
 export interface InstalledPublicDanceMount {
   readonly selection: Web2PublicDanceInputs;
+  readonly sourceExpiresAtS: bigint;
   assertCurrent(): Promise<void>;
 }
 
@@ -116,7 +117,7 @@ export async function openInstalledPublicDance(input: {
   }
 
   await assertCurrent();
-  await verifyDancePublicationSource({
+  const sourceProof = await verifyDancePublicationSource({
     client, selected: source, profile: parseWeb2ProfileDocument(release.profile),
     config, caller: config.publisher, owner, clock: publication.clock, afterAwait: assertCurrent,
   });
@@ -142,5 +143,5 @@ export async function openInstalledPublicDance(input: {
       },
     }),
   });
-  return Object.freeze({ selection, assertCurrent });
+  return Object.freeze({ selection, sourceExpiresAtS: sourceProof.expiresAtS, assertCurrent });
 }

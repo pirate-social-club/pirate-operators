@@ -181,8 +181,9 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
   readonly db: D1Database;
   private readonly p: PublicationOutbox;
   private readonly session: PublicationRequestSession;
+  private readonly observeOnly: boolean;
   private readonly pending = new Map<string, string>();
-  constructor(p: PublicationOutbox, session: PublicationRequestSession) {
+  constructor(p: PublicationOutbox, session: PublicationRequestSession, observeOnly = false) {
     insist(
       p.installation instanceof PublicationInstallation &&
         p.installation.db === p.db &&
@@ -199,6 +200,7 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
     this.p = Object.freeze({ ...p });
     this.db = p.db;
     this.session = session;
+    this.observeOnly = observeOnly;
   }
   private async read(id: Hex, accountId: string) {
     consentDigest(id);
@@ -278,7 +280,7 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
       "dance_publication_original_missing",
       409,
     );
-    await reconcilePublicationOriginal(this.p, current.row);
+    if (!this.observeOnly) await reconcilePublicationOriginal(this.p, current.row);
     await this.session.check();
     current = await this.read(command.commandId, command.accountId);
     insist(
@@ -853,7 +855,7 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
       );
       // Reconcile this retained original, not an account's newest permission.
       const row = await this.read(d.commandId, d.accountId);
-      await reconcilePublicationOriginal(this.p, row.row);
+      if (!this.observeOnly) await reconcilePublicationOriginal(this.p, row.row);
       await this.session.check();
       result.push(...(await this.guards(d, !saved && pending !== undefined)));
     }
@@ -863,4 +865,5 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
 export const createDancePublicationJournal = (
   p: PublicationOutbox,
   session: PublicationRequestSession,
-) => new DancePublicationBindingJournal(p, session);
+  observeOnly = false,
+) => new DancePublicationBindingJournal(p, session, observeOnly);

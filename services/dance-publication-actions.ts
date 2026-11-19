@@ -1,6 +1,6 @@
 import { decodeAbiParameters, encodeAbiParameters, type Hex } from "viem";
 import type { DanceBlock } from "../packages/dance-chain/reader.ts";
-import type { AuthContext } from "../packages/community/accounts.ts";
+import type { AccountSession, AuthContext } from "../packages/community/accounts.ts";
 import {
   bytes32,
   canonical,
@@ -305,29 +305,34 @@ export interface DancePublicationActionInput {
   runtime: CommunityPrivateDance;
 }
 
-export function dancePublicationAction(input: DancePublicationActionInput) {
-  return applyDancePublicationAction(input);
+export async function dancePublicationAction(input: DancePublicationActionInput, pinDispatchSession = false) {
+  const { commandId, state } = await applyDancePublicationAction(input, undefined, pinDispatchSession);
+  return { commandId, state };
 }
 
 /** Server-side fresh dispatch check of the retained original only. */
 export async function revalidateAcceptedDancePublicationAction(
   input: DancePublicationActionInput,
   expected: Readonly<DanceV2ReadyCommand>,
+  acceptedSession: Readonly<AccountSession>,
 ) {
-  const result = await applyDancePublicationAction(input, { ...expected });
+  const result = await applyDancePublicationAction(input, { ready: { ...expected }, session: acceptedSession });
   insist(
     result.commandId === expected.command_id &&
-      result.state === "awaiting_publisher",
+      result.state === "awaiting_publisher" && result.dispatchAuthority,
     "dance_publication_original_not_dispatchable",
     409,
   );
+  return result.dispatchAuthority;
 }
 
 async function applyDancePublicationAction(
   input: DancePublicationActionInput,
-  verifyOnly?: DanceV2ReadyCommand,
+  verification?: { ready: DanceV2ReadyCommand; session: Readonly<AccountSession> },
+  pinDispatchSession = false,
 ) {
   const { request, context, config, reads, runtime } = input;
+  const verifyOnly = verification?.ready;
   const selected = input.selection;
   const { publication: ports, publisher, owner, source } = selected;
   const { db, installation, catalog, client } = ports;
@@ -356,12 +361,9 @@ async function applyDancePublicationAction(
   );
   danceId(body.commandId as string);
   const captureId = bytes32(registration ? body.captureId : reviewId);
-  const session = await PublicationRequestSession.open(
-    request,
-    db,
-    context,
-    installation,
-  );
+  const session = verification
+    ? await PublicationRequestSession.openNativeDanceDispatch(request, db, context, installation, verification.session)
+    : await PublicationRequestSession.open(request, db, context, installation);
   const actor = { accountId: session.original.account_id };
   insist(
     request.headers.get("x-dance-account") === actor.accountId,
@@ -449,7 +451,7 @@ async function applyDancePublicationAction(
     [danceShapes.capture],
     capture.canonical.captureAbi,
   );
-  const journal = createDancePublicationJournal(ports, session);
+  const journal = createDancePublicationJournal(ports, session, Boolean(verification));
   const inputs = {
     db,
     client,
@@ -491,35 +493,22 @@ async function applyDancePublicationAction(
     },
   ];
   const repo = runtime.media.ports.repository;
-  async function verifyReady(
-    command: DanceV2ReadyCommand,
-    acceptance: DanceFence[],
-  ) {
+  const prepareReady = (command: DanceV2ReadyCommand) => [
+    store.prepare(command),
+    ...(pinDispatchSession ? [store.prepareDispatchSession(command, session.original)] : []),
+  ];
+  function verifyReady(command: DanceV2ReadyCommand, fences: DanceFence[], expiresAtMs: number) {
     insist(
       verifyOnly && canonical(verifyOnly) === canonical(command),
       "dance_publication_original_not_dispatchable",
       409,
     );
-    await store.assert([
-      ...acceptance,
-      {
-        sql: `EXISTS(SELECT 1 FROM dance_v2_ready_commands WHERE command_id=? AND source_hash=?
-          AND publisher=? AND command_hash=? AND encoded=? AND calldata=? AND resource_id=?)`,
-        values: [
-          command.command_id,
-          command.source_hash,
-          command.publisher,
-          command.command_hash,
-          command.encoded,
-          command.calldata,
-          command.resource_id,
-        ],
-      },
-    ]);
-    await session.check();
+    // The private caller joins these unchanged current action fences with the
+    // exact ready/original/session in the last primary database operation.
     return {
       commandId: command.command_id,
       state: "awaiting_publisher" as const,
+      dispatchAuthority: { fences, expiresAtMs },
     };
   }
 
@@ -676,10 +665,10 @@ async function applyDancePublicationAction(
         capture.captureHash,
         "0x" + recording,
       );
-      return verifyReady(command, acceptance);
+      return verifyReady(command, acceptance, Math.min(receipt.reviewDeadlineMs, proof.expiresAtMs));
     }
     try {
-      await store.atomic(acceptance, [store.prepare(command)]);
+      await store.atomic(acceptance, prepareReady(command));
     } catch (error) {
       const ready = await store.ready(command.command_id);
       if (!ready || canonical(ready) !== canonical(command)) throw error;
@@ -943,12 +932,12 @@ async function applyDancePublicationAction(
           canonical(plan.grant.binding),
         ],
       },
-    ]);
+    ], Math.min(retainedMedia.reviewDeadlineMs, admitted.expiresAtMs, Number(roles.expiresAtS * 1000n)));
   }
   try {
     await store.atomic(acceptance, [
       ...plan.statements,
-      store.prepare(command),
+      ...prepareReady(command),
     ]);
   } catch (error) {
     const ready = await store.ready(command.command_id);

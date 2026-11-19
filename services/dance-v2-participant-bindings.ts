@@ -116,7 +116,10 @@ async function open(input: ParticipantAuthority) {
     insist(ownerReviewer || observed < reviewerExpiresAt, "dance_v2_reviewer_role_expired", 403);
   };
   await finish();
-  return { authority, reader, pair, finish, reviewerRoleEpoch: ownerReviewer ? currentOwnerEpoch : reviewerEpoch };
+  const grantUntilS = grants[0]! < grants[1]! ? grants[0]! : grants[1]!;
+  const participantUntilS = !ownerReviewer && reviewerExpiresAt < grantUntilS ? reviewerExpiresAt : grantUntilS;
+  const expiresAtS = authority.expiresAtS < participantUntilS ? authority.expiresAtS : participantUntilS;
+  return { authority, reader, pair, finish, expiresAtS, reviewerRoleEpoch: ownerReviewer ? currentOwnerEpoch : reviewerEpoch };
 }
 
 type BindingProgressInput = ParticipantAuthority & { commandIds: readonly [Hex, Hex] };
@@ -183,7 +186,7 @@ async function readBindingProgress(input: BindingProgressInput, originalPrefix?:
 /** Current admission only. Historical receipt validation below can survive
  * revocation, expiry or a later alias-group change. */
 export async function readDanceV2ParticipantBindings(input: ParticipantAuthority) {
-  const { authority, reader, pair, finish, reviewerRoleEpoch } = await open(input);
+  const { authority, reader, pair, finish, expiresAtS, reviewerRoleEpoch } = await open(input);
   const participants = await Promise.all(pair.map(async p => {
     const { accountCommitment, groupId } = commitment(authority.source, p);
     const [identity, group] = await Promise.all([
@@ -197,7 +200,7 @@ export async function readDanceV2ParticipantBindings(input: ParticipantAuthority
   }));
   insist(participants[0]!.groupId !== participants[1]!.groupId, "dance_v2_same_alias_group", 403);
   await finish();
-  return { participants: [participants[0]!, participants[1]!] as const, reviewerRoleEpoch, anchor: authority.anchor };
+  return { participants: [participants[0]!, participants[1]!] as const, reviewerRoleEpoch, anchor: authority.anchor, expiresAtS };
 }
 
 function legacy(raw: Hex): asserts raw is TransactionSerializedLegacy {

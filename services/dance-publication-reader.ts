@@ -107,6 +107,7 @@ export async function readDancePublicationAdmission(input: Fresh) {
     const store = new DanceStore(db);
     const windows: { start: bigint; end: bigint }[] = [];
     let lastNow = 0n;
+    let expiresAtMs = Number.MAX_SAFE_INTEGER;
     const assertLeaseTime = () => {
       const now = clock.now();
       insist(typeof now === "bigint" && now >= lastNow, "dance_clock_invalid", 503);
@@ -118,9 +119,11 @@ export async function readDancePublicationAdmission(input: Fresh) {
       insist(start >= 0n && start < end && end * 1000n <= 9_007_199_254_740_991n,
         "dance_publication_lease_invalid", 503);
       windows.push({ start, end });
+      const endMs = Number(end * 1000n);
+      expiresAtMs = Math.min(expiresAtMs, endMs);
       // Concrete accepting-batch DB clock guard, independent of safe-block time.
       fences.push({ sql: "(" + DANCE_DB_NOW + ">=? AND " + DANCE_DB_NOW + "<?)",
-        values: [Number(start * 1000n), Number(end * 1000n)] });
+        values: [Number(start * 1000n), endMs] });
       assertLeaseTime();
     };
     const afterAwait = async () => {
@@ -137,9 +140,7 @@ export async function readDancePublicationAdmission(input: Fresh) {
     const proof = await verifyDancePublicationSource({ ...data, client, clock, afterAwait });
     await afterAwait();
     const { source: s, config, anchor: a, at, owner } = proof;
-    const safeUntil = a.timestamp + clock.maxSafeBlockAgeSeconds + 1n;
-    addWindow(owner[4] > a.timestamp ? owner[4] : a.timestamp,
-      owner[5] < safeUntil ? owner[5] : safeUntil);
+    addWindow(owner[4] > a.timestamp ? owner[4] : a.timestamp, proof.expiresAtS);
     const eq = (x: string, y: string) => x.toLowerCase() === y.toLowerCase();
     insist(danceAccountCommitment(s.domain, accounts[0], c.learner) === c.accountCommitment,
       "dance_private_account_changed", 403);
@@ -196,7 +197,7 @@ export async function readDancePublicationAdmission(input: Fresh) {
     }
     await proof.finish(); await afterAwait();
     const result = { kind: "canonical-read/2" as const, sourceHash: s.sourceHash, captureHash: plan.captureHash,
-      anchor: structuredClone(a), observations, fences };
+      anchor: structuredClone(a), observations, fences, expiresAtMs };
     assertLeaseTime();
     return result;
   } catch (error) {

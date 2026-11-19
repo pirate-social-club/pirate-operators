@@ -30,6 +30,7 @@ import {
   danceMediaId,
   danceReviewerConsent,
   danceSubmissionId,
+  type DanceSourcePin,
 } from "../packages/dance-chain/v2/wire.ts";
 import {
   parseDanceCaptureV2,
@@ -42,7 +43,7 @@ import {
   type DanceV2ReadyCommand,
 } from "./dance-v2-action-store.ts";
 
-interface DanceV2OperatorOriginal {
+export interface DanceV2OperatorOriginal {
   chainId: number;
   verifier: Address;
   communityId: Hex;
@@ -54,7 +55,7 @@ interface DanceV2OperatorOriginal {
   resourceId: Hex;
 }
 
-interface DanceV2SignedAttempt {
+export interface DanceV2SignedAttempt {
   readonly nonce: number;
   readonly hash: Hex;
   readonly raw: Hex;
@@ -270,9 +271,30 @@ export async function recoverDanceV2Action(input: {
   const action = structuredClone(input.action),
     ready = structuredClone(input.ready);
   const { original, expected, pin } = await retained(store, action, ready);
-  const { chainId, verifier, publisher, commandId } = original;
   const attempt = structuredClone(await lookup.readRetainedAttempt(original));
   if (!attempt) return "awaiting_publisher" as const;
+  return observeDanceV2Original({
+    client, original, expected, pin, attempt,
+    async assertCurrent() {
+      await retained(store, action, ready);
+      insist(canonical(await lookup.readRetainedAttempt(original)) === canonical(attempt),
+        "dance_v2_transaction_original_changed", 503);
+    },
+  });
+}
+
+/** Canonical proof shared by application observation and the held sender's
+ * nonce reconciliation. This path does not allocate, sign, or broadcast. */
+export async function observeDanceV2Original(input: {
+  client: PublicClient;
+  original: Readonly<DanceV2OperatorOriginal>;
+  expected: Readonly<{ data: Hex; hash: Hex; operation: number }>;
+  pin: Readonly<DanceSourcePin>;
+  attempt: Readonly<DanceV2SignedAttempt>;
+  assertCurrent(): Promise<void>;
+}) {
+  const { client, original, expected, pin, attempt, assertCurrent } = input;
+  const { chainId, verifier, publisher, commandId } = original;
   const { raw, hash, nonce } = attempt;
   legacy(raw);
   const parsed = parseTransaction(raw);
@@ -380,13 +402,7 @@ export async function recoverDanceV2Action(input: {
       503,
     );
   }
-  await retained(store, action, ready);
-  insist(
-    canonical(await lookup.readRetainedAttempt(original)) ===
-      canonical(attempt),
-    "dance_v2_transaction_original_changed",
-    503,
-  );
+  await assertCurrent();
   const [again, sameSafe, currentSafe, chain] = await Promise.all([
     rpc.block(block.number),
     rpc.block(safe.number),

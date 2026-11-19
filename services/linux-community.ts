@@ -1,11 +1,12 @@
 import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
 import { nativePublicationLookupFetch, nativePublicationSelectionReadback } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
-import { nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
+import { nativeDanceDispatchReadyPath, nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
 import { installedNativeDanceOriginals, installedNativeDanceReadyFetch } from "./linux-web2-dance-retained-transport.ts";
+import { installedNativeDanceDispatchReadyFetch } from "./linux-web2-dance-dispatch.ts";
 import { nativeApplicationOriginal, web2ApplicationOriginal } from "./application-native-readback.ts";
 import {
-  communityFetch, communityQueue, communityScheduled, web2PrivateDanceHostPorts,
+  communityFetch, communityQueue, communityScheduled, installedDanceActionRevalidator, web2PrivateDanceHostPorts,
   type CommunityEnv,
 } from "./community-application.ts";
 import { readCommunityDeploymentProfile, isWeb2Deployment, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
@@ -70,6 +71,9 @@ export default {
     if (path === trustedWeb2PublicationReadbackPath) return nativePublicationSelectionReadback(request, env);
     if (path === publicationLookupPath) return nativePublicationLookupFetch(request, env);
     if (path === nativeDanceReadyPath) return installedNativeDanceReadyFetch(request, env);
+    if (path === nativeDanceDispatchReadyPath) return installedNativeDanceDispatchReadyFetch(
+      request, env, installedDanceActionRevalidator(env, installedDanceScope(env), request.signal),
+    );
     let deployment: CommunityDeploymentProfile;
     try {
       deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);

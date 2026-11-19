@@ -21,6 +21,24 @@ import {
   type PublicationReleaseCatalog,
 } from "./publication-app-selection.ts";
 
+/** Used only behind the installed reverse capability. The digest locates an
+ * exact live primary session, and is not accepted as browser authentication. */
+export async function readNativeDanceDispatchSession(
+  db: D1Database, context: Readonly<AuthContext>, accountId: string, sessionHash: Hex,
+) {
+  const row = await db.withSession("first-primary").prepare(
+    `SELECT s.session_hash,s.account_id,s.binding_id,s.csrf_token,s.expires_at,
+      a.author_id,b.subject AS wallet FROM community_sessions s
+     JOIN community_accounts a ON a.account_id=s.account_id
+     JOIN credential_bindings b ON b.binding_id=s.binding_id AND b.account_id=s.account_id
+     WHERE s.session_hash=? AND s.account_id=? AND s.community_id=? AND s.community_origin=?
+       AND b.namespace='moss' AND b.network=6343
+       AND s.expires_at>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)`,
+  ).bind(consentDigest(sessionHash),accountId,context.communityId,context.origin).first<AccountSession>();
+  check(row, "publication_session_changed");
+  return { ...row };
+}
+
 interface PublicationSessionFence {
   db: D1Database;
   accountId: string;
@@ -42,6 +60,7 @@ export interface PublicationOriginalCapture {
  * Re-read the actual request after every wait and immediately before exposure. */
 export class PublicationRequestSession {
   private readonly request: Request;
+  private readonly readNativeSession?: () => Promise<AccountSession>;
   readonly db: D1Database;
   readonly context: Readonly<AuthContext>;
   readonly original: Readonly<AccountSession>;
@@ -52,8 +71,10 @@ export class PublicationRequestSession {
     context: Readonly<AuthContext>,
     original: Readonly<AccountSession>,
     installation: PublicationInstallation,
+    readNativeSession?: () => Promise<AccountSession>,
   ) {
     this.request = request;
+    this.readNativeSession = readNativeSession;
     this.db = db;
     this.context = context;
     this.original = original;
@@ -111,8 +132,22 @@ export class PublicationRequestSession {
     await result.check();
     return result;
   }
+  static async openNativeDanceDispatch(
+    request: Request, db: D1Database, context: AuthContext,
+    installation: PublicationInstallation, accepted: Readonly<AccountSession>,
+  ) {
+    check(installation instanceof PublicationInstallation && installation.db === db &&
+      installation.expected.communityId === context.communityId && installation.expected.origin === context.origin &&
+      request.method === "POST" && new URL(request.url).origin === context.origin,
+      "publication_installation_required");
+    const capture = Object.freeze({ ...context });
+    const read = () => readNativeDanceDispatchSession(db, capture, accepted.account_id, consentDigest(accepted.session_hash));
+    const result = new PublicationRequestSession(request, db, capture, Object.freeze({ ...accepted }), installation, read);
+    await result.check();
+    return result;
+  }
   async check() {
-    const s = await (this.request.method === "POST"
+    const s = await (this.readNativeSession ? this.readNativeSession() : this.request.method === "POST"
         ? authenticatedWrite(this.request, this.db, this.context)
         : accountSession(this.request, this.db, this.context)),
       o = this.original;

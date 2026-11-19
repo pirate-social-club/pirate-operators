@@ -104,5 +104,7 @@ export async function verifyDancePublicationSource(input: {
     insist(context[4] <= now && now < context[5], "dance_owner_context_expired", 403);
   };
   await finish();
-  return { source: s, config: c, profile: p, anchor: a, at, owner: context, finish };
+  const safeUntilS = a.timestamp + age + 1n;
+  const expiresAtS = context[5] < safeUntilS ? context[5] : safeUntilS;
+  return { source: s, config: c, profile: p, anchor: a, at, owner: context, expiresAtS, finish };
 }

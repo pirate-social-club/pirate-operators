@@ -27,6 +27,7 @@ import {
   rpc,
 } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
+import { nativeDancePublisherHoldKey } from "./native-dance-retained-reference.ts";
 import { capturedFee, same, publicationDisposition, type CapturedPublicationFeeV1,
   type PublicationDispositionV1 } from "./publication-command-contract.ts";
 
@@ -58,6 +59,7 @@ export interface StoredAuthorization {
 export const isPublicationV5Kind = (kind: TxKind) =>
   kind === "record_publication_grant" || kind === "record_publication_withdrawal" || kind === "record_result_v5";
 const publicationPrefixHeld = (store: TxStore, nonce?: number) =>
+  store.get(nativeDancePublisherHoldKey) !== undefined ||
   store.entries("tx:").some(({value}) => {
     const row = value as TxRow;
     return isPublicationV5Kind(row.kind) && (nonce === undefined || row.nonce <= nonce);
@@ -358,6 +360,7 @@ const ownPriced = (row: TxRow) => () =>
 async function signed(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce)!;
   if (row.raw && row.hash) return row;
+  check(store.get(nativeDancePublisherHoldKey) === undefined, "native_dance_dispatch_original_held");
   const account = privateKeyToAccount(env.PRIVATE_KEY);
   const common = {
     chainId: row.chainId,
@@ -430,6 +433,7 @@ export async function dispatch(
         env.RPC_URL,
         privateKeyToAccount(env.PRIVATE_KEY).address,
       );
+      check(store.get(nativeDancePublisherHoldKey) === undefined, "native_dance_dispatch_original_held");
       if (store.get("op:nonce") === undefined) store.set("op:nonce", nonce);
     }
     // Local fault injection: fails the allocation after the nonce advances.

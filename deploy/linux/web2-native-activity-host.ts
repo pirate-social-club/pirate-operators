@@ -21,11 +21,11 @@ import type { Web2NativeActivityPolicy } from "./web2-native-activities.ts";
 import type { Web2LocalStudyPolicy } from "./web2-local-study.ts";
 import { selectLocalAsr } from "./web2-native-study-asr.ts";
 import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
-import { publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
+import { publicationAcceptSessionHeader, publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
 import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
-import { nativeDanceHostPath } from "../../services/native-dance-retained-reference.ts";
+import { nativeDanceDispatchPath, nativeDanceHostPath } from "../../services/native-dance-retained-reference.ts";
 
-const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath;
+const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath || path === nativeDanceDispatchPath;
 
 const UPLOAD_IDLE_MS = 15_000;
 const PROCESSING_MS = new Map<string, number>([
@@ -57,6 +57,10 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
   for (const key of ["authorization", "content-type", "content-length"]) {
     const value = incoming.headers[key];
     if (typeof value === "string") headers.set(key, value);
+  }
+  if (incoming.url === nativeDanceDispatchPath) {
+    const session = incoming.headers[publicationAcceptSessionHeader];
+    if (typeof session === "string") headers.set(publicationAcceptSessionHeader, session);
   }
   const base = publicationRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
   return new Request(base + incoming.url, { method: "POST", headers,
@@ -206,7 +210,7 @@ export async function startWeb2NativeActivityHost(options: {
   const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
     if (stopping || active) {outgoing.writeHead(429,{connection:"close"}).end();return;}
     const processingMs = publicationRoute(incoming.url) && (publication || deferredPublication)
-      ? 10000 : PROCESSING_MS.get(incoming.url ?? "");
+      ? (incoming.url === nativeDanceDispatchPath ? 20000 : 10000) : PROCESSING_MS.get(incoming.url ?? "");
     if (incoming.method !== "POST" || processingMs === undefined) {
       outgoing.writeHead(404, { connection: "close" }).end();
       return;

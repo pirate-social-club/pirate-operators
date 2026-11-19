@@ -14,7 +14,7 @@ import { DanceV2ActionStore, type DanceV2Action, type DanceV2ReadyCommand } from
 import type { DanceV2OriginalLookup } from "./dance-v2-action-recovery.ts";
 import { openNativePublicationApplication, reuseNativePublicationApplication, type NativePublicationApplicationEnv } from "./linux-web2-publication.ts";
 import {
-  checkedPublicationCapability, nativePublicationAuthorized, publicationHostOrigin,
+  checkedPublicationCapability, nativePublicationAuthorized, publicationAcceptSessionHeader, publicationHostOrigin,
 } from "./native-publication-reference.ts";
 import {
   assertNativeDanceScope, nativeDanceAttempt, nativeDanceHostPath, nativeDanceReadyPath,
@@ -24,7 +24,7 @@ import {
 import type { InstalledDanceRewardBindings } from "./web2-installed-dance-rewards.ts";
 
 const unavailable = (status: number) => new Response(null, { status, headers: { "cache-control": "no-store" } });
-type Environment = NativePublicationApplicationEnv & InstalledDanceRewardBindings & {
+export type NativeDanceTransportEnv = NativePublicationApplicationEnv & InstalledDanceRewardBindings & {
   WEB2_DANCE_RETAINED_SCOPE_JSON?: string;
 };
 type ReadyScope = {
@@ -57,7 +57,7 @@ export function nativeDanceOriginalTransport(
   });
 }
 
-async function openInstalledScope(env: Environment) {
+export async function openInstalledDanceScope(env: NativeDanceTransportEnv) {
   const profile = env.COMMUNITY_DEPLOYMENT_PROFILE_JSON, mountJson = env.PUBLICATION_NATIVE_MOUNT_JSON,
     rewardJson = env.WEB2_DANCE_REWARD_ATTACHMENT_JSON, scopeJson = env.WEB2_DANCE_RETAINED_SCOPE_JSON,
     db = env.DB, originalJson = env.NATIVE_APPLICATION_ORIGINAL_JSON,
@@ -94,14 +94,14 @@ async function openInstalledScope(env: Environment) {
 
 /** Lazy, server-owned fallback for the ordinary installed Fetch/Queue reader.
  * It uses the native signed mount and the same directional publication host. */
-export function installedNativeDanceOriginals(env: Environment): DanceV2OriginalLookup | undefined {
+export function installedNativeDanceOriginals(env: NativeDanceTransportEnv): DanceV2OriginalLookup | undefined {
   const host = env.PUBLICATION_OPERATOR_HOST, forward = env.PUBLICATION_OPERATOR_HOST_AUTH,
     reverse = env.PUBLICATION_RETAINED_LOOKUP_AUTH;
   if (!host || !forward || !reverse || forward === reverse) return undefined;
   return Object.freeze({
     async readRetainedAttempt(original: Parameters<DanceV2OriginalLookup["readRetainedAttempt"]>[0]) {
       const owned = structuredClone(original);
-      const mount = await openInstalledScope(env);
+      const mount = await openInstalledDanceScope(env);
       const checkPorts = () => insist(env.PUBLICATION_OPERATOR_HOST === host &&
         env.PUBLICATION_OPERATOR_HOST_AUTH === forward && env.PUBLICATION_RETAINED_LOOKUP_AUTH === reverse,
         "native_dance_scope_changed", 503);
@@ -121,7 +121,8 @@ export async function nativeDanceReadyResponse(
 ) {
   const url = new URL(request.url);
   if (url.pathname !== nativeDanceReadyPath || url.search || url.hash || request.method !== "POST" ||
-      request.headers.has("X-Pirate-Native-Request") || !await nativePublicationAuthorized(request, capability))
+      request.headers.has("X-Pirate-Native-Request") || request.headers.has(publicationAcceptSessionHeader) ||
+      !await nativePublicationAuthorized(request, capability))
     return unavailable(404);
   try {
     const ref = await readNativeDanceReference(request), { original } = ref;
@@ -161,11 +162,11 @@ export async function nativeDanceReadyResponse(
   }
 }
 
-export function installedNativeDanceReadyFetch(request: Request, env: Environment) {
+export function installedNativeDanceReadyFetch(request: Request, env: NativeDanceTransportEnv) {
   const reverse = env.PUBLICATION_RETAINED_LOOKUP_AUTH, forward = env.PUBLICATION_OPERATOR_HOST_AUTH;
   if (!reverse || !forward || reverse === forward || !/^[0-9a-f]{64}(?![\s\S])/.test(reverse)) return unavailable(404);
   return nativeDanceReadyResponse(request, reverse, async () => {
-    const mount = await openInstalledScope(env);
+    const mount = await openInstalledDanceScope(env);
     insist(new URL(request.url).origin === mount.origin, "native_dance_scope_changed", 503);
     return { ...mount, async assertCurrent() {
       await mount.assertCurrent();

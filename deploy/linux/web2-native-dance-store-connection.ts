@@ -9,6 +9,7 @@ type StoreIdentity = Readonly<{ path: string; device: string; inode: string; jou
 const connections = new WeakMap<object, {
   lease: OperationLease;
   assertConnected(expected: StoreIdentity): Promise<void>;
+  assertConnectedSync(expected: StoreIdentity): void;
 }>();
 const proc = "/proc/self/fd";
 const markerKey = "publicationOperatorIdentity:v1";
@@ -95,14 +96,20 @@ export async function openPinnedNativeDanceOperatorStore(input: {
       },
     } as unknown as DurableObjectStorage;
     const store = new Store(storage, undefined, true);
-    const assertConnected = async (expected: StoreIdentity) => {
+    const assertConnectedSync = (expected: StoreIdentity) => {
       assert(expected.path === path && expected.device === identity.device && expected.inode === identity.inode &&
         expected.journalId === identity.journalId, "native_dance_connected_store_changed");
-      await lease.assertHeld();
       assertConnection();
+      const current = sqlite.prepare("SELECT value FROM records WHERE key = ?").get(markerKey);
+      assert(typeof current?.value === "string" &&
+        JSON.parse(current.value).journalId === identity.journalId, "native_dance_connected_store_changed");
+    };
+    const assertConnected = async (expected: StoreIdentity) => {
+      await lease.assertHeld();
+      assertConnectedSync(expected);
     };
     await assertConnected(identity);
-    connections.set(store, { lease, assertConnected });
+    connections.set(store, { lease, assertConnected, assertConnectedSync });
     return Object.freeze({ store, async close() {
       if (!sqlite.isOpen) return;
       sqlite.close();
@@ -121,4 +128,13 @@ export async function assertPinnedNativeDanceStoreConnection(
   assert(connection, "native_dance_connected_store_unavailable");
   assert(connection.lease === lease, "native_dance_connected_store_lease_changed");
   await connection.assertConnected(identity);
+}
+
+/** The issuance caller pairs this with its synchronous lease and owner check. */
+export function assertPinnedNativeDanceStoreConnectionSync(
+  store: object, identity: StoreIdentity, lease: OperationLease,
+) {
+  const connection = connections.get(store);
+  assert(connection && connection.lease === lease, "native_dance_connected_store_lease_changed");
+  connection.assertConnectedSync(identity);
 }

@@ -6,8 +6,12 @@ import { publicationResponseBytes } from "./publication-app-documents.ts";
 import { exact, record } from "./publication-command-contract.ts";
 
 export const nativeDanceHostPath = "/publication/v1/dance-retained";
+export const nativeDanceDispatchPath = "/publication/v1/dance-dispatch";
+export const nativeDanceDispatchReadyPath = "/_operator/native-publication/dance-dispatch-ready";
 export const nativeDanceReadyPath = "/_operator/native-publication/dance-ready";
 export const nativeDanceReplyLimit = 12 * 1024;
+/** The installed sender and any co-owner of op:nonce must honor this barrier. */
+export const nativeDancePublisherHoldKey = "nativeDanceSigning:v1";
 
 type Original = Parameters<DanceV2OriginalLookup["readRetainedAttempt"]>[0];
 export type NativeDanceSigned = NonNullable<Awaited<ReturnType<DanceV2OriginalLookup["readRetainedAttempt"]>>>;

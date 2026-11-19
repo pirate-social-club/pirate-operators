@@ -129,6 +129,7 @@ test("owner, delegate and each grant remain fenced by the actual D1 clock in the
     try {
       const result = await readDancePublicationAdmission(f.fresh);
       const expiryMs = Number(f.expires(lease) * 1000n), frozenNow = f.state.now;
+      assert.equal(result.expiresAtMs, expiryMs);
       const bindings = (await f.native.prepare("SELECT * FROM publication_test_bindings ORDER BY account_id").all()).results;
       const permissions = (await f.native.prepare("SELECT * FROM publication_test_permissions ORDER BY account_id").all()).results;
       await accept(f, result.fences, "before-expiry");
@@ -148,6 +149,19 @@ test("owner, delegate and each grant remain fenced by the actual D1 clock in the
       assert.deepEqual((await f.native.prepare("SELECT * FROM publication_test_bindings ORDER BY account_id").all()).results, bindings);
       assert.deepEqual((await f.native.prepare("SELECT * FROM publication_test_permissions ORDER BY account_id").all()).results, permissions);
     } finally { gate?.release(); await f.close(); }
+  }
+});
+
+test("V2 reader caps the deadline at the exclusive safe-head freshness boundary", async () => {
+  const f = await publicationReaderFixture();
+  try {
+    const maxSafeBlockAgeSeconds = 1n;
+    const result = await readDancePublicationAdmission({
+      ...f.fresh, clock: { ...f.fresh.clock, maxSafeBlockAgeSeconds },
+    });
+    assert.equal(result.expiresAtMs, Number((result.anchor.timestamp + maxSafeBlockAgeSeconds + 1n) * 1000n));
+  } finally {
+    await f.close();
   }
 });
 

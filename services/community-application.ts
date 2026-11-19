@@ -15,7 +15,8 @@ import {
 } from "./linux-web2-publication.ts";
 import { startDancePublicationCapture } from "./dance-publication-capture-start.ts";
 import { web2PublicDanceStart, type Web2PublicDanceInputs } from "./web2-public-dance-start.ts";
-import { dancePublicationAction, danceV2ActionRoute } from "./dance-publication-actions.ts";
+import { dancePublicationAction, danceV2ActionRoute, revalidateAcceptedDancePublicationAction } from "./dance-publication-actions.ts";
+import { installedNativeDanceDispatch, type RevalidateNativeDanceAction } from "./linux-web2-dance-dispatch.ts";
 import { dancePublicationReviewerFetch, dancePublicationReviewerRoute } from "./dance-publication-review-media.ts";
 import { MAX_MEDIA_BYTES } from "../packages/community-media/validation.ts";
 import { web2ApplicationOriginal } from "./application-native-readback.ts";
@@ -274,6 +275,35 @@ export function web2PrivateDanceHostPorts(env:CommunityEnv) {
   insist(ports.deployment && isWeb2Deployment(ports.deployment) && ports.publicReads &&
     ports.freshConfiguration && ports.privateDance, "dance_private_runtime_unavailable",503);
   return { reads:ports.publicReads, current:ports.freshConfiguration, runtime:ports.privateDance };
+}
+/** The private effect callback rebuilds the exact ordinary action from its
+ * committed row. Only the independently authenticated reverse route calls it. */
+export function installedDanceActionRevalidator(
+  env: CommunityEnv, readDanceScope: InstalledDanceOwnerScopeReader | undefined, signal: AbortSignal,
+): RevalidateNativeDanceAction {
+  return async (action, ready, session) => {
+    insist(readDanceScope, "native_dance_dispatch_scope_unavailable", 503);
+    const ports = dependencies(env, undefined, false, readDanceScope);
+    const { deployment, installedDance, privateDance, publicReads, freshConfiguration } = ports;
+    insist(deployment && isWeb2Deployment(deployment) && installedDance && privateDance &&
+      publicReads && freshConfiguration && action.community_id === deployment.directoryProfile.communityId,
+      "native_dance_dispatch_scope_unavailable", 503);
+    const config = await freshConfiguration();
+    insist(config.schema === "pirate.community-config/4", "native_dance_dispatch_scope_unavailable", 503);
+    const mount = await installedDance(config);
+    const runtime = await privateDance(config);
+    const path = action.kind === "register" ? "/api/dance/reviews" : `/api/dance/reviews/${action.capture_id}/verdict`;
+    const request = new Request(deployment.origin + path, {
+      method: "POST", signal, headers: { "x-dance-account": action.account_id },
+    });
+    await mount.assertCurrent();
+    const authority = await revalidateAcceptedDancePublicationAction({
+      request, body: JSON.parse(action.input_json), context: { communityId: action.community_id, origin: deployment.origin },
+      config, reads: publicReads, runtime, selection: mount.selection,
+    }, ready, session);
+    await mount.assertCurrent();
+    return { ...authority, expiresAtMs: Math.min(authority.expiresAtMs, Number(mount.sourceExpiresAtS * 1000n)) };
+  };
 }
 function deploymentProfile(env:CommunityEnv) {
   return env.COMMUNITY_DEPLOYMENT_PROFILE_JSON ? readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON) : firstSong;
@@ -640,7 +670,7 @@ async function communityFetchBusiness(
         assertMounted();
       };
       await check();
-      return { publicDance, assertMounted, check, config, runtime: () => runtime(config) };
+      return { publicDance, mounted, assertMounted, check, config, runtime: () => runtime(config) };
     };
     if ((fixtureDance || signedDance !== undefined) && url.pathname === "/api/dance/captures" && request.method === "POST") {
       const capture = parseCaptureRequestV2(await jsonBody(request.clone()));
@@ -668,13 +698,18 @@ async function communityFetchBusiness(
       return new Response(response.body, { status: response.status, headers: security });
     }
     if ((fixtureDance || signedDance !== undefined) && request.method === "POST" && danceV2ActionRoute(url.pathname)) {
-      const { publicDance, config, check, runtime } = await publicDanceFor(await configuration(true));
+      const { publicDance, mounted, config, check, runtime } = await publicDanceFor(await configuration(true));
       const active = await runtime();
       const body = await jsonBody(request);
+      const dispatch = mounted ? installedNativeDanceDispatch(env) : undefined;
+      const input = { request, body, context, config, reads: publicReads, runtime: active, selection: publicDance };
       await check();
-      const pending = await dancePublicationAction({request, body, context, config, reads: publicReads,
-        runtime: active, selection: publicDance});
+      const pending = await dancePublicationAction(input, Boolean(dispatch));
       await check();
+      if (dispatch && pending.state === "awaiting_publisher") {
+        await dispatch(input, pending.commandId);
+        await check();
+      }
       security.set("vary", "Cookie");
       security.set("cache-control", "no-store, private");
       return reply(pending, 202);
