@@ -23,7 +23,9 @@
     "check:storybook:imports": "node scripts/storybook/check-production-imports.mjs",
     "test:storybook:imports": "node --test scripts/storybook/check-production-imports.test.mjs",
     "audit:storybook": "node scripts/storybook/audit.mjs",
-    "test:storybook:audit": "node --test scripts/storybook/audit-results.test.mjs scripts/storybook/audit-channel.test.mjs"
+    "test:storybook:audit": "node --test scripts/storybook/audit-results.test.mjs scripts/storybook/audit-channel.test.mjs",
+    "check:ui:tokens": "node scripts/ui/token-conformance.mjs",
+    "test:ui:tokens": "node --test scripts/ui/token-conformance.test.mjs"
   },
   "dependencies": {
     "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
