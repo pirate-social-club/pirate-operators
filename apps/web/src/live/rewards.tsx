@@ -50,7 +50,7 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
     await wallet.run(() => wallet.verify(id));
   }
   return (
-    <div data-learner-wallet>
+    <main data-learner-wallet>
       <Show
         when={wallet.intent()}
         fallback={
@@ -159,6 +159,6 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
           />
         )}
       </Show>
-    </div>
+    </main>
   );
 }

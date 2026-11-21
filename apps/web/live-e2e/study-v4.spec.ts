@@ -19,7 +19,9 @@ test("a V4 Study lesson starts after one sign-in with no other signature and no 
 }) => {
   const state = await serveV4(page);
   await page.goto(state.url);
-  // The sign-in screen links the documents the sign-in accepts.
+  // The 2026-11-21 owner ruling removed the site footer's document links;
+  // the anonymous account surface still links the documents the sign-in accepts.
+  await page.goto(origin + "/#/account");
   const header = page.getByRole("navigation", { name: "Community documents" });
   await expect(header).toBeVisible();
   await expect(
@@ -44,31 +46,32 @@ test("a V4 Study lesson starts after one sign-in with no other signature and no 
   await expect(overlay.getByText(/Terms|Privacy/)).toHaveCount(0);
 });
 
-test("Terms and Privacy stay reachable while signed in, in the footer outside the overlay", async ({
+test("Terms and Privacy stay reachable while signed in, from the settings page", async ({
   page,
 }) => {
   const state = await serveV4(page);
   await page.goto(state.url);
   await signIn(page);
-  // The current normal site navigation owns the one copy of each policy link.
-  await expect(
-    page.getByRole("navigation", { name: "Community documents" }),
-  ).toBeVisible();
+  // The 2026-11-21 owner ruling removed the policy links from the main
+  // pages; the settings page owns the one copy of each document link.
+  await openSettings(page);
+  const documentLinks = page.getByRole("navigation", {
+    name: "Community documents",
+  });
+  await expect(documentLinks).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Learning terms", exact: true }),
   ).toHaveCount(1);
   await expect(
     page.getByRole("link", { name: "Learning privacy", exact: true }),
   ).toHaveCount(1);
-  const footer = page.getByRole("navigation", { name: "Community documents" });
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
   for (const [name, href] of [
     ["Terms", "/terms"],
     ["Privacy", "/privacy"],
     ["Learning terms", "/learning/v4/terms"],
     ["Learning privacy", "/learning/v4/privacy"],
   ] as const) {
-    const link = footer.getByRole("link", { name, exact: true });
+    const link = documentLinks.getByRole("link", { name, exact: true });
     await expect(link).toHaveAttribute("href", href);
     const opened = page.waitForEvent("popup");
     await link.click();
@@ -77,38 +80,13 @@ test("Terms and Privacy stay reachable while signed in, in the footer outside th
     expect(tab.url()).toBe(origin + href);
     await tab.close();
   }
-  // Opening Study leaves the documents outside it, never inside.
+  // Opening Study never carries the documents inside it.
   await startStudy(page);
   await expect(studyHeading(page)).toBeVisible();
   await expect(studyOverlay(page).getByRole("link")).toHaveCount(0);
   await expect(
     studyOverlay(page).getByRole("navigation", { name: "Community documents" }),
   ).toHaveCount(0);
-  const underlay = page.getByRole("navigation", {
-    name: "Community documents",
-    includeHidden: true,
-  });
-  await expect(underlay).toHaveCount(1);
-  await expect(underlay.locator("xpath=ancestor::footer")).toHaveJSProperty(
-    "inert",
-    true,
-  );
-  await page.getByRole("button", { name: "Exit study", exact: true }).click();
-  await expect(footer).toBeVisible();
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveJSProperty(
-    "inert",
-    false,
-  );
-  const openedAfterExit = page.waitForEvent("popup");
-  await footer
-    .getByRole("link", { name: "Learning terms", exact: true })
-    .click();
-  const afterExit = await openedAfterExit;
-  expect(afterExit.url()).toBe(origin + "/learning/v4/terms");
-  await expect(afterExit.locator("body")).toHaveText(
-    documents["/learning/v4/terms"]!,
-  );
-  await afterExit.close();
   expect(state.signatures).toEqual(["SignIn"]);
 });
 

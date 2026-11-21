@@ -140,12 +140,7 @@ export function CommunityPages(props: CommunityPagesProps) {
           createPostBusy={props.busy}
           createPostLabel="Post"
           profileControl={
-            <>
-              <Show when={membership()?.canChooseName}>
-                <Button size="sm" variant="ghost" data-community-name-entry onClick={() => membership()?.chooseName()}>
-                  Get a name
-                </Button>
-              </Show>
+            <div class="hidden items-center gap-2 md:flex">
               <Show
                 when={props.session}
                 fallback={
@@ -174,7 +169,7 @@ export function CommunityPages(props: CommunityPagesProps) {
                   />
                 </IconButton>
               </Show>
-            </>
+            </div>
           }
           composer={
             props.view === "publish" && props.session

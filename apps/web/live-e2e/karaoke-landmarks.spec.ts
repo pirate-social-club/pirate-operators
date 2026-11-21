@@ -55,9 +55,9 @@ async function expectClosed(page: Page) {
   await expect(overlay(page)).toHaveCount(0);
   expect(new URL(page.url()).searchParams.has("sing")).toBe(false);
   await expect(page.locator("#app-content")).toBeFocused();
-  await expect(
-    page.getByRole("navigation", { name: "Community documents", exact: true }),
-  ).toBeVisible();
+  // The 2026-11-21 owner ruling removed the site footer's document links;
+  // the application chrome is the proof the normal app is back.
+  await expect(page.locator("[data-application-chrome]")).toBeVisible();
   await expect(page.locator(".live-karaoke audio")).toHaveCount(0);
 }
 
@@ -211,7 +211,9 @@ for (const viewport of [
       await retryByKeyboard(page, main);
       await expect.poll(() => songReads.length).toBe(4);
       await expect(overlay(page).getByRole("heading", unavailable)).toHaveCount(0);
-      const practice = overlay(page).getByRole("region", { name: "Fixture song", exact: true });
+      // The practice surface is the route's main landmark since the
+      // 2026-11-21 design-lock slice; it was a bare region before.
+      const practice = overlay(page).getByRole("main", { name: "Fixture song", exact: true });
       await expect(practice).toBeVisible();
       await expect(practice.getByRole("heading", { name: "Fixture song", level: 1, exact: true })).toHaveCount(1);
       await expect(practice.getByLabel("Fixture timing", { exact: true })).toBeVisible();

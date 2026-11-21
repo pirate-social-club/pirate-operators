@@ -818,7 +818,7 @@ test("intentional owner-profile refusal remains unavailable rather than an inven
   ).toBeEnabled();
 });
 
-test("anonymous mobile publish keeps actual community sign-in chrome and no private composer", async ({
+test("anonymous mobile publish keeps the community sign-in path and no private composer", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -828,9 +828,19 @@ test("anonymous mobile publish keeps actual community sign-in chrome and no priv
   await expect(
     page.getByText("No posts in this community yet.", { exact: true }),
   ).toBeVisible();
+  // The 2026-11-21 owner ruling keeps the mobile banner to More only; the
+  // sign-in path runs through the footer profile tab to the account page.
+  await expect(
+    page.getByRole("button", { name: "Sign in", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Profile", exact: true })
+    .first()
+    .click();
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }).first(),
-  ).toBeInViewport();
+  ).toBeVisible();
+  await page.goBack();
   await expect(
     page.getByRole("button", { name: "Feed", exact: true }),
   ).toBeVisible();
