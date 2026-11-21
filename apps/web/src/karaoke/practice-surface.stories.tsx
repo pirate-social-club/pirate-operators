@@ -17,6 +17,18 @@ const meta = {
   ),
   parameters: {
     layout: "fullscreen",
+    // Fragment tier: the surface renders below page level; the app shell
+    // supplies main and the page heading in production. Page-level axe rules
+    // are disabled here instead of nesting a main the real mount would
+    // duplicate (the repaired November 12 karaoke nested-main class).
+    a11y: {
+      config: {
+        rules: [
+          { id: "landmark-one-main", enabled: false },
+          { id: "page-has-heading-one", enabled: false },
+        ],
+      },
+    },
     docs: {
       description: {
         component:

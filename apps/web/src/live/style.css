@@ -63,7 +63,10 @@ button:disabled {
 }
 .live-status {
   margin: 28px 0 16px;
-  color: var(--muted-foreground);
+  /* Operational and completion notices (MOSS progress, sign-in instruction,
+     "Signed in.", "Private history downloaded.") — informational by content;
+     errors take .live-error below. */
+  color: var(--info);
   font-size: 13px;
   min-height: 24px;
 }

@@ -26,17 +26,17 @@ export const ALLOWED = [
   {
     path: "src/dance/source/dance-song-page.tsx",
     reason:
-      "dance fork dark media backdrop; reconciled with its pinned reference copy under the design-lock lane's fork-drift item before removal",
+      "dance fork dark media backdrop; removed by task-record item 7 (fork-drift reconciliation) of pirate-ui-design-lock-20261121, not a permanent exemption",
   },
   {
     path: "src/dance/source/dance-review-page.tsx",
     reason:
-      "dance fork dark media backdrop; reconciled with its pinned reference copy under the design-lock lane's fork-drift item before removal",
+      "dance fork dark media backdrop; removed by task-record item 7 (fork-drift reconciliation) of pirate-ui-design-lock-20261121, not a permanent exemption",
   },
   {
     path: "src/dance/source/video-original-audio-surface.tsx",
     reason:
-      "dance fork gradient and backdrop; reconciled with its pinned reference copy under the design-lock lane's fork-drift item before removal",
+      "dance fork gradient and backdrop; removed by task-record item 7 (fork-drift reconciliation) of pirate-ui-design-lock-20261121, not a permanent exemption",
   },
 ];
 
