@@ -16,6 +16,18 @@ const meta = {
   title: "Flows/Studying/Session",
   parameters: {
     layout: "fullscreen",
+    // Fragment tier: this surface renders below page level. In the real app
+    // the app shell supplies the main landmark and the page heading, so the
+    // two page-level axe rules are disabled here rather than adding nested
+    // main or h1 elements the production mount would then duplicate.
+    a11y: {
+      config: {
+        rules: [
+          { id: "landmark-one-main", enabled: false },
+          { id: "page-has-heading-one", enabled: false },
+        ],
+      },
+    },
     docs: {
       description: {
         component:
