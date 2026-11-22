@@ -33,6 +33,14 @@ async function connectLearner(page: Page, learner: number) {
       new URL(response.url()).pathname === "/__fixture/sign" &&
       response.request().postDataJSON()?.kind === "address",
   );
+  // The 2026-11-22 layout ruling keeps the mobile banner to More only; the
+  // mobile sign-in runs through the footer profile tab to the account page.
+  if ((page.viewportSize()?.width ?? 1280) < 768) {
+    await page
+      .getByRole("button", { name: "Profile", exact: true })
+      .first()
+      .click();
+  }
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const response = await connected;
   expect(response.request().postDataJSON()).toEqual({
@@ -84,8 +92,17 @@ async function openPublishedKaraoke(page: Page) {
   const postId = manifest.song.postId;
   expect(postId).toMatch(/^0x[0-9a-f]{64}$/i);
   if (new URL(page.url()).hash !== `#song-${postId}`) {
-    if (new URL(page.url()).hash && new URL(page.url()).hash !== "#/")
-      await page.getByRole("link", { name: "Home", exact: true }).click();
+    if (new URL(page.url()).hash && new URL(page.url()).hash !== "#/") {
+      // The 2026-11-22 layout ruling: the mobile home control is the footer
+      // button, while desktop renders the sidebar link.
+      if ((page.viewportSize()?.width ?? 1280) < 768)
+        await page
+          .getByRole("button", { name: "Home", exact: true })
+          .first()
+          .click();
+      else
+        await page.getByRole("link", { name: "Home", exact: true }).click();
+    }
     expect(new URL(page.url()).search).toBe(rawSearch);
     expect(await documentOwner(page)).toBe(document);
     const feed = await (await page.request.get("/api/feed")).json();
