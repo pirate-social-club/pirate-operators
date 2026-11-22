@@ -1,10 +1,32 @@
 import type { StorybookConfig } from "storybook-solidjs-vite";
+import remarkGfm from "remark-gfm";
 
-// Adapted from pirate-web-solid c7cb8783 .storybook/main.ts.
-// Requires the separate exact-pinned addon/lock proposal to be composed.
+// Unified catalog on the reviewed pirate-web-solid model: the app's stories
+// and the vendored design system that backs them in one place, so a token
+// can be reviewed on its Foundations page and in the screens that use it.
+// The vendored package keeps its own .storybook inside the tarball for
+// isolated review; this is the source of truth for the product catalog.
+// The addon-docs lock is the pinned proposal the storybook lane prepared;
+// versions match the vendored package's own devDependencies.
 const config: StorybookConfig = {
-  stories: ["../src/**/*.stories.@(js|jsx|mjs|cjs|ts|tsx|mts|cts)"],
-  addons: ["@storybook/addon-a11y"],
+  stories: [
+    "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
+    "../node_modules/@pirate/web-solid-ui/src/**/*.stories.@(js|jsx|mjs|ts|tsx)",
+    "../node_modules/@pirate/web-solid-ui/src/**/*.mdx",
+  ],
+  addons: [
+    {
+      name: "@storybook/addon-docs",
+      options: {
+        mdxPluginOptions: {
+          mdxCompileOptions: {
+            remarkPlugins: [remarkGfm],
+          },
+        },
+      },
+    },
+    "@storybook/addon-a11y",
+  ],
   staticDirs: ["../src/live/public"],
   framework: {
     name: "storybook-solidjs-vite",

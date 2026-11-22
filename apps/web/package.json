@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "node scripts/build.ts",
-    "test": "node --test test/*.test.ts src/shell/community-membership.test.ts",
+    "test": "node --test test/*.test.ts src/shell/community-membership.test.ts src/lib/ui-locale-core.test.ts",
     "test:e2e": "playwright test",
     "check:reproducible": "node scripts/reproducible.ts",
     "check": "npm run typecheck && npm test && npm run test:components && npm run test:ui:tokens && npm run check:ui:tokens && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet && npm run test:e2e:owner-ui",
@@ -35,28 +35,30 @@
     "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
     "solid-js": "2.0.0-rc.21",
-    "xstate": "5.33.2",
-    "viem": "2.57.16"
+    "viem": "2.57.16",
+    "xstate": "5.33.2"
   },
   "devDependencies": {
     "@ipld/car": "5.4.7",
     "@ipld/dag-pb": "4.2.0",
     "@playwright/test": "1.63.0",
+    "@solidjs/vite-plugin": "3.0.0-next.57",
+    "@storybook/addon-a11y": "10.6.0",
+    "@storybook/addon-docs": "10.6.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.3.0",
     "@types/qrcode": "1.5.6",
     "ipfs-unixfs-importer": "17.1.1",
     "jsdom": "file:vendor/jsdom-30.0.0-source-c7-font-patch.tgz",
     "multiformats": "14.0.5",
+    "remark-gfm": "4.0.1",
     "storybook": "10.6.0",
     "storybook-solidjs-vite": "10.6.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "8.3.6",
     "vite-plugin-solid": "npm:@solidjs/vite-plugin@3.0.0-next.57",
-    "vitest": "4.1.11",
-    "@solidjs/vite-plugin": "3.0.0-next.57",
-    "@storybook/addon-a11y": "10.6.0"
+    "vitest": "4.1.11"
   },
   "overrides": {
     "@floating-ui/core": "1.8.0",
