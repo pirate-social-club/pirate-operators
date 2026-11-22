@@ -5,7 +5,7 @@ import { ChooseHandle } from "./choose-handle.tsx";
 import type { MembershipState } from "./community-membership.ts";
 
 const meta = {
-  title: "Checkpoint/Community/Optional name",
+  title: "Flows/Community/Optional name",
   parameters: {
     layout: "fullscreen",
     docs: { description: { component: "Actual optional-name component with explicit UI fixtures. Membership and name responses are supplied presentation states. No authentication, backend, signing or chain operation runs here." } },
