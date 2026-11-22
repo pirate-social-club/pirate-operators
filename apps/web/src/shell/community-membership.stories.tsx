@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { createSignal } from "solid-js";
-import { fn } from "storybook/test";
+import { expect, fn, userEvent, within } from "storybook/test";
 import { ChooseHandle } from "./choose-handle.tsx";
 import type { MembershipState } from "./community-membership.ts";
 
 const meta = {
-  title: "Flows/Community/Optional name",
+  title: "Community/Flows/Optional name",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   parameters: {
     layout: "fullscreen",
     docs: { description: { component: "Actual optional-name component with explicit UI fixtures. Membership and name responses are supplied presentation states. No authentication, backend, signing or chain operation runs here." } },
@@ -42,5 +44,28 @@ function Preview(props: { unavailable: boolean }) {
   </div>;
 }
 
-export const ChooseName: Story = { render: () => <Preview unavailable={false} /> };
+export const ChooseName: Story = {
+  render: () => <Preview unavailable={false} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open optional-name preview" }),
+    );
+    const dialog = within(
+      canvas.getByRole("dialog", { name: "Choose your name" }),
+    );
+    await expect(canvas.getByRole("dialog", { name: "Choose your name" })).toBeVisible();
+    const name = dialog.getByLabelText("Name", { exact: true });
+    // The failure guard first: an invalid label keeps the submit disabled.
+    await userEvent.type(name, "abc");
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    const submit = dialog.getByRole("button", { name: "Get name" });
+    await expect(submit).toBeDisabled();
+    // A valid label takes the production submit path.
+    await userEvent.clear(name);
+    await userEvent.type(name, "fixture-member");
+    await expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+  },
+};
 export const NamingUnavailable: Story = { render: () => <Preview unavailable={true} /> };

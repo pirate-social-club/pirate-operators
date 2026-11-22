@@ -16,7 +16,9 @@ import type { KaraokePlaybackGraph } from "./playback-graph.ts";
 import { expect, userEvent, within } from "storybook/test";
 
 const meta = {
-  title: "Screens/Karaoke/Decentralized route",
+  title: "Karaoke/Screens/Decentralized route",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["screen"],
   component: KaraokePage,
   parameters: { layout: "fullscreen" },
   args: {
