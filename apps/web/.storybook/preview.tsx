@@ -98,12 +98,16 @@ const preview: Preview = {
     a11y: { test: "error" },
     options: {
       storySort: {
+        // Feature-first: one place per feature, tiers ordered inside it.
+        // The design system's shared tiers follow. Tier discipline lives
+        // in story tags enforced by scripts/ui/story-conformance.mjs.
         order: [
-          "Flows",
-          ["Shell", "Studying", "Karaoke", "Dance", "Community"],
-          "Screens",
-          ["Shell", "Wallet", "Studying", "Karaoke"],
-          "Parts",
+          "Studying", ["Screens", "Flows", "Parts"],
+          "Karaoke", ["Screens", "Flows", "Parts"],
+          "Wallet", ["Screens", "Flows", "Parts"],
+          "Shell", ["Screens", "Flows", "Parts"],
+          "Community", ["Screens", "Flows", "Parts"],
+          "Dance", ["Screens", "Flows", "Parts"],
           "Foundations",
           ["Color", "Typography", "Spacing & Sizing", "Radius & Elevation", "Icons", "Motion"],
           "Components",
