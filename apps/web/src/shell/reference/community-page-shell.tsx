@@ -111,7 +111,7 @@ export interface CommunityPageShellProps {
 }
 
 type CommunityTab = "feed" | "songs" | "about";
-const primaryShadowClass = "shadow-[0_8px_22px_#0000000F]";
+const primaryShadowClass = "shadow-sm";
 const formatCount = (value: number) => value.toLocaleString("en-US");
 function FeedPending() {
   return (
