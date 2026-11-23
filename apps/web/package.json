@@ -48,15 +48,15 @@
     "ipfs-unixfs-importer": "17.1.1",
     "jsdom": "file:vendor/jsdom-30.0.0-source-c7-font-patch.tgz",
     "multiformats": "14.0.5",
-    "storybook": "10.6.0",
+    "storybook": "10.6.8",
     "storybook-solidjs-vite": "10.6.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "8.3.6",
     "vite-plugin-solid": "npm:@solidjs/vite-plugin@3.0.0-next.57",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "@solidjs/vite-plugin": "3.0.0-next.57",
-    "@storybook/addon-a11y": "10.6.0"
+    "@storybook/addon-a11y": "10.6.8"
   },
   "overrides": {
     "@floating-ui/core": "1.8.0",
@@ -103,7 +103,7 @@
     "jsdom": {
       "undici": "8.10.2"
     },
-    "@storybook/builder-vite": "10.6.0",
+    "@storybook/builder-vite": "10.6.8",
     "solid-js": "$solid-js",
     "@solidjs/web": "$@solidjs/web",
     "@solidjs/compiler": "2.0.0-rc.21"
