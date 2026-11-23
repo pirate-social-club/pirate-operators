@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import {mkdir,writeFile,readFile,realpath,chmod,lstat,readdir} from "node:fs/promises";
+import {mkdir,writeFile,readFile,realpath,chmod,lstat} from "node:fs/promises";
 import {join,dirname,extname} from "node:path";
 import {createHash,X509Certificate} from "node:crypto";
 import {buildCommunityArtifacts} from "../community-artifacts.ts";
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import type {OperationLease} from "../../deploy/linux/backend-state.ts";
 import type {Web2SchemaPlan} from "../../deploy/linux/web2-initialization.ts";
+import {sealReleaseTree} from "./release-tree-modes.ts";
 /** Build real owning bytes; no Docker/provider execution or simulated consumer.
  * Root materializes the exact accepted source/prerequisites before this gate. */
 export async function buildCompleteLinuxArtifacts(input:{
@@ -135,11 +136,7 @@ export async function buildCompleteLinuxArtifacts(input:{
     ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
   "toolchain/node_modules/tsx/dist/loader.mjs","toolchain/node_modules/tsx/package.json","wizard/index.html"])
   assert(Object.hasOwn(files,name),"installed_backend_loader_or_asset_closure_missing: "+name);
- async function seal(path:string){for(const row of await readdir(path,{withFileTypes:true})){
-  const child=join(path,row.name);assert(!row.isSymbolicLink());
-  if(row.isDirectory())await seal(child);else assert(row.isFile() && !((await lstat(child)).mode&0o222));
- }await chmod(path,0o555);}
- await seal(input.output);
+ await sealReleaseTree(input.output);
  return {owning,files,sourceHashes,nativeIdentity,output:input.output,dockerExecuted:false,
   releaseSchema:web2?"pirate.complete-linux-web2-release/1" as const:"pirate.complete-linux-release/1" as const,
   execution:{node:"toolchain/node" as const,nodeSha256:input.nodeSha256,nodeVersion:"v24.18.1" as const,
