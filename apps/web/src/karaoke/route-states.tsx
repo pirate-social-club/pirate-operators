@@ -22,7 +22,7 @@ export interface KaraokeRouteLoadFailureStateProps {
 
 function ErrorGhost() {
   return (
-    <div aria-hidden="true" class="grid size-32 place-items-center overflow-hidden rounded-full bg-[#20242c]">
+    <div aria-hidden="true" class="grid size-32 place-items-center overflow-hidden rounded-full bg-surface-skeleton">
       <img alt="" class="size-24" src="/images/error-ghost.svg" />
     </div>
   );
