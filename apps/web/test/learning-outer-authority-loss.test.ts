@@ -145,7 +145,7 @@ for (const status of [401, 403])
           port.ticket(),
           (error: unknown) =>
             error instanceof Error &&
-            /confirm this take/.test(error.message) &&
+            /It may still be starting/.test(error.message) &&
             error.cause === originalFailure,
         );
         assert.equal(posts, 1);

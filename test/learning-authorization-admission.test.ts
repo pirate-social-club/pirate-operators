@@ -521,7 +521,7 @@ test(
     });
     try {
       const pending = client.ticket();
-      const rejected = assert.rejects(pending, /confirm this take/);
+      const rejected = assert.rejects(pending, /It may still be starting/);
       await commit;
       const first = JSON.parse(
         (await f.db
@@ -533,9 +533,9 @@ test(
       assert.ok(first.open);
       releaseAck();
       await rejected;
-      await assert.rejects(client.ticket(), /confirm this take/);
+      await assert.rejects(client.ticket(), /It may still be starting/);
       observation = "finished";
-      await assert.rejects(client.ticket(), /confirm this take/);
+      await assert.rejects(client.ticket(), /It may still be starting/);
       assert.equal(posts, 1);
       assert.deepEqual(serialized, [
         { error: "fixture_reservation_ack_lost", status: 409 },

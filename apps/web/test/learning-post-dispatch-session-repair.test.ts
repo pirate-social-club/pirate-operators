@@ -54,9 +54,9 @@ for (const status of [401, 409])
                 endpointStatus: 200,
               },
             }
-          : /confirm this take/,
+          : /It may still be starting/,
       );
-      await assert.rejects(port.ticket(), /confirm this take/);
+      await assert.rejects(port.ticket(), /It may still be starting/);
       assert.equal(writes, 1);
       observedOpen = true;
       assert.equal((await port.ticket()).ticketId, "original-ticket");

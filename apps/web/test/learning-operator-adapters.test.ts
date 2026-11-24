@@ -289,8 +289,8 @@ test("unresolved ticket creation never treats an early empty read as authority t
       return { state: "none" } as T;
     },
   });
-  await assert.rejects(port.ticket(), /confirm this take/);
-  await assert.rejects(port.ticket(), /confirm this take/);
+  await assert.rejects(port.ticket(), /It may still be starting/);
+  await assert.rejects(port.ticket(), /It may still be starting/);
   assert.equal(writes, 1);
   port.dispose();
 });
