@@ -108,6 +108,36 @@ test("audits async resize fixture dependencies through the app support configura
   }
 });
 
+test("admits named data-boundary fixtures without exempting their dependencies", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pirate-storybook-data-fixture-"));
+  const write = (file, text) => {
+    const target = path.join(root, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, text);
+  };
+  const fixture = "src/wallet/wallet-story-fixtures.ts";
+  try {
+    write("tsconfig.json", JSON.stringify({
+      compilerOptions: { jsx: "preserve", module: "esnext", moduleResolution: "bundler" },
+      include: ["src"],
+    }));
+    write("src/client/entry.tsx", 'import "../live/rewards";');
+    write("src/live/entry.tsx", 'import "../live/rewards";');
+    write("src/wallet/real.tsx", "export const Wallet = () => <div />;");
+    write("src/wallet/portfolio.stories.tsx", 'import "../live/rewards"; import "./wallet-story-fixtures";');
+    write("src/live/rewards.tsx", 'import "../wallet/real";');
+    write(fixture, "export const fixture = true;");
+    assert.deepEqual(checkApp(root).violations, []);
+
+    write("src/live/entry.tsx", `import "../wallet/real"; import "../wallet/wallet-story-fixtures";`);
+    assert.ok(checkApp(root).violations.includes(
+      `Production imports story/test support: ${path.join(root, fixture)}`,
+    ));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("excludes type-only edges and includes literal lazy imports", () => {
   assert.deepEqual(
     runtimeSpecifiers(`
