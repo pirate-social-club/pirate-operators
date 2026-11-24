@@ -16,6 +16,8 @@ test("the image recipe pins the CA bundle mode for the non-root user", () => {
   assert.doesNotMatch(recipe, /COPY release\/toolchain\/ca-certificates\.crt/);
   assert.doesNotMatch(recipe, /\nCOPY (?!--chmod|--chown)/);
   assert.match(recipe, new RegExp("\nCOPY --chown=" + input.uid + ":" + input.gid + " release/ "));
+  assert.match(recipe,
+    /\nRUN mkdir -p \/etc\/ssl\/certs && chmod 0755 \/etc\/ssl \/etc\/ssl\/certs\nCOPY --chown=/);
   assert.match(recipe, new RegExp("\nUSER " + input.uid + ":" + input.gid + "\n"));
 });
 
