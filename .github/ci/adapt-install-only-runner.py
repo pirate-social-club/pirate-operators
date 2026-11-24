@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -36,10 +37,10 @@ def main():
                   'smoke=' + shlex.quote(str(assets / 'smoke-inputs.iso')))
     raw = replace(raw, 'entry=/media/t42/codedrive/tmp/pirate-visit2-native-runtime-hotfix-notes-media.20261124-r24/selected/notes-entry.iso',
                   'entry=' + shlex.quote(str(assets / 'notes-entry.iso')))
-    raw = replace(raw, 'derivative=/media/t42/codedrive/tmp/pirate-visit2-native-runtime-ca-bundle-hotfix-derivative-inputs.20261123-r17/derivative-inputs.iso',
-                  'derivative=' + shlex.quote(str(assets / 'derivative-inputs.iso')))
-    raw = replace(raw, 'diagnostic=/media/t42/codedrive/tmp/pirate-visit2-install-only-rerun.20261124-r17/install-diagnostic.iso',
-                  'diagnostic=' + shlex.quote(str(bundle / 'install-diagnostic.iso')))
+    raw, derivative_count = re.subn(r'^derivative=[^\n]+', 'derivative=' + shlex.quote(str(assets / 'derivative-inputs.iso')), raw, flags=re.M)
+    assert derivative_count == 1
+    raw, diagnostic_count = re.subn(r'^diagnostic=[^\n]+', 'diagnostic=' + shlex.quote(str(bundle / 'install-diagnostic.iso')), raw, flags=re.M)
+    assert diagnostic_count == 1
     raw = replace(raw, '[[ "$(hostname)" == t42 && -r /dev/kvm && -w /dev/kvm ]]',
                   '[[ -r /dev/kvm && -w /dev/kvm ]]')
     raw = replace(raw, '  cat /proc/pressure/memory\n',
