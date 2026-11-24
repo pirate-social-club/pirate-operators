@@ -180,6 +180,13 @@ export const StartUnknown: Story = {
     await expect(
       canvas.getByRole("button", { name: "Check again" }),
     ).toBeEnabled();
+    await userEvent.click(canvas.getByRole("button", { name: "Check again" }));
+    await expect(
+      canvas.getByRole("heading", { name: "Couldn't start this take" }),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: "Start karaoke" }),
+    ).toBeNull();
     await expect(
       canvas.queryByRole("button", { name: "Start karaoke" }),
     ).toBeNull();

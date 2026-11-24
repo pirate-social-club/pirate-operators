@@ -35,7 +35,7 @@ export function SongPlaybackControls(props: {
         )
       : 0;
   return (
-    <div class="col-span-full row-start-2 flex w-full min-w-0 items-center gap-3 sm:col-span-1 sm:col-start-2 sm:self-start">
+    <div dir="ltr" class="col-span-full row-start-2 flex w-full min-w-0 items-center gap-3 sm:col-span-1 sm:col-start-2 sm:self-start">
       <div class="shrink-0">
         <MediaControlButton
           aria-label={`${props.playing ? "Pause" : "Play"} ${props.title}`}

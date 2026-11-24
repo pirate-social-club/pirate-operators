@@ -803,6 +803,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                 <div
                   class="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-4 px-5 py-8"
                   aria-label="Expired Study session"
+                  role="region"
                 >
                   <ErrorState
                     title="This lesson has ended"

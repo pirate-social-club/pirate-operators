@@ -162,6 +162,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     [take, setTake] = createSignal<OpenTake | null>(null),
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
+    [startUnknown, setStartUnknown] = createSignal(false),
     [restoredRatingKey, setRestoredRatingKey] = createSignal<string | null>(
       null,
     ),
@@ -291,6 +292,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     if (!isCurrentOwner()) return;
     setLoaded(false);
     setNotice(null);
+    setStartUnknown(false);
     try {
       const loaded = await port.song();
       if (!isCurrentOwner()) return;
@@ -546,6 +548,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     scoringResponses.reset();
     scoringRecoveryUsed = false;
     setStarting(true);
+    setStartUnknown(false);
     try {
       let currentTake = take();
       if (currentTake && capture.state()?.status === "error") {
@@ -663,11 +666,12 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
       cancelPlaybackPosition?.();
       setStarting(false);
-      setNotice(
+      const message =
         failure instanceof Error
           ? failure.message
-          : "This take couldn't start.",
-      );
+          : "This take couldn't start.";
+      setStartUnknown(message === KARAOKE_START_UNKNOWN_MESSAGE);
+      setNotice(message);
     } finally {
       if (isCurrentOwner()) setStarting(false);
     }
@@ -760,14 +764,21 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         );
         return;
       }
+      if (value.state === "none" && startUnknown()) {
+        setNotice(KARAOKE_START_UNKNOWN_MESSAGE);
+        return;
+      }
       apply(value);
+      setStartUnknown(false);
       setNotice(null);
     } catch (error) {
       if (isCurrentOwner()) {
         if (isLearningAuthorityLoss(error)) loseAuthority(error);
         else
           setNotice(
-            "Your result is still unavailable. Check the same take again.",
+            startUnknown()
+              ? KARAOKE_START_UNKNOWN_MESSAGE
+              : "Your result is still unavailable. Check the same take again.",
           );
       }
     }
@@ -785,7 +796,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
     >
       <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
-        <Show when={notice() && song() && notice() !== KARAOKE_START_UNKNOWN_MESSAGE}>
+        <Show when={notice() && song() && !startUnknown()}>
           <div
             role="alert"
             class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
@@ -817,7 +828,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
           >
             {(timed) => (
               <Show
-                when={notice() === KARAOKE_START_UNKNOWN_MESSAGE}
+                when={startUnknown()}
                 fallback={
               <KaraokePracticeSurface
                 title={props.title}
