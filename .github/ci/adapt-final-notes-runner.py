@@ -1,4 +1,5 @@
 """Adapt the sealed final Notes host runner to a GitHub Blacksmith runner."""
+import hashlib
 import os
 from pathlib import Path
 import shlex
@@ -32,6 +33,20 @@ def main():
                   '  if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi\n')
     runner.write_text(raw)
     runner.chmod(0o700)
+    manifest = bundle / 'NOTES-EXECUTION-SHA256SUMS'
+    lines = []
+    replaced = 0
+    runner_pin = hashlib.sha256(runner.read_bytes()).hexdigest()
+    for line in manifest.read_text().splitlines():
+        pin, separator, name = line.partition('  ')
+        assert separator
+        if name == 'run-notes.sh':
+            line = f'{runner_pin}  {name}'
+            replaced += 1
+        lines.append(line)
+    assert replaced == 1
+    manifest.write_text('\n'.join(lines) + '\n')
+    manifest.chmod(0o600)
     print('Final CI runner adapted')
 
 
