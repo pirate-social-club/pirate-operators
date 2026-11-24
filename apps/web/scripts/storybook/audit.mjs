@@ -8,7 +8,7 @@ import { chromium } from "@playwright/test";
 import { MINIMAL_VIEWPORTS } from "storybook/viewport";
 import { installAuditChannel } from "./audit-channel.mjs";
 import { bindBrowser, verifyBrowserUnchanged } from "./audit-browser.mjs";
-import { matrixFor, parseIndex, reviewModesFor, summarize } from "./audit-results.mjs";
+import { auditReceipt, matrixFor, parseIndex, reviewModesFor, summarize } from "./audit-results.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 
 export function parseOptions(argv) {
@@ -219,7 +219,23 @@ export async function runAudit(options) {
       matrixFor(metadata[story.id], MINIMAL_VIEWPORTS, options.matrix).map((size) => ({ story, size })));
     run.expected = matrix.map(({ story, size }) => story.id + "@" + size.name);
     for (const [index, { story, size }] of matrix.entries()) {
-      const result = await runStory(browser, options, story, size, index + 1);
+      let result;
+      try {
+        result = await runStory(browser, options, story, size, index + 1);
+      } catch (error) {
+        result = {
+          key: story.id + "@" + size.name,
+          id: story.id,
+          importPath: story.importPath,
+          size,
+          review: size.review ?? null,
+          globals: size.globals ?? null,
+          passed: false,
+          failures: ["audit_story_exception"],
+          errors: [String(error?.message ?? error)],
+          axe: null,
+        };
+      }
       run.results.push(result);
       await writeFile(
         path.join(options.out, "results.jsonl"),
@@ -241,7 +257,7 @@ export async function runAudit(options) {
   }
   run.finishedAt = new Date().toISOString();
   run.summary = summarize(run);
-  await writeFile(path.join(options.out, "run.json"), JSON.stringify(run, null, 2) + "\n");
+  await writeFile(path.join(options.out, "run.json"), JSON.stringify(auditReceipt(run), null, 2) + "\n");
   return run;
 }
 
