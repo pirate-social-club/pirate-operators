@@ -3,7 +3,7 @@ import { installAuditChannel } from "./audit-channel.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classify, parseIndex, sizesFor, summarize } from "./audit-results.mjs";
+import { classify, globalsFor, matrixFor, parseIndex, reviewModesFor, sizesFor, summarize } from "./audit-results.mjs";
 
 const size = { width: 390, height: 844 };
 const phase = (name, width = 390, height = 844) => ({
@@ -73,11 +73,16 @@ test("wrong initial size, wrong height and a second run all fail", () => {
 test("stories without play still require render and completion evidence", () => {
   assert.equal(check({ ...evidence(), phases: [phase("rendering"), phase("completed")] }).passed, true);
 });
-test("index rejects empty, malformed, non-app and duplicate selections", () => {
+test("index accepts app and pinned design-system stories but rejects foreign paths", () => {
   const entry = { type: "story", id: "a--b", importPath: "./src/a.stories.tsx" };
-  assert.equal(parseIndex({ entries: { a: entry } }).length, 1);
+  const packaged = {
+    type: "story", id: "button--primary",
+    importPath: "./node_modules/@pirate/web-solid-ui/src/components/actions/button/button.stories.tsx",
+  };
+  assert.equal(parseIndex({ entries: { a: entry, button: packaged } }).length, 2);
   for (const index of [{}, { entries: {} }, { entries: { a: { ...entry, id: undefined } } },
     { entries: { a: { ...entry, importPath: "./test/reference.txt" } } },
+    { entries: { a: { ...packaged, importPath: "./node_modules/other-ui/button.stories.tsx" } } },
     { entries: { a: entry, b: entry } }]) {
     assert.throws(() => parseIndex(index));
   }
@@ -96,6 +101,25 @@ test("default matrix and declared viewport dimensions are explicit", () => {
   assert.throws(() => sizesFor({ globalsViewport: { value: "unknown" } }, {}));
   assert.throws(() => sizesFor({ parameterViewport: { defaultViewport: "phone" } }, {}));
 });
+test("review matrices cover themes, directions and locales with bounded viewport policy", () => {
+  assert.equal(reviewModesFor("full").length, 10);
+  assert.equal(matrixFor({}, {}, "viewport").length, 2);
+  assert.equal(matrixFor({}, {}, "smoke").length, 8);
+  const full = matrixFor({}, {}, "full");
+  assert.equal(full.length, 16);
+  assert.equal(full.filter((mode) => mode.review.locale === "ar").length, 1);
+  assert.equal(full.filter((mode) => mode.review.locale === "ar")[0].name, "dark-auto-ar-desktop");
+  assert.equal(full.filter((mode) => mode.review.theme === "system").length, 4);
+  assert.equal(full.find((mode) => mode.review.name === "system-dark-ltr-en").review.colorScheme, "dark");
+  assert.throws(() => matrixFor({}, {}, "unknown"));
+});
+test("story globals carry theme, direction, locale and any declared viewport", () => {
+  const mode = reviewModesFor("smoke")[1];
+  assert.equal(globalsFor({ viewportGlobal: null }, mode),
+    "theme:light;direction:rtl;locale:ar");
+  assert.equal(globalsFor({ viewportGlobal: { value: "phone", isRotated: true } }, mode),
+    "theme:light;direction:rtl;locale:ar;viewport.value:phone;viewport.isRotated:!true");
+});
 test("empty, partial, duplicate and extra result ledgers cannot pass", () => {
   const result = { key: "a@phone", ...check(evidence()) };
   assert.equal(summarize({ expected: [result.key], results: [result] }).passed, true);
@@ -105,6 +129,24 @@ test("empty, partial, duplicate and extra result ledgers cannot pass", () => {
     { expected: [result.key], results: [result, { ...result, key: "extra" }] },
     { expected: [result.key], results: [result], startupError: "failed" },
   ]) assert.equal(summarize(run).passed, false);
+});
+
+test("summary retains per-mode, theme, direction and locale accessibility counts", () => {
+  const results = [
+    {
+      key: "a", passed: false, axe: { violations: 1, incomplete: 2 },
+      review: { name: "light-rtl-ar", theme: "light", direction: "rtl", locale: "ar", colorScheme: "light" },
+    },
+    {
+      key: "b", passed: true, axe: { violations: 0, incomplete: 1 },
+      review: { name: "dark-ltr-en", theme: "dark", direction: "ltr", locale: "en", colorScheme: "dark" },
+    },
+  ];
+  const summary = summarize({ expected: ["a", "b"], results });
+  assert.deepEqual(summary.byLocale.ar, { loads: 1, failed: 1, violations: 1, incomplete: 2 });
+  assert.deepEqual(summary.byTheme.light, { loads: 1, failed: 1, violations: 1, incomplete: 2 });
+  assert.deepEqual(summary.byDirection.rtl, { loads: 1, failed: 1, violations: 1, incomplete: 2 });
+  assert.deepEqual(summary.byMode["dark-ltr-en"], { loads: 1, failed: 0, violations: 0, incomplete: 1 });
 });
 
 // Orchestration regressions exercise the same capture/finalize helper used

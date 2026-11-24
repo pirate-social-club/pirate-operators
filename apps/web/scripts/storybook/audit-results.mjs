@@ -5,6 +5,9 @@ export const DEFAULT_SIZES = [
   { name: "desktop", width: 1440, height: 1000 },
 ];
 
+const APP_STORY_IMPORT = /^\.\/src\/.+\.stories\.[cm]?[jt]sx?$/u;
+const PACKAGE_STORY_IMPORT = /^\.\/node_modules\/@pirate\/web-solid-ui\/src\/.+\.stories\.[cm]?[jt]sx?$/u;
+
 export function parseIndex(index) {
   if (!index || typeof index.entries !== "object" || !index.entries) {
     throw new Error("Missing Storybook index entries");
@@ -16,7 +19,7 @@ export function parseIndex(index) {
     if (
       typeof story.id !== "string" || !/^[a-z0-9_-]+$/iu.test(story.id) ||
       typeof story.importPath !== "string" ||
-      !/^\.\/src\/.+\.stories\.[cm]?[jt]sx?$/u.test(story.importPath) ||
+      !(APP_STORY_IMPORT.test(story.importPath) || PACKAGE_STORY_IMPORT.test(story.importPath)) ||
       ids.has(story.id)
     ) throw new Error("Malformed, duplicate or non-app story index entry");
     ids.add(story.id);
@@ -41,6 +44,84 @@ export function sizesFor(metadata, presets) {
   }
   if (requested.isRotated === true) [width, height] = [height, width];
   return [{ name: requested.value, width, height, global: requested }];
+}
+
+const reviewMode = (name, theme, direction, locale, colorScheme, viewports = "all") =>
+  Object.freeze({ name, theme, direction, locale, colorScheme, viewports });
+
+const ACCESSIBILITY_MODES = [
+  reviewMode("dark-ltr-en", "dark", "ltr", "en", "dark"),
+  reviewMode("dark-rtl-en", "dark", "rtl", "en", "dark"),
+  reviewMode("light-ltr-en", "light", "ltr", "en", "light"),
+  reviewMode("light-rtl-en", "light", "rtl", "en", "light"),
+];
+const LOCALE_MODES = ["en", "ar", "zh", "pseudo"].map((locale) =>
+  reviewMode("dark-auto-" + locale, "dark", "auto", locale, "dark", "desktop"));
+const SYSTEM_MODES = [
+  reviewMode("system-dark-ltr-en", "system", "ltr", "en", "dark"),
+  reviewMode("system-light-ltr-en", "system", "ltr", "en", "light"),
+];
+const SMOKE_MODES = [
+  reviewMode("dark-ltr-en", "dark", "ltr", "en", "dark"),
+  reviewMode("light-rtl-ar", "light", "rtl", "ar", "light"),
+  reviewMode("system-dark-rtl-zh", "system", "rtl", "zh", "dark"),
+  reviewMode("system-light-ltr-pseudo", "system", "ltr", "pseudo", "light"),
+];
+
+function uniqueModes(modes) {
+  const seen = new Set();
+  return modes.filter((mode) => {
+    const key = [mode.theme, mode.colorScheme, mode.direction, mode.locale, mode.viewports].join("/");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export const REVIEW_MATRICES = Object.freeze({
+  viewport: [],
+  accessibility: ACCESSIBILITY_MODES,
+  locales: LOCALE_MODES,
+  system: SYSTEM_MODES,
+  smoke: SMOKE_MODES,
+  full: uniqueModes([...ACCESSIBILITY_MODES, ...LOCALE_MODES, ...SYSTEM_MODES]),
+});
+
+export function reviewModesFor(name) {
+  if (!Object.hasOwn(REVIEW_MATRICES, name)) {
+    throw new Error("Unknown review matrix: " + name);
+  }
+  return REVIEW_MATRICES[name];
+}
+
+export function globalsFor(size, review) {
+  const parts = [
+    "theme:" + review.theme,
+    "direction:" + review.direction,
+    "locale:" + review.locale,
+  ];
+  if (size.viewportGlobal) {
+    parts.push("viewport.value:" + size.viewportGlobal.value +
+      (size.viewportGlobal.isRotated ? ";viewport.isRotated:!true" : ""));
+  }
+  return parts.join(";");
+}
+
+export function matrixFor(metadata, presets, matrixName) {
+  const reviews = reviewModesFor(matrixName);
+  const sizes = sizesFor(metadata, presets).map((size) => ({
+    ...size, viewportGlobal: size.global, global: null,
+  }));
+  if (!reviews.length) return sizes;
+  const localeSize = sizes.find((size) => size.name === "desktop") ?? sizes.at(-1);
+  return sizes.flatMap((size) => reviews
+    .filter((review) => review.viewports !== "desktop" || size === localeSize)
+    .map((review) => ({
+      ...size,
+      name: review.name + "-" + size.name,
+      review,
+      globals: globalsFor(size, review),
+    })));
 }
 
 export function classify(id, state, size, errors = []) {
@@ -107,6 +188,18 @@ export function summarize(run) {
     keys.length === expected.length &&
     new Set(keys).size === keys.length &&
     expected.every((key) => keys.includes(key));
+  const groupBy = (selector) => {
+    const groups = {};
+    for (const result of results) {
+      const key = selector(result) ?? "viewport";
+      const group = groups[key] ??= { loads: 0, failed: 0, violations: 0, incomplete: 0 };
+      group.loads += 1;
+      group.failed += result.passed === true ? 0 : 1;
+      group.violations += result.axe?.violations ?? 0;
+      group.incomplete += result.axe?.incomplete ?? 0;
+    }
+    return groups;
+  };
   return {
     passed: !run.startupError && complete && results.every((result) => result.passed === true),
     complete,
@@ -114,5 +207,11 @@ export function summarize(run) {
     recorded: results.length,
     failed: results.filter((result) => result.passed !== true).length,
     incompleteChecks: results.reduce((sum, result) => sum + (result.axe?.incomplete ?? 0), 0),
+    byMode: groupBy((result) => result.review?.name ?? result.size?.name),
+    byTheme: groupBy((result) => result.review
+      ? (result.review.theme === "system" ? "system-" + result.review.colorScheme : result.review.theme)
+      : "viewport"),
+    byDirection: groupBy((result) => result.review?.direction),
+    byLocale: groupBy((result) => result.review?.locale),
   };
 }
