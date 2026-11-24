@@ -20,7 +20,7 @@ import {
   IconBell,
   Type,
   cn,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 
 export interface SidebarItem {
   id: string;

@@ -3,7 +3,7 @@ import { SongContentFrame } from "../player/song-content-frame.tsx";
 // Exact extraction/adapter boundaries: docs/v1-shell-owner-correction-20261111.md.
 import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { CommunityAvatar, IconMusicNote, Type } from "../design-system.ts";
+import { CommunityAvatar, IconMusicNote, Type } from "../../design-system.ts";
 import { SongPlayer } from "./song-player.tsx";
 import {
   ContentOverflowMenu,

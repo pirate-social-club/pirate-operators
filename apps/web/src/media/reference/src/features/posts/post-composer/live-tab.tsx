@@ -13,7 +13,7 @@ import {
   Input,
   Switch,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import type { ComposerCopy } from "./copy.ts";
 import { FieldLabel, UploadField } from "./fields.tsx";
 import { isLiveVisibilityAllowedForAccess } from "./invariants.ts";

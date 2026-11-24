@@ -5,7 +5,7 @@
 // views after navigation. They take content and messages as props only: no
 // context, fetching or browser globals. Classes used here are frozen into
 // /public/document-v1.css, so changing them needs a new document version.
-import { Card, CardContent, CardHeader, Type } from "../ui.ts";
+import { Card, CardContent, CardHeader, Type } from "../design-system.ts";
 import { For, Show } from "solid-js";
 import type { PostSummary, PublicCommunity, PublicPost } from "../model.ts";
 import { paths } from "../model.ts";

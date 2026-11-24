@@ -1,7 +1,7 @@
 // Presentation primitives are the existing c7cb8783 vendored Solid UI. Routes,
 // account sign-in and global styling are supplied by the shell lane.
 import { Show } from "solid-js";
-import { Button, Type } from "../ui.ts";
+import { Button, Type } from "../design-system.ts";
 import type { TelegramConnectionView } from "./client.ts";
 
 export function TelegramAccountSettings(props: {

@@ -1,7 +1,7 @@
 // Rendering port of c7cb8783 src/routes/verify/very.tsx. Existing testnet intents/launch URLs replace centralized widget services.
 import { Show } from "solid-js";
 import type { VerificationIntent } from "../../../../../packages/rewards/contracts.ts";
-import { Button, Type } from "./design-system.ts";
+import { Button, Type } from "../../design-system.ts";
 
 export function VeryClaimPresentation(props: {
   intent: VerificationIntent;

@@ -26,7 +26,7 @@ import {
   Input,
   Spinner,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { looksLikeSongLink } from "./song-excerpt-link.ts";
 
 export interface SongPickerItem {

@@ -17,7 +17,7 @@ import {
   IconX,
   Type,
   cn,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 
 export type OriginalVideoCaptureStatus =
   | "idle"

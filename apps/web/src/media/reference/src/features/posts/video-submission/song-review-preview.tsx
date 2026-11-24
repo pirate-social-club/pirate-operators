@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { IconPlay, Type } from "../../../design-system.ts";
+import { IconPlay, Type } from "../../../../../../design-system.ts";
 import { type ExcerptBounds } from "../post-composer/song-excerpt.ts";
 
 /** The audio half of a local composed preview. Injected so a test can drive

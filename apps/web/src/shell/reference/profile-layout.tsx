@@ -2,7 +2,7 @@
 // Adapter differences: docs/v1-shell-owner-correction-20261111.md.
 import { For, Show } from "solid-js";
 import { getRequestEvent, type JSX } from "@solidjs/web";
-import { Type } from "../design-system.ts";
+import { Type } from "../../design-system.ts";
 // Settings are supplied by the community/MOSS adapter, not centralized services.
 
 export interface ProfileLayoutProps {

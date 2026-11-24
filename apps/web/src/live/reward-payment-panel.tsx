@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
+import { Button, Card, CardContent, CardHeader, Type } from "../design-system.ts";
 import { dollars, signRewardPayment } from "./reward-wallet.ts";
 import type { RewardPayment } from "../../../../packages/rewards/contracts.ts";
 import type { RewardsData } from "./rewards-data.ts";

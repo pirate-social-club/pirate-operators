@@ -2,7 +2,7 @@
 // Adapter differences: docs/v1-shell-owner-correction-20261111.md.
 // Central controls/captured identity: docs/v1-shell-player-controls-20261111.md.
 import { Show, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { Button, Type } from "../design-system.ts";
+import { Button, Type } from "../../design-system.ts";
 import { SongPlaybackControls } from "../player/playback-controls.tsx";
 import { mediaFacts, seekMedia } from "../player/media-state.ts";
 import { createPlaybackAccessCache } from "../player/access-cache.ts";

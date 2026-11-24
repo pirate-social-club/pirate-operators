@@ -8,7 +8,7 @@ import {
   MediaControlButton,
   Scrubber,
   Spinner,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 import { timeLabel } from "./media-state.ts";
 const controlClass =
   "relative border-transparent bg-transparent shadow-none before:absolute before:inset-0 before:rounded-full before:bg-primary before:shadow-sm hover:bg-transparent hover:before:bg-primary/90";

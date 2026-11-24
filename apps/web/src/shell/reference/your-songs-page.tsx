@@ -19,7 +19,7 @@ import {
   IconPlaylist,
   Input,
   Type,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 
 export interface LibrarySong {
   id: string;

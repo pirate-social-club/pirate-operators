@@ -20,7 +20,7 @@ import {
   TextFieldInput,
   TextFieldLabel,
   Type,
-} from "./design-system.ts";
+} from "../../design-system.ts";
 import {
   WalletPortResponseValidationError as ApiClientResponseValidationError,
   WalletPortInputError,

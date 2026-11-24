@@ -9,7 +9,7 @@ import {
   CardHeader,
   IconArrowsClockwise,
   Type,
-} from "./design-system.ts";
+} from "../../design-system.ts";
 import { WalletHub } from "./wallet-hub.tsx";
 import { WalletReceiveSheet } from "./wallet-receive-sheet.tsx";
 import { type PersonaWallet } from "./wallet-portfolio-model.ts";
