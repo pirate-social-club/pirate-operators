@@ -99,7 +99,7 @@ export function createOperatorKaraokePort(options: {
   });
   const unknownStart = () =>
     new Error(
-      "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
+      "We couldn't confirm this take started. Check its status before starting another.",
       { cause: originalStartFailure },
     );
   return {

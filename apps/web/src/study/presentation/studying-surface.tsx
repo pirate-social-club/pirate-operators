@@ -493,17 +493,25 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
   const complete = () => props.state.kind === "complete";
   const recordingBlocked = () => props.state.kind === "say_it_back" && props.state.phase === "blocked";
   // Results: one Continue back to the song, with "Study again" as the quiet option.
-  const primaryLabel = () => complete()
-    ? props.completeActionLabel
-      ?? (props.onExit ? "Continue" : props.onStudyAgain ? "Study again" : undefined)
-    : primaryActionLabel(props.state, props.sayItBackIdleLabel);
-  const primaryAction = () => complete()
-    ? props.completeActionLabel
-      ? props.onPrimaryAction
-      : props.onExit ?? props.onStudyAgain
-    : props.onPrimaryAction;
-  const primaryIcon = () => complete() ? undefined : primaryActionIcon(props.state);
-  const secondaryLabel = () => props.onStudyAgain && (recordingBlocked() || (complete() && props.onExit && !props.completeActionLabel)) ? "Study again" : undefined;
+  // Unknown recordings cannot resume this lesson: offer a new lesson or exit.
+  const primaryLabel = () => recordingBlocked()
+    ? props.onStudyAgain ? "Start new lesson" : undefined
+    : complete()
+      ? props.completeActionLabel
+        ?? (props.onExit ? "Continue" : props.onStudyAgain ? "Study again" : undefined)
+      : primaryActionLabel(props.state, props.sayItBackIdleLabel);
+  const primaryAction = () => recordingBlocked()
+    ? props.onStudyAgain
+    : complete()
+      ? props.completeActionLabel
+        ? props.onPrimaryAction
+        : props.onExit ?? props.onStudyAgain
+      : props.onPrimaryAction;
+  const primaryIcon = () => complete() || recordingBlocked() ? undefined : primaryActionIcon(props.state);
+  const secondaryLabel = () => recordingBlocked()
+    ? props.onExit ? "Leave Study" : undefined
+    : props.onStudyAgain && (complete() && props.onExit && !props.completeActionLabel) ? "Study again" : undefined;
+  const secondaryAction = () => recordingBlocked() ? props.onExit : props.onStudyAgain;
 
   return (
     <section class={cn("flex h-dvh w-full flex-col overflow-y-auto border border-border-soft bg-background text-foreground", props.class)}>
@@ -527,12 +535,12 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
       <Body onOptionSelect={props.onOptionSelect} rewardSlot={props.rewardSlot} state={props.state} />
       <ActivityFooter
         onPrimaryAction={primaryAction()}
-        onSecondaryAction={props.onStudyAgain}
+        onSecondaryAction={secondaryAction()}
         primaryDisabled={primaryActionDisabled(props.state)}
         primaryIcon={primaryIcon()}
         primaryLabel={primaryLabel()}
         primaryVariant={primaryActionVariant(props.state)}
-        secondaryIcon={<IconArrowCounterClockwise class="size-5" />}
+        secondaryIcon={recordingBlocked() ? <IconX class="size-5" /> : <IconArrowCounterClockwise class="size-5" />}
         results={complete()}
         secondaryLabel={secondaryLabel()}
       />

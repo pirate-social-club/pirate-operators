@@ -583,7 +583,7 @@ async function reachExpired(
     );
     expect(node).not.toBeNull();
     expect(node!.textContent?.replace(/\s+/g, " ")).toContain(
-      "1 of 4 cards resolved.",
+      "You finished 1 of 4 cards.",
     );
     return node!;
   });
@@ -634,7 +634,7 @@ test.each(["503", "committed-body-lost"] as const)(
       originalRegion,
     );
     expect(originalRegion.textContent?.replace(/\s+/g, " ")).toContain(
-      "1 of 4 cards resolved.",
+      "You finished 1 of 4 cards.",
     );
     expect(seen).toEqual([lessonA, lessonA, lessonA]);
     expect(JSON.stringify(api.expired)).toBe(api.expiredBytes);
@@ -715,7 +715,7 @@ test.each(["account-refusal", "disposed"] as const)(
       expect(
         host.querySelector('[aria-label="Expired Study session"]'),
       ).toBeNull();
-      expect(host.textContent).not.toContain("1 of 4 cards resolved.");
+      expect(host.textContent).not.toContain("You finished 1 of 4 cards.");
       expect(host.textContent).not.toContain("First account private line");
       expect(
         [...host.querySelectorAll("button")].some(

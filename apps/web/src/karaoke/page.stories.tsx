@@ -72,7 +72,7 @@ function storyPort(
     ticket: async () => {
       if (state === "unknown")
         throw new globalThis.Error(
-          "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
+          "We couldn't confirm this take started. Check its status before starting another.",
         );
       return {
         ticketId: "story-ticket",
@@ -169,7 +169,7 @@ export const StartUnknown: Story = {
       await canvas.findByRole("button", { name: "Start karaoke" }),
     );
     await expect(
-      await canvas.findByText(/couldn't confirm this take's start/),
+      await canvas.findByText(/couldn't confirm this take started/),
     ).toBeVisible();
     await expect(
       canvas.getByRole("button", { name: "Check status" }),

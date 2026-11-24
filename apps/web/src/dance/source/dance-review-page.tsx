@@ -491,7 +491,7 @@ export function DanceReviewPage(props: {
           <Show when={view().result.kind === "review" && danceReviewEditable(view().result)}>
             <Button variant="secondary" class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => setConfirmCancel(true)}>Cancel review</Button>
           </Show>
-          <Show when={!postingAllowed() && view().result.state === "uploaded" && !privatePractice()}><p class="text-sm">Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
+          <Show when={!postingAllowed() && view().result.state === "uploaded" && !privatePractice()}><p class={`text-sm ${fullMedia() ? "text-white" : ""}`}>Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
           <Show when={expired() || view().result.state !== "uploaded" || privatePractice()}><Button class="h-12 w-full rounded-xl" variant="secondary" disabled={privatePractice() && busy()} onClick={() => privatePractice() ? void finishPrivate() : provided.onBack()}>Done</Button></Show>
         </>}</Show>
       </footer>

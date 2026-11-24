@@ -94,9 +94,11 @@ export const Playing: Story = {
 export const Buffering: Story = {
   args: { buffering: true },
   play: async ({ canvasElement }) => {
-    await expect(
-      within(canvasElement).getByRole("button", { name: "Loading Catalog preview" }),
-    ).toBeDisabled();
+    const control = within(canvasElement).getByRole("button", {
+      name: "Play Catalog preview",
+    });
+    await expect(control).toBeEnabled();
+    await expect(control).toHaveAttribute("aria-busy", "true");
   },
 };
 

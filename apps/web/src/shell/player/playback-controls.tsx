@@ -38,15 +38,11 @@ export function SongPlaybackControls(props: {
     <div class="col-span-full row-start-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[2.75rem_auto] gap-x-3 sm:col-span-1 sm:col-start-2 sm:self-start">
       <div class="row-start-1 flex shrink-0 items-center">
         <MediaControlButton
-          aria-label={
-            props.buffering
-              ? `Loading ${props.title}`
-              : `${props.playing ? "Pause" : "Play"} ${props.title}`
-          }
+          aria-label={`${props.playing ? "Pause" : "Play"} ${props.title}`}
+          aria-busy={props.buffering ? "true" : "false"}
           class={controlClass}
           onClick={() => (props.playing ? props.onPause() : props.onPlay())}
           size="lg"
-          disabled={props.buffering}
         >
           <Show
             when={!props.buffering}

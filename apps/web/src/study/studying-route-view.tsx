@@ -772,12 +772,10 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                     Study session expired
                   </Type>
                   <Type as="p" variant="body">
-                    Your progress is saved. Start a new lesson when you're
-                    ready.
-                  </Type>
-                  <Type as="p" variant="body">
-                    {loaded.resolved_count ?? 0} of {loaded.served_count ?? 0}{" "}
-                    cards resolved.
+                    {loaded.resolved_count !== undefined &&
+                    loaded.served_count !== undefined
+                      ? `You finished ${loaded.resolved_count} of ${loaded.served_count} cards. This lesson is closed; start a new lesson when you're ready.`
+                      : "This lesson is closed. Start a new lesson when you're ready."}
                   </Type>
                   <Show when={restartError()}>
                     <Type
