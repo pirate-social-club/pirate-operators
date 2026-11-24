@@ -5,7 +5,9 @@ import {
   type DanceStoryMode,
 } from "../../test/dance-story-fixtures.tsx";
 export default {
-  title: "Flows/Dance/Recording",
+  title: "Dance/Flows/Recording",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   parameters: {
     layout: "fullscreen",
     viewport: {

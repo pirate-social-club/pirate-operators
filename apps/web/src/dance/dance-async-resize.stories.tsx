@@ -1,7 +1,9 @@
 import { DanceAsyncResizeStory } from "../../test/dance-async-resize-story-fixtures.tsx";
 
 export default {
-  title: "Flows/Dance/Async resize repair",
+  title: "Dance/Flows/Async resize repair",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   globals: { viewport: { value: "dancePhone" } },
   parameters: {
     layout: "fullscreen",

@@ -36,7 +36,9 @@ function ShellFixture(props: {
 }
 
 const meta = {
-  title: "Screens/Shell/Community app shell",
+  title: "Shell/Screens/Community app shell",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["screen"],
   component: ShellFixture,
   args: { signedIn: false, ready: true, busy: false, onSignIn: fn() },
   render: (args) => <ShellFixture {...args} />,

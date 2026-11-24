@@ -57,7 +57,9 @@ function PortfolioFixture(props: {
 }
 
 const meta = {
-  title: "Screens/Wallet/Portfolio",
+  title: "Wallet/Screens/Portfolio",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["screen"],
   component: PortfolioFixture,
   args: { loading: false, unavailable: false, empty: false, onRefresh: fn() },
   render: (args) => <PortfolioFixture {...args} />,

@@ -9,7 +9,9 @@ import { KaraokePracticeSurface } from "./practice-surface.tsx";
 import { storyArtworkSrc, storyStageLines } from "./story-fixtures.ts";
 
 const meta = {
-  title: "Flows/Karaoke/Practice",
+  title: "Karaoke/Flows/Practice",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   component: KaraokePracticeSurface,
   // Bind the owned lyric fixture directly instead of sending its array through args.
   render: (args) => (

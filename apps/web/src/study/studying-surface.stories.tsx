@@ -13,7 +13,9 @@ import {
 } from "./studying-story-fixtures";
 
 const meta = {
-  title: "Flows/Studying/Session",
+  title: "Studying/Flows/Session",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   parameters: {
     layout: "fullscreen",
     // Fragment tier: this surface renders below page level. In the real app
