@@ -711,18 +711,20 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     });
 
   return (
-    <Show
-      when={!authRequired()}
-      fallback={
-        <StudyAuthRequiredState
-          ctaLabel="Sign in"
-          description={authDescription()}
-          onConnect={props.onConnect}
-          onExit={props.onExit}
-          title="Sign in to study"
-        />
-      }
-    >
+    <main class="min-h-dvh bg-background text-foreground">
+      <h1 class="sr-only">Study session</h1>
+      <Show
+        when={!authRequired()}
+        fallback={
+          <StudyAuthRequiredState
+            ctaLabel="Sign in"
+            description={authDescription()}
+            onConnect={props.onConnect}
+            onExit={props.onExit}
+            title="Sign in to study"
+          />
+        }
+      >
       <Show
         when={payload()}
         keyed
@@ -766,7 +768,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                   class="mx-auto flex min-h-dvh w-full max-w-xl flex-col gap-6 px-5 py-8"
                   aria-label="Expired Study session"
                 >
-                  <Type as="h1" variant="h1">
+                  <Type as="h2" variant="h2">
                     Study session expired
                   </Type>
                   <Type as="p" variant="body">
@@ -815,5 +817,6 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
         )}
       </Show>
     </Show>
+    </main>
   );
 }

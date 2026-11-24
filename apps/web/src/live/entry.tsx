@@ -831,13 +831,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     window.removeEventListener("pageshow", recheckDanceSession);
     document.removeEventListener("visibilitychange", recheckDanceSession);
   });
-  const pageOwnsLegalLinks = () =>
-    !walletPage &&
-    !practiceOpen() &&
-    (view() === "settings" ||
-      (view() === "account" &&
-        !publicProfileAuthor(fragment()) &&
-        profileIntegration.state().view.kind === "anonymous"));
   return (
     <CommunityAppShell
       name={name()}
@@ -853,7 +846,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       busy={busy() || settling()}
       canSignIn={capabilities()?.signIn === true}
       accountSeed={session()?.mossAddress}
-      composing={view() === "publish"}
+      composing={view() === "publish" && !!session() && session()?.publisher === true}
       onSignIn={() => void run(signIn)}
     >
       <Show when={membershipSupported()}><ChooseHandle
@@ -996,6 +989,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           canSignIn={capabilities()?.signIn === true}
           canSignOut={!!session() && !settling()}
           walletAvailable={capabilities()?.rewards === true}
+          canChooseName={shellMembership()?.canChooseName === true}
+          chooseName={() => shellMembership()?.chooseName()}
+          learningPolicy={capabilities()?.learningPolicy}
           services={{
             privateHistory: savedKaraokeHistory.available()
               ? savedKaraokeHistory.download
@@ -1091,39 +1087,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
             />
           )}
         </MountedCommunityProfiles>
-      </Show>
-      {/* Normal site navigation: the documents stay reachable while signed
-          in, outside the Study and Karaoke overlays. */}
-      <Show when={!pageOwnsLegalLinks() || capabilities()?.learningPolicy}>
-        <footer
-          class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
-          inert={practiceOpen()}
-        >
-          <nav class="live-footer-links" aria-label="Community documents">
-            <Show when={!pageOwnsLegalLinks()}>
-              <a href="/terms" target="_blank" rel="noopener">
-                Terms
-              </a>
-              <a href="/privacy" target="_blank" rel="noopener">
-                Privacy
-              </a>
-            </Show>
-            {/* The learning documents of the community's own version, V3 or
-                V4; exercise surfaces carry no links in any mode. */}
-            <Show when={capabilities()?.learningPolicy}>
-              {(policy) => (
-                <>
-                  <a href={policy().termsUrl} target="_blank" rel="noopener">
-                    Learning terms
-                  </a>
-                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
-                    Learning privacy
-                  </a>
-                </>
-              )}
-            </Show>
-          </nav>
-        </footer>
       </Show>
     </CommunityAppShell>
   );

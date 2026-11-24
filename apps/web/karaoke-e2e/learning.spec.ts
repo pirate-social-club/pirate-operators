@@ -200,9 +200,10 @@ test("one enrollment sponsors repeated terminal publications and history export"
   await page.goto("/?learner=8");
   await connectLearner(page, 8);
   await openPublishedKaraoke(page);
-  await expect(
-    page.getByRole("status", { name: "Loading karaoke" }),
-  ).toBeVisible();
+  // The loading main keeps its label with live-region semantics on
+  // aria-live since the 2026-11-22 landmark fix; role=status on a main
+  // element would erase its landmark role.
+  await expect(page.getByLabel("Loading karaoke", { exact: true })).toBeVisible();
   await capture("loading");
   releaseSong();
   await expect(

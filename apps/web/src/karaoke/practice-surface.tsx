@@ -154,7 +154,7 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
   onCleanup(() => { clearInterval(clockTimer); playbackRenewal?.dispose(); props.onPlaybackElement?.(null); disposed = true; playRequest += 1; audioRef.current?.pause(); });
 
   return (
-    <section aria-label={props.title} class="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
+    <main aria-label={props.title} class="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
       <h1 class="sr-only">{props.title}</h1>
       {/* A finished take needs no exit arrow or progress bar; Continue leaves. */}
       <Show when={!ended()}>
@@ -273,6 +273,6 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
           </div>
         </footer>
       </Show>
-    </section>
+    </main>
   );
 }

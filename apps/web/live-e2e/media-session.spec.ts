@@ -214,10 +214,25 @@ for (const width of [1440, 390])
       });
       try {
         await page.goto(origin + "/#/publish");
-        await page
-          .getByRole("button", { name: "Sign in", exact: true })
-          .first()
-          .click();
+        if (width === 390) {
+          // The 2026-11-21 owner ruling keeps the mobile banner to one
+          // trailing control; the mobile sign-in path runs through the
+          // footer profile tab to the account page, then back to publish.
+          await page
+            .getByRole("button", { name: "Profile", exact: true })
+            .first()
+            .click();
+          await page
+            .getByRole("button", { name: "Sign in", exact: true })
+            .first()
+            .click();
+          await page.goto(origin + "/#/publish");
+        } else {
+          await page
+            .getByRole("button", { name: "Sign in", exact: true })
+            .first()
+            .click();
+        }
         const retry = page.locator(".live-status.live-error + button");
         await expect(retry).toHaveText("Try again");
         await expect(retry).toBeEnabled();
@@ -279,9 +294,17 @@ for (const width of [1440, 390])
           .poll(() => page.evaluate(() => window.__ownerSessionCase.headers))
           .toBe(1);
         await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
-        await expect(
-          page.getByRole("button", { name: "Sign in", exact: true }).first(),
-        ).toBeVisible();
+        if (width === 390) {
+          // The masked denial restores the anonymous chrome; on mobile the
+          // sign-in path is the footer profile tab.
+          await expect(
+            page.getByRole("button", { name: "Profile", exact: true }).first(),
+          ).toBeVisible();
+        } else {
+          await expect(
+            page.getByRole("button", { name: "Sign in", exact: true }).first(),
+          ).toBeVisible();
+        }
         expect(
           await page.evaluate(() => window.__ownerSessionCase.bodyReads),
         ).toBe(0);

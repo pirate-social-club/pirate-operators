@@ -520,9 +520,9 @@ export async function home(page: Page) {
   const name = await sidebar.getAttribute("aria-label");
   if (!name?.trim()) throw new Error("Expected a named community sidebar");
   await sidebar.getByRole("button", { name: `Go home to ${name}`, exact: true }).click();
-  await expect(
-    page.getByRole("navigation", { name: "Community documents" }),
-  ).toBeVisible();
+  // The 2026-11-21 owner ruling removed the site footer's document links;
+  // the community page shell is the proof of being back at the app.
+  await expect(page.locator("[data-community-page]")).toBeVisible();
 }
 export async function openSong(page: Page) {
   await home(page);

@@ -36,6 +36,14 @@ export interface CommunityAccountProps {
   /** Existing authenticated session can log out while profile/config reads fail. */
   canSignOut?: boolean;
   walletAvailable: boolean;
+  /** The deferred community-naming entry from the membership integration. */
+  canChooseName?: boolean;
+  chooseName?: () => void;
+  /** The community's learning policy documents for the settings page. */
+  learningPolicy?: {
+    termsUrl: string;
+    privacyUrl: string;
+  };
   services?: ProfileSettingsServices;
 }
 const publicHref = (id: string) => `/#profile-${id}`;
@@ -238,6 +246,15 @@ export function CommunityProfilePage(
             }
             settingsControl={
               <Show when={owns()}>
+                <Show when={props.canChooseName}>
+                  <Button
+                    variant="outline"
+                    class="w-full rounded-lg bg-transparent"
+                    onClick={() => props.chooseName?.()}
+                  >
+                    Get a name
+                  </Button>
+                </Show>
                 <a
                   class={buttonVariants({
                     variant: "outline",

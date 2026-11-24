@@ -160,6 +160,14 @@ export function CommunityAccountSettings(
                       Wallet
                     </Button>
                   </Show>
+                  <Show when={props.canChooseName}>
+                    <Button
+                      variant="outline"
+                      onClick={() => props.chooseName?.()}
+                    >
+                      Choose your name
+                    </Button>
+                  </Show>
                   {props.services?.telegram?.()}
                 </div>
                 <Show when={props.services?.privateHistory}>
@@ -211,10 +219,36 @@ export function CommunityAccountSettings(
           </CardContent>
         </Card>
       </Show>
-      <div class="flex gap-4">
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-      </div>
+      <Card>
+        <CardContent class="flex flex-col gap-2 p-5">
+          <Type as="h2" variant="h3">
+            Community documents
+          </Type>
+          <nav
+            aria-label="Community documents"
+            class="flex flex-col items-start gap-2 py-1 text-sm text-muted-foreground"
+          >
+            <a href="/terms" target="_blank" rel="noopener">
+              Terms
+            </a>
+            <a href="/privacy" target="_blank" rel="noopener">
+              Privacy
+            </a>
+            <Show when={props.learningPolicy}>
+              {(policy) => (
+                <>
+                  <a href={policy().termsUrl} target="_blank" rel="noopener">
+                    Learning terms
+                  </a>
+                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                    Learning privacy
+                  </a>
+                </>
+              )}
+            </Show>
+          </nav>
+        </CardContent>
+      </Card>
     </main>
   );
 }

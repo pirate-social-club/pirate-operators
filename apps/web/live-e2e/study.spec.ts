@@ -84,7 +84,7 @@ test("an inconsistent disclosure cannot prompt a signature or start a Study less
   expect(state.counts.starts).toBe(0);
 });
 
-test("a V3 community's footer links the V3 learning documents while the Study surface links none", async ({
+test("a V3 community's settings link the V3 learning documents while the Study surface links none", async ({
   page,
 }) => {
   const state = await serveStudy(page);
@@ -94,8 +94,13 @@ test("a V3 community's footer links the V3 learning documents while the Study su
     page.locator(".live-study-overlay").getByRole("link"),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Exit study" }).click();
-  const footer = page.getByRole("navigation", { name: "Community documents" });
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
+  // The 2026-11-21 owner ruling removed the site footer's document links;
+  // the settings page owns the community's own document set.
+  await openSettings(page);
+  const documents = page.getByRole("navigation", {
+    name: "Community documents",
+  });
+  await expect(documents).toBeVisible();
   for (const [name, href] of [
     ["Terms", "/terms"],
     ["Privacy", "/privacy"],
@@ -103,7 +108,7 @@ test("a V3 community's footer links the V3 learning documents while the Study su
     ["Learning privacy", "/learning/v3/privacy"],
   ] as const)
     await expect(
-      footer.getByRole("link", { name, exact: true }),
+      documents.getByRole("link", { name, exact: true }),
     ).toHaveAttribute("href", href);
   // Only the community's own version is linked.
   await expect(page.locator('a[href^="/learning/v4/"]')).toHaveCount(0);

@@ -7,9 +7,16 @@ export interface KaraokeRouteLoadingStateProps {
 
 export function KaraokeRouteLoadingState(props: KaraokeRouteLoadingStateProps) {
   return (
-    <div aria-busy="true" aria-label={props.label ?? "Loading"} class="grid min-h-dvh w-full place-items-center bg-background text-foreground" role="status">
+    <main
+      aria-busy="true"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={props.label ?? "Loading"}
+      class="grid min-h-dvh w-full place-items-center bg-background text-foreground"
+    >
+      <h1 class="sr-only">{props.label ?? "Loading"}</h1>
       <Spinner class="size-6" decorative />
-    </div>
+    </main>
   );
 }
 

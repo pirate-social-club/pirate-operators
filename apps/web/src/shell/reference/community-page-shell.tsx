@@ -495,14 +495,6 @@ export function CommunityPageShell(props: CommunityPageShellProps) {
                         · {formatCount(community().followers!)} followers
                       </span>
                     </Show>
-                    <span
-                      class={props.joined === true ? "" : "invisible"}
-                      data-community-membership-status
-                      aria-hidden={props.joined === true ? undefined : "true"}
-                    >
-                      {" "}
-                      · Member
-                    </span>
                   </Type>
                 </div>
               </div>
