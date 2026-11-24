@@ -179,6 +179,38 @@ export function classify(id, state, size, errors = []) {
   };
 }
 
+export function summarizeAccessibilityRules(results) {
+  const groups = { violations: {}, incomplete: {} };
+  for (const result of results) {
+    const finish = (result.raw?.events ?? []).find((event) =>
+      event.name === "storyFinished" && event.storyId === result.id);
+    const axe = (finish?.payload?.reporters ?? []).find((reporter) =>
+      reporter?.type === "a11y")?.result;
+    if (!axe) continue;
+    for (const kind of ["violations", "incomplete"]) {
+      for (const finding of axe[kind] ?? []) {
+        const id = finding.id ?? "unknown";
+        const group = groups[kind][id] ??= {
+          count: 0,
+          nodes: 0,
+          examples: [],
+        };
+        group.count += 1;
+        group.nodes += Array.isArray(finding.nodes) ? finding.nodes.length : 0;
+        if (group.examples.length < 8) {
+          group.examples.push({
+            storyId: result.id,
+            mode: result.review?.name ?? result.size?.name ?? "viewport",
+            targets: (finding.nodes ?? []).slice(0, 5).map((node) => node.target),
+            summary: finding.description ?? finding.help ?? null,
+          });
+        }
+      }
+    }
+  }
+  return groups;
+}
+
 export function summarize(run) {
   const expected = run.expected ?? [];
   const results = run.results ?? [];
@@ -213,5 +245,6 @@ export function summarize(run) {
       : "viewport"),
     byDirection: groupBy((result) => result.review?.direction),
     byLocale: groupBy((result) => result.review?.locale),
+    rules: summarizeAccessibilityRules(results),
   };
 }

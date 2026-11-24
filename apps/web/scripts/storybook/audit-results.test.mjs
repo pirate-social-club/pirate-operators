@@ -149,6 +149,41 @@ test("summary retains per-mode, theme, direction and locale accessibility counts
   assert.deepEqual(summary.byMode["dark-ltr-en"], { loads: 1, failed: 0, violations: 0, incomplete: 1 });
 });
 
+test("rule summary retains exact axe rule, story, mode and target evidence", () => {
+  const state = evidence();
+  state.events[0].payload.reporters[0].result.violations.push({
+    id: "color-contrast",
+    description: "Insufficient contrast",
+    nodes: [{ target: ["button"] }],
+  });
+  state.events[0].payload.reporters[0].result.incomplete.push({
+    id: "aria-hidden-focus",
+    description: "Needs review",
+    nodes: [{ target: ["a"] }],
+  });
+  const result = {
+    key: "screen--ready@light-rtl-ar",
+    id: "screen--ready",
+    passed: false,
+    size: { name: "light-rtl-ar" },
+    review: { name: "light-rtl-ar" },
+    raw: state,
+    axe: { violations: 1, passes: 1, incomplete: 1 },
+  };
+  const summary = summarize({ expected: [result.key], results: [result] });
+  assert.deepEqual(summary.rules.violations["color-contrast"], {
+    count: 1,
+    nodes: 1,
+    examples: [{
+      storyId: "screen--ready",
+      mode: "light-rtl-ar",
+      targets: [["button"]],
+      summary: "Insufficient contrast",
+    }],
+  });
+  assert.equal(summary.rules.incomplete["aria-hidden-focus"].count, 1);
+});
+
 // Orchestration regressions exercise the same capture/finalize helper used
 // by runStory. All ports below are explicit simulations, not a real browser.
 function observationScenario() {
