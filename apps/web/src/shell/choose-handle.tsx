@@ -2,7 +2,7 @@ import { Show, createEffect, createSignal, createUniqueId } from "solid-js";
 import {
   Modal, ModalContent, ModalDescription, ModalHeader, ModalTitle,
 } from "@/patterns/overlays/modal/modal";
-import { Button, Input } from "./design-system.ts";
+import { Button, Input } from "../design-system.ts";
 import {
   acceptedJoin, canonicalMemberLabel, memberNameRecoveryCopy, type MembershipState,
 } from "./community-membership.ts";

@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   IconDotsThree,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 
 export interface ContentAction {
   readonly label: string;

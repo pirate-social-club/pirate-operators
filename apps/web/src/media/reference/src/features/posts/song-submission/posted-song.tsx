@@ -14,7 +14,7 @@ import {
   Type,
   buttonVariants,
   cn,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { createPhoneLayout } from "../../shell/composing-surface.tsx";
 import { PendingSongs } from "./pending-songs.tsx";
 import type { SongSubmissionItem } from "./song-submission-store.tsx";

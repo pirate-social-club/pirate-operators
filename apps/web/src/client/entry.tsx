@@ -1,6 +1,6 @@
 // Client entry: mounts into the empty shell and action roots of a generated
 // document, and owns #public-content only after the reader navigates.
-import { Button } from "../ui.ts";
+import { Button } from "../design-system.ts";
 import { render } from "@solidjs/web";
 import { createSignal, Show, type Accessor } from "solid-js";
 import { CommunityContent, NotFoundContent, PostContent, RemovedContent, type ContentLabels } from "../document/content.tsx";

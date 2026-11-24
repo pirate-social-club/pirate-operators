@@ -6,7 +6,7 @@ import {
   onSettled,
   onCleanup,
 } from "solid-js";
-import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
+import { Button, Card, CardContent, CardHeader, Type } from "../design-system.ts";
 import {
   rewardsData,
   type RewardOperatorView,

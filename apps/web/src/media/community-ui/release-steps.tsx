@@ -10,7 +10,7 @@ import {
   RadioGroupItem,
   Type,
   cn,
-} from "../reference/src/design-system.ts";
+} from "../../design-system.ts";
 import type { PostComposerController } from "../reference/src/features/posts/post-composer/controller.ts";
 import type {
   PostComposerProps,

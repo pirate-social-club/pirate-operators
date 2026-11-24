@@ -5,8 +5,8 @@
 import type { JSX } from "@solidjs/web";
 import { For, Show, type ParentProps } from "solid-js";
 
-import { Button, CardContent, FormNote, Type } from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+import { Button, CardContent, FormNote, Type } from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import { basisPointsToPercentText } from "../media-submission/contracts.ts";
 import type { ComposerSteps } from "./composer-steps.ts";
 import type { PostComposerController } from "./controller.ts";

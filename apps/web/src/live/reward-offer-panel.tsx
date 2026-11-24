@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onCleanup } from "solid-js";
-import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
+import { Button, Card, CardContent, CardHeader, Type } from "../design-system.ts";
 import { dollars } from "./reward-wallet.ts";
 import type { RewardOperatorView, RewardsData } from "./rewards-data.ts";
 import { closeAvailability } from "../wallet/close-readiness.ts";

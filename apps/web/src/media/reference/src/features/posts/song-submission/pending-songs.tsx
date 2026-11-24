@@ -7,7 +7,7 @@ import {
   CommunityAvatar,
   IconMusicNote,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import type { SongSubmissionView } from "../media-submission/projection.ts";
 import type { SongSubmissionItem } from "./song-submission-store.tsx";
 

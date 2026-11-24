@@ -20,7 +20,7 @@ import {
   IconButton,
   Type,
   createMediaQuery,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 import {
   CommunityMoreMenu,
   shareCommunityLink,

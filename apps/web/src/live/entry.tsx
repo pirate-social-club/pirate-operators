@@ -5,7 +5,7 @@ import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
-import { Button } from "../ui.ts";
+import { Button } from "../design-system.ts";
 import {
   get,
   post,

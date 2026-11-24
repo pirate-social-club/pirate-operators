@@ -3,7 +3,7 @@
 
 import { Show } from "solid-js";
 
-import { Input, Type } from "../../../design-system.ts";
+import { Input, Type } from "../../../../../../design-system.ts";
 import { FieldLabel } from "./fields.tsx";
 import type { DownloadFileComposerState } from "./types.ts";
 

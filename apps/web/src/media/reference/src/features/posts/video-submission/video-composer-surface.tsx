@@ -7,7 +7,7 @@ import {
   FormNote,
   MobilePageHeader,
   Spinner,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { SongExcerptComposer } from "../post-composer/song-excerpt-composer.tsx";
 import {
   OriginalVideoCaptureSurface,
