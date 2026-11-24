@@ -8,7 +8,7 @@ import {
   ModalHeader,
   ModalTitle,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import type { PostComposerController } from "./controller.ts";
 import { FieldLabel } from "./fields.tsx";
 

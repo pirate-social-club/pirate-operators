@@ -9,7 +9,7 @@ import {
   IconPlus,
   Type,
   cn,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 import {
   communityNavigationSections,
   type CommunityNavigationState,

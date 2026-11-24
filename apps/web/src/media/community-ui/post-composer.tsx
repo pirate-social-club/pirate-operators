@@ -6,7 +6,7 @@ import {
   IconX,
   Type,
   cn,
-} from "../reference/src/design-system.ts";
+} from "../../design-system.ts";
 import { createComposerSteps } from "../reference/src/features/posts/post-composer/composer-steps.ts";
 import { PostComposerRequiredSheet } from "../reference/src/features/posts/post-composer/required-post-sheet.tsx";
 import { PublishButton } from "../reference/src/features/posts/post-composer/submit-actions.tsx";

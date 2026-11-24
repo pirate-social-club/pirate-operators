@@ -9,7 +9,7 @@ import {
   onCleanup,
   onSettled,
 } from "solid-js";
-import { Button, Type } from "../design-system.ts";
+import { Button, Type } from "../../design-system.ts";
 import { CommunityPostCard } from "./community-post-card.tsx";
 import type { CommunityPost } from "./community-model.ts";
 import type { ContentAction } from "./content-overflow-menu.tsx";

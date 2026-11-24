@@ -19,7 +19,7 @@ import type {
   KaraokeLineFeedback as LineFeedback,
 } from "../api-contract.ts";
 import { useKaraokeCapture } from "./use-karaoke-capture.ts";
-import { Button } from "../ui.ts";
+import { Button } from "../design-system.ts";
 import {
   KaraokeAuthRequiredState,
   KaraokeRouteLoadingState,

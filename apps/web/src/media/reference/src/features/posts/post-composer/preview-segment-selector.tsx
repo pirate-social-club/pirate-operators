@@ -3,7 +3,7 @@ import {
   IconPause,
   IconPlay,
   Scrubber,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { PostComposerField } from "./fields.tsx";
 import {
   type ExcerptBounds,

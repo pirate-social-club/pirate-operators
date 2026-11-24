@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
 
-import { Card, IconButton, IconX, Type, cn } from "../../../design-system.ts";
+import { Card, IconButton, IconX, Type, cn } from "../../../../../../design-system.ts";
 import { createComposerSteps } from "./composer-steps.ts";
 import { PostComposerRequiredSheet } from "./required-post-sheet.tsx";
 import { PublishButton } from "./submit-actions.tsx";

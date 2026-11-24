@@ -12,8 +12,8 @@ import {
   ModalTitle,
   Textarea,
   Type,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import { PostComposerGenericAssetFields } from "./generic-asset-fields.tsx";
 import {
   PostComposerDesktopAttachmentToolbar,

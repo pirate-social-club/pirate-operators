@@ -1,6 +1,6 @@
 // Independently ported 2026-11-11; exact source/blob and adaptations: docs/v1-wallet-owner-parity-20261111.md.
 import { For, Show, createSignal, onSettled } from "solid-js";
-import { Button, Type } from "./design-system.ts";
+import { Button, Type } from "../../design-system.ts";
 import type {
   ClaimOutcome,
   RewardCredit,

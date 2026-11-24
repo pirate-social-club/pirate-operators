@@ -9,8 +9,8 @@ import {
   IconImage,
   IconX,
   Textarea,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 
 export function FieldLabel(props: {
   label: string;

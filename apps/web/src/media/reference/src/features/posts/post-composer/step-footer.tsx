@@ -15,8 +15,8 @@ import {
   IconButton,
   IconX,
   Type,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import type { ComposerSteps } from "./composer-steps.ts";
 import { animateComposerBarEnter } from "./composer-motion.ts";
 import type { PostComposerController } from "./controller.ts";

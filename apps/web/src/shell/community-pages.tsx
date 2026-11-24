@@ -13,7 +13,7 @@ import {
   MobilePageHeader,
   Type,
   buttonVariants,
-} from "./design-system.ts";
+} from "../design-system.ts";
 import { CommunityPageShell } from "./reference/community-page-shell.tsx";
 import { CommunityPostCard } from "./reference/community-post-card.tsx";
 import { ProfileLayout } from "./reference/profile-layout.tsx";

@@ -17,8 +17,8 @@ import {
   Input,
   Textarea,
   Type,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import {
   PUBLIC_SONG_LYRICS_MAX_CHARACTERS,
   publicSongAudioIssue,

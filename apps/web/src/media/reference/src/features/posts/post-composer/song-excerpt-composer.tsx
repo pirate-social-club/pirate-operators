@@ -12,7 +12,7 @@ import {
   IconMusicNote,
   Spinner,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { PostComposerExcerptSelector } from "./preview-segment-selector.tsx";
 import {
   canHoldExcerpt,

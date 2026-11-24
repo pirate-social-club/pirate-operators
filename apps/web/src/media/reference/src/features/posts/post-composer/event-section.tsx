@@ -13,8 +13,8 @@ import {
   IconVideoCamera,
   Input,
   Type,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import { FieldLabel } from "./fields.tsx";
 import type { ComposerEventPlace, ComposerEventState } from "./types.ts";
 

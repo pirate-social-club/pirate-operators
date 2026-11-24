@@ -15,8 +15,8 @@ import {
   IconMusicNote,
   IconPlus,
   IconVideoCamera,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import type { AttachmentAction, AttachmentActionIcon } from "./defaults.ts";
 import type { ComposerToolbarAction } from "./types.ts";
 

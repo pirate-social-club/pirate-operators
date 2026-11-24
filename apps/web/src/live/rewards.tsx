@@ -5,7 +5,7 @@ import {
   Card,
   CardContent,
   Type,
-} from "../wallet/established/design-system.ts";
+} from "../design-system.ts";
 import { WalletPortfolio } from "../wallet/established/wallet-portfolio.tsx";
 import { WalletWinnings } from "../wallet/established/wallet-winnings.tsx";
 import { VeryClaimPresentation } from "../wallet/established/very-claim-presentation.tsx";

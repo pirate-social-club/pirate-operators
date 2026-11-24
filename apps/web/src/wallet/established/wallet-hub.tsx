@@ -10,7 +10,7 @@ import {
   IconArrowUp,
   IconWallet,
   Type,
-} from "./design-system.ts";
+} from "../../design-system.ts";
 import { buildWalletHubView } from "./wallet-hub-view-model.ts";
 import type { WalletHubChainSection, WalletHubProps } from "./wallet-hub.types";
 import { TokenChainIcon } from "./wallet-visuals.tsx";
