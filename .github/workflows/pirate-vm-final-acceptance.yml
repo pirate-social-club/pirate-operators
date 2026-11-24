@@ -1,0 +1,70 @@
+name: Pirate VM final acceptance
+on:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  final-acceptance:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install VM tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage p7zip-full gnupg ubuntu-cloudimage-keyring
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Download pinned fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-final-ci/selected" "$RUNNER_TEMP/pirate-final-ci/materialization" "$RUNNER_TEMP/pirate-final-vm-scratch"
+          gh release download pirate-v1-staging-vm-fixtures-20261124 --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*'
+          cd "$RUNNER_TEMP/pirate-vm-assets"
+          sha256sum -c --strict ASSET-SHA256SUMS
+      - name: Adapt sealed final runner
+        run: |
+          set -euo pipefail
+          tar -xf "$RUNNER_TEMP/pirate-vm-assets/final-media-host.tar" -C "$RUNNER_TEMP/pirate-final-ci/selected"
+          cp "$RUNNER_TEMP/pirate-vm-assets/final-smoke-inputs.iso" "$RUNNER_TEMP/pirate-final-ci/materialization/smoke-inputs.iso"
+          cp "$RUNNER_TEMP/pirate-vm-assets/final-notes-entry.iso" "$RUNNER_TEMP/pirate-final-ci/selected/notes-entry.iso"
+          python3 .github/ci/adapt-final-notes-runner.py "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-final-ci/selected"
+          bash -n "$RUNNER_TEMP/pirate-final-ci/selected/run-notes.sh"
+      - name: Preflight
+        run: bash "$RUNNER_TEMP/pirate-final-ci/selected/run-notes.sh" --check
+      - name: Run final acceptance
+        id: run
+        run: |
+          set -uo pipefail
+          bundle="$RUNNER_TEMP/pirate-final-ci/selected"
+          expiry=$(date -u -d '+60 minutes' +%s)
+          rc=0
+          bash "$bundle/run-notes.sh" --run "$expiry" 2>&1 | tee "$RUNNER_TEMP/pirate-final-ci/run-console.txt" || rc=$?
+          run_dir=$(find "$RUNNER_TEMP/pirate-final-ci/selected" -maxdepth 1 -type d -name 'pirate-offline-native-notes-run.*' -print -quit)
+          test -n "$run_dir"
+          test -s "$run_dir/RESULT.json"
+          test "$(cat "$run_dir/QEMU-PROCESS.txt")" = absent
+          printf 'acceptanceRc=%s\nrunDir=%s\n' "$rc" "$run_dir" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pirate-final-acceptance
+          path: |
+            ${{ runner.temp }}/pirate-final-ci/run-console.txt
+            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/RESULT.json
+            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/SERIAL.log
+            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/guest-evidence.tar
+            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/QEMU-*.txt
+            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/HOST-SHA256SUMS
+          include-hidden-files: true
+          if-no-files-found: warn
