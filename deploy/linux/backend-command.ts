@@ -86,12 +86,15 @@ async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<voi
     try{owned = await processIdentity(child.pid!);}catch(error){observationError=error;}
     if(owned)assert(owned.pidNamespace === input.lease.holder.pidNamespace && owned.hostGroup === child.pid && owned.hostSession === child.pid);
     else{
-      // Drain the actual child exit event, not a guessed process absence. This
-      // exception never covers a live child, denied namespace read or
-      // current-authority mutator.
+      // A completed metadata/artifact child may finish before /proc observation.
+      // Accept only actual child terminal state, never a live child, an unresolved
+      // namespace read, or a current-authority mutator.
       await new Promise<void>(resolve=>setImmediate(resolve));
-      const gone=observationError===undefined || ["ENOENT","ESRCH"].includes((observationError as NodeJS.ErrnoException).code??"");
-      assert((input.completedMetadataChild || input.completedArtifactChild) && gone && (child.exitCode!==null || child.signalCode!==null),
+      const gone=observationError===undefined || ["ENOENT","ESRCH"].includes((observationError as NodeJS.ErrnoException).code??"") ||
+        observationError instanceof assert.AssertionError && observationError.message==="backend_process_lifetime_changed_during_observation";
+      const completed=input.completedMetadataChild || input.completedArtifactChild;
+      if(completed && gone && child.exitCode===null && child.signalCode===null) await exit;
+      assert(completed && (child.exitCode!==null || child.signalCode!==null),
         "backend_live_child_identity_unproved");
     }
     await input.lease.record(input.name + "-launch", { executable: input.executable, argv: input.argv, owned,

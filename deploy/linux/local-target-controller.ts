@@ -43,7 +43,8 @@ export async function createLocalController(config:InstalledTarget,lease:Operati
     const input={lease,executable:config.docker,executableSha256:config.dockerSha256,
       argv:["--host","unix://"+config.socket,"--config",config.dockerConfig,...args],
       outputDirectory:commandOutputDirectory,cwd:config.cwd,environment:config.environment,
-      signal,name:"target-"+String(++sequence).padStart(6,"0"),seconds};
+      signal,name:"target-"+String(++sequence).padStart(6,"0"),seconds,
+      ...(readOnly?{completedMetadataChild:true as const}:{})};
     const result=mutation?await runCurrentAuthorityCommand(input,assertCurrent!):await runOwnedCommand(input);
     const file=await privateFile(result.stdoutPath,16*1024**2);
     try{return {text:await file.readFile("utf8"),facts:result.facts};}finally{await file.close();}
