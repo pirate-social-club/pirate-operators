@@ -3,7 +3,7 @@ import { installAuditChannel } from "./audit-channel.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classify, globalsFor, matrixFor, parseIndex, reviewModesFor, sizesFor, summarize } from "./audit-results.mjs";
+import { auditReceipt, classify, globalsFor, matrixFor, parseIndex, reviewModesFor, sizesFor, summarize } from "./audit-results.mjs";
 
 const size = { width: 390, height: 844 };
 const phase = (name, width = 390, height = 844) => ({
@@ -182,6 +182,20 @@ test("rule summary retains exact axe rule, story, mode and target evidence", () 
     }],
   });
   assert.equal(summary.rules.incomplete["aria-hidden-focus"].count, 1);
+});
+
+test("audit receipts exclude the streamed raw result ledger", () => {
+  const run = {
+    sourceRef: "a".repeat(40),
+    expected: ["screen--ready@phone"],
+    results: [{ key: "screen--ready@phone", raw: { large: true } }],
+    summary: { complete: true },
+  };
+  assert.deepEqual(auditReceipt(run), {
+    sourceRef: "a".repeat(40),
+    expected: ["screen--ready@phone"],
+    summary: { complete: true },
+  });
 });
 
 // Orchestration regressions exercise the same capture/finalize helper used
