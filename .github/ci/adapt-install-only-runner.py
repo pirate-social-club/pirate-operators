@@ -42,6 +42,8 @@ def main():
                   'diagnostic=' + shlex.quote(str(bundle / 'install-diagnostic.iso')))
     raw = replace(raw, '[[ "$(hostname)" == t42 && -r /dev/kvm && -w /dev/kvm ]]',
                   '[[ -r /dev/kvm && -w /dev/kvm ]]')
+    raw = replace(raw, '  cat /proc/pressure/memory\n',
+                  '  if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi\n')
     runner.write_text(raw)
     runner.chmod(0o700)
     inputs = [assets / 'ubuntu-base.qcow2', assets / 'base-vmlinuz', assets / 'base-initrd',
