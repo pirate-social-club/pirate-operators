@@ -8,16 +8,17 @@ import { chromium } from "@playwright/test";
 import { MINIMAL_VIEWPORTS } from "storybook/viewport";
 import { installAuditChannel } from "./audit-channel.mjs";
 import { bindBrowser, verifyBrowserUnchanged } from "./audit-browser.mjs";
-import { parseIndex, sizesFor, summarize } from "./audit-results.mjs";
+import { matrixFor, parseIndex, reviewModesFor, summarize } from "./audit-results.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 
 export function parseOptions(argv) {
-  const options = { timeout: 30_000 };
+  const options = { timeout: 30_000, matrix: "viewport" };
   const names = new Map([
     ["--base-url", "baseUrl"], ["--out", "out"],
     ["--source-ref", "sourceRef"], ["--source-seal", "sourceSeal"],
     ["--timeout-ms", "timeout"],
     ["--browser-executable", "browserExecutable"], ["--browser-sha256", "browserSha256"],
+    ["--matrix", "matrix"], ["--stories", "stories"], ["--limit", "limit"],
   ]);
   for (let index = 0; index < argv.length; index += 2) {
     const name = names.get(argv[index]);
@@ -45,12 +46,27 @@ export function parseOptions(argv) {
   if (!Number.isSafeInteger(options.timeout) || options.timeout < 1 || options.timeout > 120_000) {
     throw new Error("Timeout must be between 1 and 120000ms");
   }
+  reviewModesFor(options.matrix);
+  if (options.limit !== undefined) {
+    options.limit = Number(options.limit);
+    if (!Number.isSafeInteger(options.limit) || options.limit < 1) {
+      throw new Error("--limit must be a positive integer");
+    }
+  }
+  if (options.stories !== undefined) {
+    const ids = options.stories.split(",").map((id) => id.trim()).filter(Boolean);
+    if (!ids.length || ids.some((id) => !/^[a-z0-9_-]+$/iu.test(id))) {
+      throw new Error("--stories must be a comma-separated list of Storybook IDs");
+    }
+    options.storyIds = new Set(ids);
+  }
   return options;
 }
 
 async function isolatedContext(browser, options, size, onBlocked) {
   const context = await browser.newContext({
     viewport: { width: size.width, height: size.height },
+    colorScheme: size.review?.colorScheme ?? "light",
     serviceWorkers: "block",
   });
   await context.route("**/*", (route) => {
@@ -122,9 +138,8 @@ async function runStory(browser, options, story, size, ordinal) {
     const url = new URL("/iframe.html", options.baseUrl);
     url.searchParams.set("id", story.id);
     url.searchParams.set("viewMode", "story");
-    if (size.global) {
-      url.searchParams.set("globals", "viewport.value:" + size.global.value +
-        (size.global.isRotated ? ";viewport.isRotated:!true" : ""));
+    if (size.globals) {
+      url.searchParams.set("globals", size.globals);
     }
     try {
       await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: options.timeout });
@@ -138,7 +153,10 @@ async function runStory(browser, options, story, size, ordinal) {
     }
     return await captureAndClassify({
       id: story.id, size,
-      metadata: { key, id: story.id, importPath: story.importPath, size },
+      metadata: {
+        key, id: story.id, importPath: story.importPath, size,
+        review: size.review ?? null, globals: size.globals ?? null,
+      },
       capture: async () => {
         const screenshot = String(ordinal).padStart(4, "0") + ".png";
         await page.screenshot({ path: path.join(options.out, screenshot), timeout: options.timeout });
@@ -185,14 +203,20 @@ export async function runAudit(options) {
     const index = await response.json();
     run.indexSha256 = createHash("sha256").update(JSON.stringify(index)).digest("hex");
     await writeFile(path.join(options.out, "index.json"), JSON.stringify(index, null, 2) + "\n");
-    const stories = parseIndex(index);
+    let stories = parseIndex(index);
+    if (options.storyIds) {
+      stories = stories.filter((story) => options.storyIds.has(story.id));
+      if (!stories.length) throw new Error("No requested Storybook IDs matched the index");
+    }
+    if (options.limit !== undefined) stories = stories.slice(0, options.limit);
     run.catalog = stories;
+    run.matrix = options.matrix;
     browser = await chromium.launch({ headless: true, executablePath: run.browserBinding.executablePath });
     run.browserVersion = browser.version();
     run.nodeVersion = process.version;
     const metadata = await readMetadata(browser, options, stories);
     const matrix = stories.flatMap((story) =>
-      sizesFor(metadata[story.id], MINIMAL_VIEWPORTS).map((size) => ({ story, size })));
+      matrixFor(metadata[story.id], MINIMAL_VIEWPORTS, options.matrix).map((size) => ({ story, size })));
     run.expected = matrix.map(({ story, size }) => story.id + "@" + size.name);
     for (const [index, { story, size }] of matrix.entries()) {
       const result = await runStory(browser, options, story, size, index + 1);
