@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage p7zip-full gnupg
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage p7zip-full gnupg ubuntu-cloudimage-keyring
           sudo chmod 0666 /dev/kvm
           test -r /dev/kvm
           test -w /dev/kvm
@@ -42,7 +42,7 @@ jobs:
       - name: Run install-only diagnostic
         id: run
         run: |
-          set -uo pipefail
+          set -euo pipefail
           bundle="$RUNNER_TEMP/pirate-install-only-ci"
           expiry=$(date -u -d '+45 minutes' +%s)
           rc=0

@@ -25,6 +25,7 @@ def main():
     raw = runner.read_text()
     raw = replace(raw, 'scratch=/media/t42/codedrive/tmp', 'scratch=' + shlex.quote(str(scratch)))
     raw = replace(raw, 'image_dir=$scratch/pirate-offline-native-vm.8kSyg3', 'image_dir=' + shlex.quote(str(assets)))
+    raw = replace(raw, 'base=$image_dir/ubuntu-24.04-server-cloudimg-amd64.img', 'base=$image_dir/ubuntu-base.qcow2')
     raw = replace(raw, 'public=$scratch/pirate-offline-noble-docker-29.9.3.J8316N5g/docker-prereqs.iso',
                   'public=' + shlex.quote(str(assets / 'docker-prereqs.iso')))
     raw = replace(raw, 'browser=/media/t42/codedrive/tmp/pirate-machine-smoke-transfer-fix.hDhlNA2M/browser-display.iso',
