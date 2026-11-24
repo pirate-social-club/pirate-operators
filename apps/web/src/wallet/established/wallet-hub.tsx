@@ -8,6 +8,7 @@ import {
   CardHeader,
   IconArrowDown,
   IconArrowUp,
+  IconArrowsClockwise,
   IconWallet,
   Type,
 } from "../../design-system.ts";
@@ -123,10 +124,24 @@ export function WalletHub(props: WalletHubProps) {
           {view().title}
         </Type>
         <div class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-1.5 text-base text-muted-foreground">
-            <IconWallet class="size-[18px]" />
-            {view().walletLabel}
-          </span>
+          <Show when={props.variant !== "pilot"}>
+            <span class="inline-flex items-center gap-1.5 text-base text-muted-foreground">
+              <IconWallet class="size-[18px]" />
+              {view().walletLabel}
+            </span>
+          </Show>
+          <Show when={props.onRefresh}>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Refresh balances"
+              aria-busy={props.walletActionsPending ? "true" : "false"}
+              disabled={props.walletActionsPending || !props.walletAddress}
+              onClick={() => props.onRefresh?.()}
+            >
+              <IconArrowsClockwise class="size-5" aria-hidden="true" />
+            </Button>
+          </Show>
           <Show when={props.showChangeWalletAction !== false}>
             <Button
               variant="ghost"
@@ -228,26 +243,37 @@ export function WalletHub(props: WalletHubProps) {
         )}
       </Show>
 
-      <Card>
-        <CardHeader>
-          <Type as="h2" variant="h3">
-            Assets
-          </Type>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-4">
-          <Show
-            when={!view().isEmpty}
-            fallback={
-              <Type variant="caption">
-                {props.assetsUnavailable
-                  ? "Balances are unavailable. You can still receive tokens to your selected profile wallet."
-                  : view().connected
-                    ? "No assets yet. Receive tokens to get started."
-                    : "Connect a wallet to see your assets."}
-              </Type>
-            }
-          >
-            <For each={view().readySections}>
+      <Show when={props.variant !== "pilot"}>
+        <Card>
+          <CardHeader>
+            <Type as="h2" variant="h3">
+              Assets
+            </Type>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-4">
+            <Show
+              when={!view().isEmpty}
+              fallback={
+                <Type variant="caption">
+                  {props.assetsUnavailable
+                    ? "Balances are unavailable. You can still receive tokens to your selected profile wallet."
+                    : view().connected
+                      ? "No assets yet. Receive tokens to get started."
+                      : "Connect a wallet to see your assets."}
+                </Type>
+              }
+            >
+              <For each={view().readySections}>
+                {(section) => (
+                  <ChainSection
+                    section={section}
+                    fiatByTokenId={view().fiatByTokenId}
+                    renderAssetSupplement={props.renderAssetSupplement}
+                  />
+                )}
+              </For>
+            </Show>
+            <For each={view().laterSections}>
               {(section) => (
                 <ChainSection
                   section={section}
@@ -256,18 +282,9 @@ export function WalletHub(props: WalletHubProps) {
                 />
               )}
             </For>
-          </Show>
-          <For each={view().laterSections}>
-            {(section) => (
-              <ChainSection
-                section={section}
-                fiatByTokenId={view().fiatByTokenId}
-                renderAssetSupplement={props.renderAssetSupplement}
-              />
-            )}
-          </For>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </Show>
 
       {receiveSheet()}
       {sendSheet()}

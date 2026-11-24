@@ -1,12 +1,8 @@
 // Established WalletPortfolio page composition with explicit decentralized account/reward/MOSS ports.
 import { createMemo, Show } from "solid-js";
-import {
-  Button,
-  Card,
-  CardContent,
-  Type,
-} from "../design-system.ts";
-import { WalletPortfolio } from "../wallet/established/wallet-portfolio.tsx";
+import { ErrorState, Type } from "../design-system.ts";
+import { WalletHub } from "../wallet/established/wallet-hub.tsx";
+import { WalletReceiveSheet } from "../wallet/established/wallet-receive-sheet.tsx";
 import { WalletWinnings } from "../wallet/established/wallet-winnings.tsx";
 import { VeryClaimPresentation } from "../wallet/established/very-claim-presentation.tsx";
 import { WalletSendPanel } from "../wallet/send-panel.tsx";
@@ -68,24 +64,20 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
                   wallet.notice().startsWith("Account changed.")
                 }
                 fallback={
-                  <Card>
-                    <CardContent class="flex flex-col items-start gap-4 p-6">
-                      <Type role="alert">
-                        Your wallets could not be loaded.
-                      </Type>
-                      <Show
-                        when={!wallet.authorityLost()}
-                        fallback={<a href="/wallet">Sign in again</a>}
-                      >
-                        <Button
-                          variant="outline"
-                          onClick={() => void wallet.run(wallet.refresh)}
-                        >
-                          Try again
-                        </Button>
-                      </Show>
-                    </CardContent>
-                  </Card>
+                  <ErrorState
+                    title="Wallet unavailable"
+                    description="Your wallets could not be loaded."
+                    tone={wallet.authorityLost() ? "blocked" : "retryable"}
+                    primaryAction={wallet.authorityLost()
+                      ? {
+                          label: "Sign in again",
+                          href: "/wallet",
+                        }
+                      : {
+                          label: "Try again",
+                          onClick: () => void wallet.run(wallet.refresh),
+                        }}
+                  />
                 }
               >
                 <Type role="status">Loading wallets…</Type>
@@ -93,41 +85,26 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
             </Show>
             <Show when={presentation()}>
               {(current) => (
-                <WalletPortfolio
-                  wallets={[current().wallet]}
-                  selectedPersonaId={current().selectedId}
-                  onSelect={(id) => {
-                    if (id !== current().selectedId) props.onAccountChanged?.();
-                  }}
-                  onChangeProfile={props.onExit}
-                  chainSections={current().sections}
-                  balancesLoading={wallet.busy()}
+                <>
+                  <WalletHub
+                  variant="pilot"
+                  walletLabel={current().wallet.displayName}
+                  walletAddress={current().wallet.address}
+                  assetsUnavailable={wallet.busy()}
                   totalBalanceUsd={current().balance}
                   rewardsSummary={current().rewards}
-                  networkMode="testnet"
-                  actionMode="testnet"
-                  actionAsset={{
-                    chainId: "megaeth",
-                    tokenId: wallet.view()!.token.toLowerCase(),
-                  }}
+                  showChangeWalletAction={false}
+                  walletActionsPending={wallet.busy()}
                   onRefresh={() => void wallet.run(wallet.refresh)}
-                  renderBaseUsdc={() => (
-                    <WalletWinnings
-                      data={claimData}
-                      chainId={6343}
-                      currentCredits={wallet.credits()}
-                      drawings={wallet.view()?.drawings}
-                      disabled={wallet.busy() || !!wallet.intent()}
-                      resumeCreditId={
-                        location.pathname === "/wallet"
-                          ? (wallet.creditFromUrl() ?? undefined)
-                          : undefined
-                      }
-                      onResumeConsumed={wallet.consumeResume}
-                      navigate={verifyFromReturn}
+                  chainSections={current().sections}
+                  renderReceiveSheet={(controls) => (
+                    <WalletReceiveSheet
+                      {...controls}
+                      chainSections={current().sections}
+                      walletAddress={current().wallet.address}
                     />
                   )}
-                  renderSendSheet={(_identity, controls) =>
+                  renderSendSheet={(controls) =>
                     controls.open && wallet.view() ? (
                       <WalletSendPanel
                         view={wallet.view()!}
@@ -139,6 +116,21 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
                     ) : null
                   }
                 />
+                <WalletWinnings
+                  data={claimData}
+                  chainId={6343}
+                  currentCredits={wallet.credits()}
+                  drawings={wallet.view()?.drawings}
+                  disabled={wallet.busy() || !!wallet.intent()}
+                  resumeCreditId={
+                    location.pathname === "/wallet"
+                      ? (wallet.creditFromUrl() ?? undefined)
+                      : undefined
+                  }
+                  onResumeConsumed={wallet.consumeResume}
+                  navigate={verifyFromReturn}
+                />
+                </>
               )}
             </Show>
             <Show when={wallet.view() && wallet.notice()}>
