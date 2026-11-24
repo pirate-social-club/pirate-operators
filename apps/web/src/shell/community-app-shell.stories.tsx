@@ -1,34 +1,24 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { fn } from "storybook/test";
 import { CommunityAppShell } from "../live/app-shell.tsx";
+import {
+  createCommunityShellStoryClient,
+  type CommunityShellStoryState,
+} from "./community-shell-story-client.ts";
 
-function ShellFixture(props: {
-  signedIn: boolean;
-  ready: boolean;
-  busy: boolean;
-  onSignIn: () => void;
-}) {
+function ShellRouteFixture(props: CommunityShellStoryState) {
+  const client = createCommunityShellStoryClient(props);
   return (
     <CommunityAppShell
-      name="Catalog community"
-      communityId="catalog-community"
-      view="home"
-      walletPage={false}
-      rewards
-      practiceOpen={false}
-      signedIn={props.signedIn}
-      ready={props.ready}
-      busy={props.busy}
-      canSignIn
-      accountSeed="catalog-preview"
-      onSignIn={props.onSignIn}
+      {...client.snapshot()}
+      onSignIn={() => void client.signIn()}
     >
       <main class="mx-auto max-w-3xl p-6">
         <h1 class="text-2xl font-semibold">Community feed fixture</h1>
         <p class="mt-3 text-muted-foreground">
           Presentation fixture inside the production community shell.
           Navigation destinations are real app links; this story does not
-          exercise routing, authenticate an account or load a community.
+          exercise routing or load a community.
         </p>
       </main>
     </CommunityAppShell>
@@ -37,21 +27,32 @@ function ShellFixture(props: {
 
 const meta = {
   title: "Shell/Screens/Community app shell",
-  // The tier lives in metadata so the sidebar can group feature-first.
   tags: ["screen"],
-  component: ShellFixture,
-  args: { signedIn: false, ready: true, busy: false, onSignIn: fn() },
-  render: (args) => <ShellFixture {...args} />,
+  component: ShellRouteFixture,
+  args: {
+    name: "Catalog community",
+    communityId: "catalog-community",
+    view: "home",
+    walletPage: false,
+    rewards: true,
+    practiceOpen: false,
+    signedIn: false,
+    ready: true,
+    busy: false,
+    canSignIn: true,
+    accountSeed: "catalog-preview",
+  },
+  render: (args) => <ShellRouteFixture {...args} />,
   parameters: {
     layout: "fullscreen",
     docs: {
       description: {
         component:
-          "Imports the CommunityAppShell used by the live entry. Account and readiness values are UI fixtures. No SDK, credentials or service runs. Navigation links are not clicked by a play function. This is shell coverage, not complete route or Paper parity.",
+          "Renders the production CommunityAppShell from a story-only session/community client boundary. Account and readiness values come from the client snapshot, not shell props in the story body. No SDK, credentials, network or service runs. Navigation links are not clicked; this is shell coverage, not complete route parity.",
       },
     },
   },
-} satisfies Meta<typeof ShellFixture>;
+} satisfies Meta<typeof ShellRouteFixture>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
