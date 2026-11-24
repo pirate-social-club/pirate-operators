@@ -35,8 +35,8 @@ export function SongPlaybackControls(props: {
         )
       : 0;
   return (
-    <div class="col-span-full row-start-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[2.75rem_auto] gap-x-3 sm:col-span-1 sm:col-start-2 sm:self-start">
-      <div class="row-start-1 flex shrink-0 items-center">
+    <div class="col-span-full row-start-2 flex w-full min-w-0 items-center gap-3 sm:col-span-1 sm:col-start-2 sm:self-start">
+      <div class="shrink-0">
         <MediaControlButton
           aria-label={`${props.playing ? "Pause" : "Play"} ${props.title}`}
           aria-busy={props.buffering ? "true" : "false"}
@@ -57,31 +57,25 @@ export function SongPlaybackControls(props: {
           </Show>
         </MediaControlButton>
       </div>
-      <div
-        class="col-start-2 row-start-1 flex min-w-0 items-center"
-        data-post-card-interactive="true"
-      >
-        <Scrubber
-          ariaLabel={`Track position for ${props.title}`}
-          ariaValueText={`${timeLabel(props.position)} / ${timeLabel(props.duration)}`}
-          class="h-full opacity-100"
-          disabled={!props.canSeek}
-          max={durationMs()}
-          onChange={(next) => props.onSeek(Math.min(next, durationMs()))}
-          showThumb
-          showValueBubble
-          step={1000}
-          value={progressMs()}
-          valueLabel={timeLabel(props.position)}
-        />
-      </div>
-      <div
-        class="col-start-2 row-start-2 flex items-center justify-between tabular-nums text-muted-foreground text-base leading-tight"
-        data-song-time
-      >
-        <span>{timeLabel(props.position)}</span>
-        <span>{timeLabel(props.duration)}</span>
-      </div>
+      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight" data-song-time>
+        {timeLabel(props.position)}
+      </span>
+      <Scrubber
+        ariaLabel={`Track position for ${props.title}`}
+        ariaValueText={`${timeLabel(props.position)} / ${timeLabel(props.duration)}`}
+        class="h-full min-w-0 flex-1 opacity-100"
+        disabled={!props.canSeek}
+        max={durationMs()}
+        onChange={(next) => props.onSeek(Math.min(next, durationMs()))}
+        showThumb
+        showValueBubble
+        step={1000}
+        value={progressMs()}
+        valueLabel={timeLabel(props.position)}
+      />
+      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight" data-song-time>
+        {timeLabel(props.duration)}
+      </span>
     </div>
   );
 }

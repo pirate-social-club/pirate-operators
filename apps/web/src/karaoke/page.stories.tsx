@@ -3,9 +3,10 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { createSignal } from "solid-js";
 import { KaraokePage } from "./page.tsx";
-import type {
-  OperatorKaraokePort,
-  KaraokeAttemptView,
+import {
+  KARAOKE_START_UNKNOWN_MESSAGE,
+  type OperatorKaraokePort,
+  type KaraokeAttemptView,
 } from "./operator-karaoke-adapter.ts";
 import type {
   UseKaraokeCaptureOptions,
@@ -37,14 +38,16 @@ const song = {
     {
       lineId: "fixture-line",
       ordinal: 0,
-      text: "I am going home",
+      text: "Meet me by the old harbor",
       startMs: 1000,
       endMs: 5000,
       words: [
-        { text: "I", startMs: 1000, endMs: 1400 },
-        { text: "am", startMs: 1400, endMs: 2000 },
-        { text: "going", startMs: 2000, endMs: 3500 },
-        { text: "home", startMs: 3500, endMs: 5000 },
+        { text: "Meet", startMs: 1000, endMs: 1500 },
+        { text: "me", startMs: 1500, endMs: 1900 },
+        { text: "by", startMs: 1900, endMs: 2200 },
+        { text: "the", startMs: 2200, endMs: 2500 },
+        { text: "old", startMs: 2500, endMs: 3200 },
+        { text: "harbor", startMs: 3200, endMs: 5000 },
       ],
     },
   ],
@@ -72,7 +75,7 @@ function storyPort(
     ticket: async () => {
       if (state === "unknown")
         throw new globalThis.Error(
-          "We couldn't confirm this take started. Check its status before starting another.",
+          KARAOKE_START_UNKNOWN_MESSAGE,
         );
       return {
         ticketId: "story-ticket",
@@ -169,11 +172,18 @@ export const StartUnknown: Story = {
       await canvas.findByRole("button", { name: "Start karaoke" }),
     );
     await expect(
-      await canvas.findByText(/couldn't confirm this take started/),
+      await canvas.findByRole("heading", { name: "Couldn't start this take" }),
     ).toBeVisible();
     await expect(
-      canvas.getByRole("button", { name: "Check status" }),
+      canvas.getByText("It may still be starting. Check again in a moment."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Check again" }),
     ).toBeEnabled();
+    await expect(
+      canvas.queryByRole("button", { name: "Start karaoke" }),
+    ).toBeNull();
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
   },
 };
 export const RecoveredOpenTake: Story = {

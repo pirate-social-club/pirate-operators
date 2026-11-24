@@ -492,26 +492,24 @@ function primaryActionIcon(state: StudyingSurfaceState): JSX.Element {
 export function StudyingSurface(props: StudyingSurfaceProps) {
   const complete = () => props.state.kind === "complete";
   const recordingBlocked = () => props.state.kind === "say_it_back" && props.state.phase === "blocked";
-  // Results: one Continue back to the song, with "Study again" as the quiet option.
-  // Unknown recordings cannot resume this lesson: offer a new lesson or exit.
+  // Unknown recordings are rendered by the route's ErrorState, never as a
+  // disabled action inside the exercise surface.
   const primaryLabel = () => recordingBlocked()
-    ? props.onStudyAgain ? "Start new lesson" : undefined
+    ? undefined
     : complete()
       ? props.completeActionLabel
         ?? (props.onExit ? "Continue" : props.onStudyAgain ? "Study again" : undefined)
       : primaryActionLabel(props.state, props.sayItBackIdleLabel);
   const primaryAction = () => recordingBlocked()
-    ? props.onStudyAgain
+    ? undefined
     : complete()
       ? props.completeActionLabel
         ? props.onPrimaryAction
         : props.onExit ?? props.onStudyAgain
       : props.onPrimaryAction;
   const primaryIcon = () => complete() || recordingBlocked() ? undefined : primaryActionIcon(props.state);
-  const secondaryLabel = () => recordingBlocked()
-    ? props.onExit ? "Leave Study" : undefined
-    : props.onStudyAgain && (complete() && props.onExit && !props.completeActionLabel) ? "Study again" : undefined;
-  const secondaryAction = () => recordingBlocked() ? props.onExit : props.onStudyAgain;
+  const secondaryLabel = () => props.onStudyAgain && complete() && props.onExit && !props.completeActionLabel ? "Study again" : undefined;
+  const secondaryAction = () => props.onStudyAgain;
 
   return (
     <section class={cn("flex h-dvh w-full flex-col overflow-y-auto border border-border-soft bg-background text-foreground", props.class)}>
@@ -540,7 +538,7 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
         primaryIcon={primaryIcon()}
         primaryLabel={primaryLabel()}
         primaryVariant={primaryActionVariant(props.state)}
-        secondaryIcon={recordingBlocked() ? <IconX class="size-5" /> : <IconArrowCounterClockwise class="size-5" />}
+        secondaryIcon={<IconArrowCounterClockwise class="size-5" />}
         results={complete()}
         secondaryLabel={secondaryLabel()}
       />

@@ -20,6 +20,7 @@ import type {
 } from "../api-contract.ts";
 import { useKaraokeCapture } from "./use-karaoke-capture.ts";
 import { Button } from "../design-system.ts";
+import { ErrorState } from "../ui/error-state.tsx";
 import {
   KaraokeAuthRequiredState,
   KaraokeRouteLoadingState,
@@ -30,6 +31,7 @@ import { ScoringResponseWatch } from "./scoring-response-watch.ts";
 import { positionPlaybackWhenReady } from "./playback-position.ts";
 import {
   createOperatorKaraokePort,
+  KARAOKE_START_UNKNOWN_MESSAGE,
   type OperatorKaraokePort,
   type KaraokeAttemptView,
   type KaraokeRecord,
@@ -759,7 +761,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         return;
       }
       apply(value);
-      if (value.state === "finished") setNotice(null);
+      setNotice(null);
     } catch (error) {
       if (isCurrentOwner()) {
         if (isLearningAuthorityLoss(error)) loseAuthority(error);
@@ -783,7 +785,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
     >
       <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
-        <Show when={notice() && song()}>
+        <Show when={notice() && song() && notice() !== KARAOKE_START_UNKNOWN_MESSAGE}>
           <div
             role="alert"
             class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
@@ -814,6 +816,9 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             }
           >
             {(timed) => (
+              <Show
+                when={notice() === KARAOKE_START_UNKNOWN_MESSAGE}
+                fallback={
               <KaraokePracticeSurface
                 title={props.title}
                 rewardSlot={
@@ -872,6 +877,19 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                   void finish(ms);
                 }}
               />
+                }
+              >
+                <div class="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-5 py-8">
+                  <ErrorState
+                    title="Couldn't start this take"
+                    description={KARAOKE_START_UNKNOWN_MESSAGE}
+                    tone="blocked"
+                    primaryAction={{ label: "Check again", onClick: () => void checkResult() }}
+                    onExit={props.onExit}
+                    exitLabel="Exit karaoke"
+                  />
+                </div>
+              </Show>
             )}
           </Show>
         </Show>

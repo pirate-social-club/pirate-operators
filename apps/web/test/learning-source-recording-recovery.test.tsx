@@ -168,17 +168,16 @@ test("an expired lesson reports finished cards and requires an explicit new-less
     />
   ));
   await vi.waitFor(() =>
-    expect(container.textContent).toContain("Study session expired"),
+    expect(container.textContent).toContain("This lesson has ended"),
   );
   expect(container.textContent).toContain("You finished 2 of 4 cards.");
-  expect(container.textContent).toContain("This lesson is closed");
   expect(container.textContent).not.toContain("Your progress is saved");
   expect(button(container, "Record")).toBeUndefined();
   expect(container.textContent).not.toContain("Completion rewards");
   expect(restart).not.toHaveBeenCalled();
   expect(capture.start).not.toHaveBeenCalled();
   expect(api.submitAttempt).not.toHaveBeenCalled();
-  await press(container, "Start new lesson");
+  await press(container, "New lesson");
   expect(restart).toHaveBeenCalledOnce();
 });
 
@@ -194,10 +193,10 @@ test("an expired lesson without counts does not invent progress", async () => {
     <StudyingRouteView postId="song" client={api} recorder={recorder()} />
   ));
   await vi.waitFor(() =>
-    expect(container.textContent).toContain("Study session expired"),
+    expect(container.textContent).toContain("This lesson has ended"),
   );
   expect(container.textContent).toContain(
-    "This lesson is closed. Start a new lesson when you're ready.",
+    "This lesson is no longer available.",
   );
   expect(container.textContent).not.toContain("cards");
   expect(container.textContent).not.toContain("Your progress is saved");
@@ -215,7 +214,7 @@ test("a refusal at natural expiry reloads into recovery instead of another recor
   ));
   await recordAndSubmit(container);
   await vi.waitFor(() =>
-    expect(container.textContent).toContain("Study session expired"),
+    expect(container.textContent).toContain("This lesson has ended"),
   );
   expect(api.loadLesson).toHaveBeenCalledTimes(2);
   expect(api.submitAttempt).toHaveBeenCalledOnce();
@@ -302,20 +301,29 @@ test("an unknown provider outcome blocks recording and offers only an explicit n
   ));
   await recordAndSubmit(container);
   await vi.waitFor(() =>
-    expect(button(container, "Start new lesson")?.disabled).toBe(false),
+    expect(button(container, "New lesson")?.disabled).toBe(false),
   );
+  expect(container.textContent).toContain("Couldn't get your result");
   expect(container.textContent).toContain(
-    "We couldn't confirm your recording. Start a new lesson or leave Study.",
+    "This lesson can't continue. Start a new one.",
   );
   expect(button(container, "Recording paused")).toBeUndefined();
+  expect(button(container, "Leave Study")).toBeUndefined();
   expect(button(container, "Record")).toBeUndefined();
   expect(api.submitAttempt).toHaveBeenCalledOnce();
   expect(api.loadLesson).toHaveBeenCalledOnce();
   expect(studyAgain).not.toHaveBeenCalled();
-  await press(container, "Start new lesson");
+  await press(container, "New lesson");
   expect(studyAgain).toHaveBeenCalledOnce();
   expect(api.submitAttempt).toHaveBeenCalledOnce();
-  await press(container, "Leave Study");
+  const exitControl = await vi.waitFor(() => {
+    const control = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Exit study"]',
+    );
+    expect(control).not.toBeNull();
+    return control!;
+  });
+  exitControl.click();
   await vi.waitFor(() => expect(exit).toHaveBeenCalledOnce());
 });
 
@@ -339,7 +347,7 @@ test("a fresh route read retains the exact blocked card and cannot start capture
     />
   ));
   await vi.waitFor(() =>
-    expect(button(first.container, "Start new lesson")?.disabled).toBe(false),
+    expect(button(first.container, "New lesson")?.disabled).toBe(false),
   );
   expect(button(first.container, "Recording paused")).toBeUndefined();
   first.dispose();
@@ -353,14 +361,14 @@ test("a fresh route read retains the exact blocked card and cannot start capture
     />
   ));
   await vi.waitFor(() =>
-    expect(button(next.container, "Start new lesson")?.disabled).toBe(false),
+    expect(button(next.container, "New lesson")?.disabled).toBe(false),
   );
   expect(button(next.container, "Recording paused")).toBeUndefined();
   expect(capture.start).not.toHaveBeenCalled();
   expect(api.submitAttempt).not.toHaveBeenCalled();
   expect(api.loadLesson).toHaveBeenCalledTimes(2);
   expect(studyAgain).not.toHaveBeenCalled();
-  await press(next.container, "Start new lesson");
+  await press(next.container, "New lesson");
   expect(studyAgain).toHaveBeenCalledOnce();
   expect(api.submitAttempt).not.toHaveBeenCalled();
 });

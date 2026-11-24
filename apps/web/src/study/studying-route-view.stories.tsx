@@ -58,17 +58,19 @@ export const RecordingOutcomeUnknown: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(
-      await canvas.findByRole("button", { name: "Start new lesson" }),
+      await canvas.findByRole("button", { name: "New lesson" }),
     ).toBeEnabled();
-    await expect(canvas.getByRole("button", { name: "Leave Study" })).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: "Exit study" })).toBeEnabled();
     await expect(
-      canvas.getByText(
-        "We couldn't confirm your recording. Start a new lesson or leave Study.",
-      ),
+      canvas.getByRole("heading", { name: "Couldn't get your result" }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getByText("This lesson can't continue. Start a new one."),
     ).toBeInTheDocument();
     await expect(
       canvas.queryByRole("button", { name: "Recording paused" }),
     ).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Leave Study" })).toBeNull();
   },
 };
 
@@ -93,16 +95,14 @@ export const ExpiredLesson: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(
-      await canvas.findByRole("heading", { name: "Study session expired" }),
+      await canvas.findByRole("heading", { name: "This lesson has ended" }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByText(
-        "You finished 2 of 4 cards. This lesson is closed; start a new lesson when you're ready.",
-      ),
+      canvas.getByText("You finished 2 of 4 cards."),
     ).toBeInTheDocument();
     await expect(canvas.queryByRole("button", { name: "Record" })).toBeNull();
     await expect(
-      canvas.getByRole("button", { name: "Start new lesson" }),
+      canvas.getByRole("button", { name: "New lesson" }),
     ).toBeEnabled();
   },
 };

@@ -94,11 +94,23 @@ export const Playing: Story = {
 export const Buffering: Story = {
   args: { buffering: true },
   play: async ({ canvasElement }) => {
-    const control = within(canvasElement).getByRole("button", {
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("button", {
       name: "Play Catalog preview",
     });
     await expect(control).toBeEnabled();
     await expect(control).toHaveAttribute("aria-busy", "true");
+    const elapsed = canvas.getByText("0:30", { exact: true });
+    const total = canvas.getByText("3:00", { exact: true });
+    const scrubber = canvas.getByRole("slider");
+    const elapsedBox = elapsed.getBoundingClientRect();
+    const scrubberBox = scrubber.getBoundingClientRect();
+    const totalBox = total.getBoundingClientRect();
+    expect(elapsedBox.width).toBeGreaterThan(0);
+    expect(scrubberBox.width).toBeGreaterThan(0);
+    expect(totalBox.width).toBeGreaterThan(0);
+    expect(elapsedBox.right).toBeLessThanOrEqual(scrubberBox.left);
+    expect(scrubberBox.right).toBeLessThanOrEqual(totalBox.left);
   },
 };
 

@@ -47,6 +47,9 @@ export interface OperatorKaraokePort {
   dispose(): void;
 }
 
+export const KARAOKE_START_UNKNOWN_MESSAGE =
+  "It may still be starting. Check again in a moment.";
+
 /** Adapted from the c7 session bridge's identity-preserving create/reconnect
  * boundary. Operator tickets, proofs and admission replace central sessions.
  * Socket reconnect is owned by KaraokeOperatorAudioClient and reuses this ticket.
@@ -99,7 +102,7 @@ export function createOperatorKaraokePort(options: {
   });
   const unknownStart = () =>
     new Error(
-      "We couldn't confirm this take started. Check its status before starting another.",
+      KARAOKE_START_UNKNOWN_MESSAGE,
       { cause: originalStartFailure },
     );
   return {
