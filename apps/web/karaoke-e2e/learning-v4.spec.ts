@@ -158,6 +158,9 @@ test("a V4 take starts with no signature request and no policy link on the exerc
     if (path.startsWith("/api/karaoke/enrollment")) enrollmentRequests++;
   });
   await page.goto("/?learner=5");
+  // The 2026-11-22 owner ruling removed the site footer's document links;
+  // the anonymous account surface links the documents the sign-in accepts.
+  await page.goto("/#/account");
   const documents = page.getByRole("navigation", {
     name: "Community documents",
     exact: true,
@@ -175,6 +178,9 @@ test("a V4 take starts with no signature request and no policy link on the exerc
   await expect(
     documents.getByRole("link", { name: "Learning privacy", exact: true }),
   ).toHaveAttribute("href", "/learning/v4/privacy");
+  // Back on the learner route before connecting, so the learner query the
+  // fixture sign flow keys on is present again.
+  await page.goto("/?learner=5");
   await connectLearner(page, 5);
   // One sign-in, which is also the permission.
   expect(signatures).toEqual(["SignIn"]);
@@ -183,10 +189,8 @@ test("a V4 take starts with no signature request and no policy link on the exerc
     { timeout: 30000 },
   );
   const surface = page.locator(".live-karaoke-overlay");
-  const footer = page.locator("footer").filter({
-    has: page.locator('nav[aria-label="Community documents"]'),
-  });
-  await expect(footer).toHaveAttribute("inert", "");
+  // The removed site footer carried the inert assertion; the exercise
+  // surface itself must simply carry no links or policy navigation.
   await expect(
     page.getByRole("navigation", { name: "Karaoke policies" }),
   ).toHaveCount(0);
@@ -223,7 +227,14 @@ test("a V4 take starts with no signature request and no policy link on the exerc
   expect(record!.lines).toHaveLength(23);
   expect(record!.enrollmentId).toBe(authorization!.authorization_id);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(footer).not.toHaveAttribute("inert", "");
+  // The 2026-11-22 owner ruling retired the site footer; the documents
+  // stay reachable from the settings surface after the take ends. The
+  // signed-in account route hosts the profile view instead, so target the
+  // settings page that owns the Community documents card.
+  await page.goto("/#/settings");
+  await expect(
+    documents.getByRole("link", { name: "Terms", exact: true }),
+  ).toBeVisible();
   for (const [name, href] of [
     ["Terms", "/terms"],
     ["Privacy", "/privacy"],

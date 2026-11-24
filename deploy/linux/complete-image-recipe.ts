@@ -8,7 +8,10 @@ export function completeImageRecipe(input:{imageBase:string;uid:number;gid:numbe
  const path=input.installedReleasePath;
  // The external issuer signs the resulting ACTUAL image ID after the build.
  // That record/configuration is mounted privately outside this release tree.
- return "FROM "+input.imageBase+"\nCOPY release/toolchain/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nCOPY --chown="+input.uid+":"+input.gid+" release/ "+path+"/\n"+
+ // The CA bundle must stay readable by the container's non-root user: the
+ // release build stages it under umask 077, so a plain COPY ships it mode
+ // 0400 and workerd aborts TLS setup with zero system CA certificates.
+ return "FROM "+input.imageBase+"\nCOPY --chmod=0644 release/toolchain/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\nCOPY --chown="+input.uid+":"+input.gid+" release/ "+path+"/\n"+
   "RUN chmod -R a-w "+path+"\nUSER "+input.uid+":"+input.gid+
   "\nENV NODE_PATH=\"\" NODE_OPTIONS=\"\"\nENTRYPOINT "+JSON.stringify([
    path+"/toolchain/node","--import",path+"/toolchain/node_modules/tsx/dist/loader.mjs",
