@@ -48,7 +48,7 @@ jobs:
           expiry=$(date -u -d '+60 minutes' +%s)
           rc=0
           bash "$bundle/run-notes.sh" --run "$expiry" 2>&1 | tee "$RUNNER_TEMP/pirate-final-ci/run-console.txt" || rc=$?
-          run_dir=$(find "$RUNNER_TEMP/pirate-final-ci/selected" -maxdepth 1 -type d -name 'pirate-offline-native-notes-run.*' -print -quit)
+          run_dir=$(find "$RUNNER_TEMP/pirate-final-vm-scratch" -maxdepth 1 -type d -name 'pirate-offline-native-notes-run.*' -print -quit)
           test -n "$run_dir"
           test -s "$run_dir/RESULT.json"
           test "$(cat "$run_dir/QEMU-PROCESS.txt")" = absent
@@ -61,10 +61,10 @@ jobs:
           name: pirate-final-acceptance
           path: |
             ${{ runner.temp }}/pirate-final-ci/run-console.txt
-            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/RESULT.json
-            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/SERIAL.log
-            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/guest-evidence.tar
-            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/QEMU-*.txt
-            ${{ runner.temp }}/pirate-final-ci/selected/pirate-offline-native-notes-run.*/HOST-SHA256SUMS
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/RESULT.json
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/SERIAL.log
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/guest-evidence.tar
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/QEMU-*.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/HOST-SHA256SUMS
           include-hidden-files: true
           if-no-files-found: warn
