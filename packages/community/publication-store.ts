@@ -67,6 +67,7 @@ export const isPublicationStep = (value: string): value is PublicationStep =>
   [...publicationSteps,"catalog_reserve","catalog_confirm"].includes(value);
 export async function loadJob(db: D1Database, id: string) {
   const job = await db
+    .withSession("first-primary")
     .prepare("SELECT * FROM publication_jobs WHERE job_id=?")
     .bind(id)
     .first<PublicationJob>();
@@ -78,6 +79,7 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
   // attempt or timestamp changes. The SQL condition repeats the check inside
   // the update so a concurrent phase change cannot slip past it.
   const current = await db
+    .withSession("first-primary")
     .prepare("SELECT authority_json,phase FROM publication_jobs WHERE job_id=?")
     .bind(id)
     .first<Pick<PublicationJob, "authority_json" | "phase">>();
