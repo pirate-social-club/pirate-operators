@@ -17,8 +17,8 @@ import {
   Input,
   Textarea,
   Type,
-} from "../reference/src/design-system.ts";
-import { cn } from "../reference/src/design-system.ts";
+} from "../../design-system.ts";
+import { cn } from "../../design-system.ts";
 import {
   COMMUNITY_LYRICS_LIMIT as PUBLIC_SONG_LYRICS_MAX_CHARACTERS,
   mp3Issue as publicSongAudioIssue,

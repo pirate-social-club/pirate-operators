@@ -14,7 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
   toast,
-} from "../design-system.ts";
+} from "../../design-system.ts";
 
 /** Management authority as the banner reports it, read without opening the menu. */
 export type CommunityManageAuthority = "available" | "pending" | "unavailable";

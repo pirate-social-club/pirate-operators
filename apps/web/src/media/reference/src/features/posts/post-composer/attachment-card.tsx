@@ -14,8 +14,8 @@ import {
   IconX,
   Input,
   Type,
-} from "../../../design-system.ts";
-import { cn } from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
+import { cn } from "../../../../../../design-system.ts";
 import {
   getMediaAspectRatioStyle,
   getVideoPreviewFrameClassName,

@@ -16,9 +16,9 @@ import {
   TokenSOL,
   TokenUSDC,
   TokenUSDT,
-  type Web3IconProps,
   cn,
-} from "./design-system.ts";
+} from "../../design-system.ts";
+import type { Web3IconProps } from "@/components/media/web3-icons";
 import type { WalletHubChainId, WalletHubToken } from "./wallet-hub.types";
 
 import cosmosIconUrl from "./assets/cosmos.png?no-inline";

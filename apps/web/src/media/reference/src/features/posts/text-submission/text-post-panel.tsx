@@ -13,7 +13,7 @@ import {
   Input,
   Textarea,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import { PostComposerField } from "../post-composer/fields.tsx";
 import { createPhoneLayout } from "../../shell/composing-surface.tsx";
 

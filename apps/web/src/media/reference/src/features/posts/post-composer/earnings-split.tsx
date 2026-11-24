@@ -12,7 +12,7 @@ import {
   ModalHeader,
   ModalTitle,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import {
   basisPointsToPercentText,
   percentTextToBasisPoints,

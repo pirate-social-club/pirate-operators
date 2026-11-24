@@ -5,7 +5,7 @@
 
 import { Show } from "solid-js";
 
-import { Button, FormNote, IconArrowUp } from "../../../design-system.ts";
+import { Button, FormNote, IconArrowUp } from "../../../../../../design-system.ts";
 import type { PostComposerController } from "./controller.ts";
 import { submitProgressFraction } from "./submit-progress.ts";
 import type { SubmitProgress } from "./types.ts";

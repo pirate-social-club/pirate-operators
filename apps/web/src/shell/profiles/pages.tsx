@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { isServer, type JSX } from "@solidjs/web";
 import type { PublicProfile } from "../../../../../packages/community-profile/contracts.ts";
-import { Button, Type, buttonVariants } from "../design-system.ts";
+import { Button, Type, buttonVariants } from "../../design-system.ts";
 import { ProfileLayout } from "../reference/profile-layout.tsx";
 import {
   ProfileActivity,

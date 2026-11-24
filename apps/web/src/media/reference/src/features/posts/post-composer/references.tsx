@@ -16,7 +16,7 @@ import {
   IconTrash,
   Input,
   Type,
-} from "../../../design-system.ts";
+} from "../../../../../../design-system.ts";
 import type { ComposerCopy } from "./copy.ts";
 import { FieldLabel } from "./fields.tsx";
 import {

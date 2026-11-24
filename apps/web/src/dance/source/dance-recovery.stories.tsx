@@ -5,7 +5,9 @@ import {
   type RepairStoryMode,
 } from "../../../test/dance-repair-story-fixtures.tsx";
 export default {
-  title: "Flows/Dance/Recovery repair",
+  title: "Dance/Flows/Recovery repair",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["flow"],
   parameters: { layout: "fullscreen", docs: { description: { component: "Engineering recovery/denial extensions have no exact Paper frame. Hidden fixture diagnostics are programmatic regression ports, not product controls. Real native video fixture, explicit A endpoint, denial and Blob URL assertions remain. Phone390x844 and exact desktop1280x800 captures require separate review." } } },
 };
 const render = (mode: RepairStoryMode) => () => (

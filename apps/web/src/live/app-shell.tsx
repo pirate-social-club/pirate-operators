@@ -12,7 +12,7 @@ import {
   Toaster,
   Type,
   createMediaQuery,
-} from "../shell/design-system.ts";
+} from "../design-system.ts";
 import {
   AppSidebar,
   SidebarContent,

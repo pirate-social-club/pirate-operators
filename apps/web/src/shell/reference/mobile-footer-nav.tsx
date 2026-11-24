@@ -3,14 +3,14 @@ import type { JSX } from "@solidjs/web";
 import { Dynamic } from "@solidjs/web";
 import { For, Show } from "solid-js";
 
-import { Avatar } from "../design-system.ts";
+import { Avatar } from "../../design-system.ts";
 import {
   IconDotsThree,
   IconHouse,
   IconPlaylist,
   IconWallet,
-} from "../design-system.ts";
-import { cn } from "../design-system.ts";
+} from "../../design-system.ts";
+import { cn } from "../../design-system.ts";
 
 export type FooterNavItemId = "home" | "songs" | "wallet" | "profile" | "none";
 type FooterIcon = (props: { class?: string; filled?: boolean }) => JSX.Element;

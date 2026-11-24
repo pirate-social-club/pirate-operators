@@ -30,6 +30,8 @@ jobs:
       - run: npm run test:components
       - run: npm run test:ui:tokens
       - run: npm run check:ui:tokens
+      - run: npm run test:ui:stories
+      - run: npm run check:ui:stories
       - run: npm run build
       - run: npm run build:live
       - run: npx playwright install --with-deps chromium

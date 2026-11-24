@@ -40,7 +40,9 @@ function PlaybackFixture(props: {
 }
 
 const meta = {
-  title: "Flows/Shell/Playback controls",
+  title: "Shell/Parts/Playback controls",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["part"],
   component: PlaybackFixture,
   args: { playing: false, buffering: false, canSeek: true },
   render: (args) => <PlaybackFixture {...args} />,

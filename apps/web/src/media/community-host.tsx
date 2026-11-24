@@ -5,7 +5,7 @@ import {
 } from "./community-post-composer.tsx";
 import { CommunitySongComposer } from "./community-ui/post-composer.tsx";
 import { PendingSongs } from "./reference/src/features/posts/song-submission/pending-songs.tsx";
-import { Button, FormNote } from "./reference/src/design-system.ts";
+import { Button, FormNote } from "../design-system.ts";
 import type { PostComposerProps } from "./reference/src/features/posts/post-composer/types.ts";
 import {
   CATALOG_RELEASE_POLICY,

@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { Avatar, Button, Card, CardContent, Type } from "../design-system.ts";
+import { Avatar, Button, Card, CardContent, Type } from "../../design-system.ts";
 import type { CommunityAccountProps } from "./pages.tsx";
 const publicHref = (id: string) => "/#profile-" + id;
 /** Exact AccountPage frame/action lifecycle @ c7; services are actual host ports. */

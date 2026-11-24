@@ -2,7 +2,7 @@
 // Playback/access remain in SongPlayer. Unknown artwork/artist stays absent.
 import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { IconMusicNote, Type } from "../design-system.ts";
+import { IconMusicNote, Type } from "../../design-system.ts";
 export function SongContentFrame(props: {
   title: string;
   artworkSrc?: string;

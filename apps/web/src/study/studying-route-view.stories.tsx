@@ -15,7 +15,9 @@ import {
 } from "./studying-story-fixtures";
 
 const meta = {
-  title: "Screens/Studying/Route",
+  title: "Studying/Screens/Route",
+  // The tier lives in metadata so the sidebar can group feature-first.
+  tags: ["screen"],
   parameters: {
     layout: "fullscreen",
     docs: {

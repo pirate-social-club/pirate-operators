@@ -1,6 +1,6 @@
 // Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-lyric-stage.tsx; only imports changed.
 import { For, Show } from "solid-js";
-import { Type } from "../ui.ts";
+import { Type } from "../design-system.ts";
 import type { KaraokeStageLine, KaraokeStageToken } from "../../../../packages/karaoke/lyric-transform.ts";
 import { displayLines } from "../../../../packages/karaoke/karaoke-timing.ts";
 import "./karaoke.css";
