@@ -35,6 +35,26 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const noop = () => {};
+export const LessonFlow: Story = {
+  render: () => (
+    <StudyingRouteView
+      client={createStoryLessonClient()}
+      onExit={noop}
+      onStudyAgain={noop}
+      postId={storyPostId}
+      recorder={createStoryRecorder()}
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Happy path: record the say-it-back card (Stop submits a correct attempt and the server advances to its current card), then answer the multiple-choice card, inspect feedback and press Next to reach streak-qualified completion.",
+      },
+    },
+  },
+};
+
 export const RecordingOutcomeUnknown: Story = {
   render: () => (
     <StudyingRouteView
@@ -105,26 +125,6 @@ export const ExpiredLesson: Story = {
     await expect(
       canvas.getByRole("button", { name: "New lesson" }),
     ).toBeEnabled();
-  },
-};
-
-export const LessonFlow: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient()}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
-  parameters: {
-    docs: {
-      description: {
-        story:
-          "Happy path: record the say-it-back card (Stop submits a correct attempt and the server advances to its current card), then answer the multiple-choice card, inspect feedback and press Next to reach streak-qualified completion.",
-      },
-    },
   },
 };
 

@@ -28,11 +28,23 @@ test("a flow without a play function is a violation", () => {
   assert.match(findings[0], /play function/);
 });
 
-test("a screen disabling page-level rules is a violation", () => {
+test("a screen disabling any page-level rule is a violation", () => {
+  for (const rule of ["landmark-one-main", "page-has-heading-one", "region"]) {
+    const findings = scanSources({
+      "a.stories.tsx": `title: "X/Screens/Y", tags: ["screen"], rules: [{ id: "${rule}", enabled: false }]`,
+    });
+    assert.match(findings[0], /fragment/);
+  }
+});
+
+test("comments and prose do not count as play evidence", () => {
   const findings = scanSources({
-    "a.stories.tsx": 'title: "X/Screens/Y", tags: ["screen"], rules: [{ id: "landmark-one-main", enabled: false }, { id: "page-has-heading-one", enabled: false }]',
+    "comment.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\n// play: async () => {}',
+    "prose.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"], note: "play: async () => {}"',
   });
-  assert.match(findings[0], /fragment/);
+  assert.equal(findings.length, 2);
+  assert.match(findings[0], /play function/);
+  assert.match(findings[1], /play function/);
 });
 
 test("a flow with a play function and a part pass clean", () => {

@@ -21,6 +21,32 @@ import "../src/live/style.css";
 type ThemeMode = "dark" | "light" | "system";
 type DirectionMode = "auto" | "ltr" | "rtl";
 
+// Screens own document structure. Flows, Parts and the vendored Components and
+// Patterns are fragments, so their host page owns these three document rules.
+const PAGE_LEVEL_A11Y_RULES = [
+  "landmark-one-main",
+  "page-has-heading-one",
+  "region",
+];
+
+const withDocumentA11yScope = createDecorator((Story, context) => {
+  const isScreen = context.tags?.includes("screen") ?? false;
+  const current = context.parameters.a11y ?? {};
+  const config = current.config ?? {};
+  const currentRules = Array.isArray(config.rules) ? config.rules : [];
+  context.parameters.a11y = {
+    ...current,
+    config: {
+      ...config,
+      rules: [
+        ...currentRules.filter((rule) => !PAGE_LEVEL_A11Y_RULES.includes(rule.id)),
+        ...PAGE_LEVEL_A11Y_RULES.map((id) => ({ id, enabled: isScreen })),
+      ],
+    },
+  };
+  return Story();
+});
+
 const withAppDocument = createDecorator((Story, context) => {
   const mode = context.globals.theme as ThemeMode;
   const directionMode = context.globals.direction as DirectionMode;
@@ -45,7 +71,7 @@ const withAppDocument = createDecorator((Story, context) => {
 });
 
 const preview: Preview = {
-  decorators: [withAppDocument],
+  decorators: [withDocumentA11yScope, withAppDocument],
   globalTypes: {
     theme: {
       name: "Theme",
@@ -75,7 +101,7 @@ const preview: Preview = {
     },
     locale: {
       name: "Locale",
-      description: "Global story locale",
+      description: "Document language and direction smoke check; not translated-copy proof",
       defaultValue: "en",
       toolbar: {
         icon: "globe",

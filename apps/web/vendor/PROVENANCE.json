@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.1.tgz",
-      "sha512": "sha512-eNMWpv8zb9KxV2XhHUCQcjVTteThyZaGao7pyGlxkR2/u/fG11pw5IooCKVuEk64hL1pl5jvn3FXk4SbP3enTQ==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.2.tgz",
+      "sha512": "sha512-HW6MmZSeb7qJRLSWybmpcEhuCZfJyu/D3POzPUfcsCJOVR8WYQ9lCrpiezxlsrqsKmkmwI5bUfffSBkJ68ZA5g==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,8 +13,9 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.1 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.2 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
+        "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "consumerRequirements": [
@@ -29,6 +30,11 @@
           "path": "vendor/patches/solid-ui-solid2-rc21.patch",
           "sha512": "sha512-j7rAJV1Aj1sUl67IMT0hdHhKPezD904wI0EiUE/Q6/QJCU2OZPgRJUm7WqU2bmiWotrty4uKk1rRPHWiJzWZqA==",
           "purpose": "Match Solid rc.21 DOM attribute typing for Dialog, AlertDialog and Sheet close controls without changing rendered markup."
+        },
+        {
+          "path": "vendor/patches/solid-ui-action-menu-rtl.patch",
+          "sha512": "sha512-iTH+66XEHcPyAa4humdlOj7IKnQUfDCQj5JosJOFY/Ue42kdTacBMEEyV8EX6UbgHtB3sP6t5IZosEcKdx+Trg==",
+          "purpose": "Keep the ActionMenu Open catalog story direction-aware and ensure its modal menu closes before the accessibility scan."
         }
       ]
     },

@@ -2,23 +2,115 @@
 // so the tier discipline lives in story metadata, enforced here.
 // - tags must be exactly one of: screen, flow, part
 // - a flow-tagged story file must contain at least one play function
-// - a screen-tagged meta must not disable the two page-level axe rules:
+// - a screen-tagged meta must not disable the three page-level axe rules:
 //   a route-level view owns the page structure, so disabling them marks a
 //   fragment, which belongs to the flow or part tier
 // Same script convention as scripts/storybook/check-production-imports.mjs.
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 export const TIERS = ["screen", "flow", "part"];
-const PAGE_RULES = ["landmark-one-main", "page-has-heading-one"];
+const PAGE_RULES = ["landmark-one-main", "page-has-heading-one", "region"];
+
+function propertyKey(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function stripCommentsAndStrings(source) {
+  let output = "";
+  let state = "code";
+  let quote = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (state === "line") {
+      if (char === "\n") {
+        state = "code";
+        output += char;
+      } else output += " ";
+      continue;
+    }
+    if (state === "block") {
+      if (char === "*" && next === "/") {
+        output += "  ";
+        index += 1;
+        state = "code";
+      } else output += char === "\n" ? "\n" : " ";
+      continue;
+    }
+    if (state === "string") {
+      if (char === "\\") {
+        output += " ";
+        if (next !== undefined) {
+          output += next === "\n" ? "\n" : " ";
+          index += 1;
+        }
+      } else if (char === quote) {
+        output += " ";
+        state = "code";
+      } else output += char === "\n" ? "\n" : " ";
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      output += "  ";
+      index += 1;
+      state = "line";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      output += "  ";
+      index += 1;
+      state = "block";
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      output += " ";
+      state = "string";
+      continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function parseEvidence(source) {
+  const ast = ts.createSourceFile("story.stories.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let hasPlay = /\bplay\s*:/.test(stripCommentsAndStrings(source));
+  const disabledPageRules = new Set();
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node) && propertyKey(node.name) === "play") hasPlay = true;
+    if (ts.isObjectLiteralExpression(node)) {
+      let id = null;
+      let enabled = true;
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const key = propertyKey(property.name);
+        if (key === "id" && ts.isStringLiteral(property.initializer)) id = property.initializer.text;
+        if (key === "enabled") enabled = property.initializer.kind !== ts.SyntaxKind.FalseKeyword;
+      }
+      if (id && !enabled && PAGE_RULES.includes(id)) disabledPageRules.add(id);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return { hasPlay, disabledPageRules };
+}
 
 export function parseMeta(source) {
   const title = /title: "([^"]+)"/.exec(source)?.[1] ?? null;
   const tag = /tags: \["([a-z]+)"\]/.exec(source)?.[1] ?? null;
-  const hasPlay = /\bplay:/.test(source);
-  const disablesPageRules = PAGE_RULES.every((rule) => source.includes(`{ id: "${rule}", enabled: false }`));
-  return { title, tag, hasPlay, disablesPageRules };
+  const evidence = parseEvidence(source);
+  return {
+    title,
+    tag,
+    hasPlay: evidence.hasPlay,
+    disablesPageRules: evidence.disabledPageRules.size > 0,
+    disabledPageRules: [...evidence.disabledPageRules],
+  };
 }
 
 export function scanSources(files) {
