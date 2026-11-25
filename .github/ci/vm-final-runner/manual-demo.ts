@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
+import { getHeapSpaceStatistics } from "node:v8";
 import { bytesToHex, createWalletClient, http, keccak256, sha256, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { Browser } from "../../apps/community-wizard/node_modules/playwright-core/types/types.d.ts";
@@ -220,6 +221,7 @@ const memorySample = () => {
    servicePid: serviceStat ? servicePid ?? null : null, serviceRssKb: serviceStat?.rssKb ?? null,
    memAvailableKb: available ? Number(available[1]) : null, uidRssKb,
    heapUsedKb: kb(usage.heapUsed), heapTotalKb: kb(usage.heapTotal), externalKb: kb(usage.external), arrayBuffersKb: kb(usage.arrayBuffers),
+   largeObjectKb: kb(getHeapSpaceStatistics().filter(space => space.space_name === "large_object_space").reduce((total, space) => total + space.space_used_size, 0)),
    topRss });
  } catch { /* diagnostic capture never affects the rehearsal */ }
 };

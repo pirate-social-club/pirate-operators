@@ -117,6 +117,9 @@ def main():
     demo_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-demo.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-demo.ts"'
     browser_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-browser.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-browser.ts"'
     raw = replace(raw, demo_install, demo_install + '\n' + browser_install)
+    export_tail = 'notes-before.json binding-before.json notes-after.json binding-after.json)'
+    raw = replace(raw, export_tail,
+                  'notes-before.json binding-before.json notes-after.json binding-after.json native-progress.json native-memory.json)')
     bootstrap.write_text(raw)
     bootstrap.chmod(0o700)
     repinned['guest-notes-bootstrap.sh'] = hashlib.sha256(bootstrap.read_bytes()).hexdigest()
