@@ -10,7 +10,7 @@ import {
   resolveLocaleLanguageTag,
 } from "../src/lib/ui-locale-core.ts";
 
-import "../src/live/style.css";
+import "./catalog.css";
 
 // Catalog composition from the reviewed pirate-web-solid unified catalog
 // model: one place reviews a token on its Foundations page and in every
