@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.14.tgz",
-      "sha512": "sha512-ZTCy1ZuRAv8gmdRVncgEa+v7C9JmDOh+fU/VDEUNsUxKKpghPk1C2ZPYG3b0kQIANlOO8yYz+fnDZmyTT4bczQ==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.15.tgz",
+      "sha512": "sha512-JYUF8DYZ2jz9p/FXHB5i+uoG7SyRn+Wr+QqHteGYrr/+ucsd9AavUFPguhBMxzAJCCflu0fy4BTlvCaL0YImXg==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,7 +13,7 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.14 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.15 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
         "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
         "Apply vendor/patches/solid-ui-action-menu-open-accessibility.patch: add a catalog story that leaves ActionMenu open for the accessibility reporter and asserts focus inside the menu",
@@ -29,6 +29,7 @@
         "Apply vendor/patches/solid-ui-app-header-chat-story-viewport.patch: keep the desktop overflow-chat fixture on the desktop header branch at narrow audit widths",
         "Apply vendor/patches/solid-ui-story-frame-width-fixtures.patch: center fixed-width Scrubber, Waveform and CopyField story frames inside the fullscreen catalog viewport using the same one-rem gutter model as the board assertions",
         "Apply vendor/patches/solid-ui-mobile-sheet-story-assertions.patch: exercise Sidebar phone sheets with Escape focus return and assert the visible VerticalFeed long caption",
+        "Apply vendor/patches/solid-ui-sidebar-focus-restore-wait.patch: wait boundedly for focus restoration after the mobile Sidebar sheet is removed",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "consumerRequirements": [
@@ -108,6 +109,11 @@
           "path": "vendor/patches/solid-ui-mobile-sheet-story-assertions.patch",
           "sha512": "sha512-Oaw5O0h/jTPl8pUil2lR57QeNBiRYdLsmzUzA31SMrJor8j/R0QWsXxK5LfmscgnW9kAqxbh4OMf63EThhFo9A==",
           "purpose": "Keep desktop Sidebar assertions intact while phone stories open the sheet, verify Escape focus return, and assert the visible VerticalFeed caption copy."
+        },
+        {
+          "path": "vendor/patches/solid-ui-sidebar-focus-restore-wait.patch",
+          "sha512": "sha512-VOsx4xEyK0RoQWAAaUCSbBlsEsc9uBSjvM5g8GkGmt4RvdaRZXwmsmYax9yg4Arr22wga66XIGQYvif/XOU0NQ==",
+          "purpose": "Account for the focus trap restoring focus after the sheet leaves the document rather than in the same frame."
         }
       ]
     },
