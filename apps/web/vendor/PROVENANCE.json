@@ -89,5 +89,26 @@
     "tool": "scripts/align-upstream-lock.ts remains an original-source comparison diagnostic; its write mode is not the runtime upgrade path",
     "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; retained Kobalte patch series plus the rc.21 dialog layer fix; other design-system dependencies unchanged",
     "reason": "The consumer upgrades its runtime independently of the imported source commit. Explicit Solid peer overrides select one rc.21 runtime, including the derived Kobalte package. The vite-plugin-solid entry is an npm alias for the same renamed compiler package needed by the Storybook peer. Other existing dependency pins stay unchanged unless required by this upgrade."
+  },
+  "catalogFixtures": {
+    "source": {
+      "repository": "https://github.com/pirate-social-club/pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "public/storybook",
+      "method": "exact bytes read with git show at the pinned commit"
+    },
+    "reason": "Vendored catalog stories use absolute /storybook fixture URLs. These copies are served only by the Storybook staticDirs entry and are not product runtime assets.",
+    "files": [
+      {
+        "path": ".storybook/public/storybook/avatar-ghost.svg",
+        "sourcePath": "public/storybook/avatar-ghost.svg",
+        "sha256": "2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee"
+      },
+      {
+        "path": ".storybook/public/storybook/karaoke-artwork.svg",
+        "sourcePath": "public/storybook/karaoke-artwork.svg",
+        "sha256": "afbf8593e0b4fbce26198430de29c811b1142e82f6119fc5623abf3280fd2eb3"
+      }
+    ]
   }
 }
