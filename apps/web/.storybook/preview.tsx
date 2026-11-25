@@ -21,6 +21,35 @@ import "../src/live/style.css";
 type ThemeMode = "dark" | "light" | "system";
 type DirectionMode = "auto" | "ltr" | "rtl";
 
+// Components and Patterns are isolated fragments. Their host application owns
+// the page landmark, heading and region structure; Screens validate those
+// rules. Scope only these three page-level rules, never component semantics.
+const PAGE_LEVEL_A11Y_RULES = [
+  "landmark-one-main",
+  "page-has-heading-one",
+  "region",
+];
+
+const withFragmentA11y = createDecorator((Story, context) => {
+  const parts = (context.title ?? "").split("/");
+  const tier = ["Screens", "Flows", "Parts"].includes(parts[1])
+    ? parts[1]
+    : parts[0];
+  const current = context.parameters.a11y ?? {};
+  const config = current.config ?? {};
+  context.parameters.a11y = {
+    ...current,
+    config: {
+      ...config,
+      rules: [
+        ...(config.rules ?? []),
+        ...PAGE_LEVEL_A11Y_RULES.map((id) => ({ id, enabled: tier === "Screens" })),
+      ],
+    },
+  };
+  return Story();
+});
+
 const withAppDocument = createDecorator((Story, context) => {
   const mode = context.globals.theme as ThemeMode;
   const directionMode = context.globals.direction as DirectionMode;
@@ -45,7 +74,7 @@ const withAppDocument = createDecorator((Story, context) => {
 });
 
 const preview: Preview = {
-  decorators: [withAppDocument],
+  decorators: [withFragmentA11y, withAppDocument],
   globalTypes: {
     theme: {
       name: "Theme",
