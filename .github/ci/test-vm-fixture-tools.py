@@ -89,7 +89,8 @@ class RunIdentityTests(unittest.TestCase):
         self.git("checkout", "-q", self.merge)
         self.pin = self.root / "pin.json"
         self.pin.write_text(json.dumps({
-            "release": "fixtures-r14",
+            "release": "fixtures-r15",
+            "unchangedAssetRelease": "fixtures-r13",
             "manifestSha256": "a" * 64,
             "productSourceHead": "b" * 40,
             "productSourceTree": "c" * 40,
@@ -123,7 +124,8 @@ class RunIdentityTests(unittest.TestCase):
         self.assertEqual(row["executedMergeSha"], self.merge)
         self.assertEqual(row["baseSha"], self.base)
         self.assertEqual(row["checkoutSha"], self.merge)
-        self.assertEqual(row["fixtureRelease"], "fixtures-r14")
+        self.assertEqual(row["fixtureRelease"], "fixtures-r15")
+        self.assertEqual(row["unchangedAssetRelease"], "fixtures-r13")
         self.assertEqual(row["fixtureManifestSha256"], "a" * 64)
         self.assertEqual(row["productSourceHead"], "b" * 40)
         self.assertEqual(row["productSourceTree"], "c" * 40)

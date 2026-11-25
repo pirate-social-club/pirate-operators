@@ -32,12 +32,17 @@ def object_id(repo, revision, required=True):
 def load_pin(path):
     pin = json.loads(path.read_bytes())
     release = pin.get("release")
+    unchanged_release = pin.get("unchangedAssetRelease")
     manifest = pin.get("manifestSha256")
     head = pin.get("productSourceHead")
     tree = pin.get("productSourceTree")
     image = pin.get("fixtureImageId")
     if not isinstance(release, str) or not release:
         raise ValueError("fixture pin is missing release")
+    if not isinstance(unchanged_release, str) or not unchanged_release:
+        raise ValueError("fixture pin is missing unchangedAssetRelease")
+    if unchanged_release == release:
+        raise ValueError("fixture pin must use a distinct unchangedAssetRelease")
     if not isinstance(manifest, str) or not HEX64.fullmatch(manifest):
         raise ValueError("fixture pin has an invalid manifestSha256")
     if not isinstance(head, str) or not HEX40.fullmatch(head):
@@ -98,6 +103,7 @@ def build_identity(repo, pin_path, env):
         "headInstallWorkflowBlobSha": object_id(
             repo, f"{head}:.github/workflows/pirate-vm-install-only.yml", required=False),
         "fixtureRelease": pin["release"],
+        "unchangedAssetRelease": pin["unchangedAssetRelease"],
         "fixtureManifestSha256": pin["manifestSha256"],
         "fixturePinSha256": hashlib.sha256(pin_path.read_bytes()).hexdigest(),
         "productSourceHead": pin["productSourceHead"],

@@ -4,9 +4,9 @@
 
 PR #100 remains draft. Final acceptance remains open. Do not merge it and do not begin either live visit from this packet.
 
-The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r14 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
+The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r15 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
 
-The reviewed fixture pin is `.github/ci/vm-fixtures-r14.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
+The reviewed fixture pin is `.github/ci/vm-fixtures-r15.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
 
 ## Git and fixture identity
 
@@ -25,8 +25,9 @@ The reviewed fixture pin is `.github/ci/vm-fixtures-r14.json`. Both VM workflows
 - Product source: `34f73d22f794e499a9bf86b22311629dcd2e000a`
 - Product tree: `94e58bd43806e484d5a85cf3ad144194c3d9f724`
 - Fixture image: `sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23`
-- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r14`
-- r14 manifest SHA-256: `e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca`
+- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r15`
+- Unchanged asset release: `pirate-v1-staging-vm-fixtures-20261125-r13`
+- r15 manifest SHA-256: `b3760ea2be702f48aa9c0a75addfc059bab5e1e6af17b984e659a59b68302c45`
 
 PR #100 changes CI adapters, VM workflows, fixture tooling, and reviewer documentation only. It does not change product source or rebuild the product image. The fixture is synthetic and has no live credentials, private backend source, or live effects.
 
@@ -34,20 +35,20 @@ Every new VM run writes `RUN-IDENTITY.json` before downloading fixtures. It reco
 
 ## Fixture successor and evidence repair
 
-r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r14 successor keeps every fixture and image byte unchanged and replaces only the final host runner's HOLD exporter/verifier path. `FIXTURE-REPAIR.json` is included in the pinned manifest.
+r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r15 successor is a repair-overlay release: it carries the repaired final host runner, the complete asset manifest, `FIXTURE-REPAIR.json`, and reviewer documents. Every fixture and image byte remains unchanged. After verifying the pinned r15 manifest digest, both workflows fill missing unchanged assets from r13 with `--skip-existing` and then verify the complete manifest before extraction or execution.
 
 | Asset | SHA-256 |
 |---|---|
-| r14 `ASSET-SHA256SUMS` | `e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca` |
-| r14 `final-media-host.tar` | `0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa` |
-| r14 `FIXTURE-REPAIR.json` | `5859b8d77d4b8cdbf941cfcc1a24c2d884aaffacab157a4824d2fb94c25b48be` |
+| r15 `ASSET-SHA256SUMS` | `b3760ea2be702f48aa9c0a75addfc059bab5e1e6af17b984e659a59b68302c45` |
+| r15 `final-media-host.tar` | `0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa` |
+| r15 `FIXTURE-REPAIR.json` | `b98ae8a999ec63afa7478aadaa356ec8cca6ce9cff9ab98b129ffc17a2662dfe` |
 | `final-notes-entry.iso` | `d74f98d17ff107d040f7d47b07d4cce7f3a75dee9366a57cf6ab3f02e12b2934` |
 | `install-diagnostic.iso` | `a018a6f7648b2b65275f4d1b342a6adc6b9202f5813caf0384af5ea29f1f9885` |
 | `install-only-host.tar` | `d648cf2ff59abeedd3ca60c6cbf2022de6be21681abdf38a36ec2567f88e412e` |
 
 The r13 HOLD exporter returned logs, text files, and a private controller receipt outside the verifier's HOLD allowlist. The verifier stopped at the allowlist assertion before reaching its nonempty-size assertion, and its final JSON parse would also have tried to parse admitted text logs. The success exporter already returned 23 JSON receipts plus the manifest and no logs.
 
-r14 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. Ten focused receipt-boundary checks pass.
+r15 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. Ten focused receipt-boundary checks pass.
 
 The fixed verifier was run against the original `45541957126` guest archive, SHA-256 `e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21`. The archive was not modified. Only omitted host metadata was reconstructed for the local verifier exercise. The verifier exited 1 and returned `held` with this intelligible reason:
 
@@ -59,15 +60,18 @@ The fixed result is SHA-256 `2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190
 
 ## Checksum verification
 
-Download r14, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
+Download r15, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
 
 ```bash
-release=pirate-v1-staging-vm-fixtures-20261125-r14
+release=pirate-v1-staging-vm-fixtures-20261125-r15
+unchanged=pirate-v1-staging-vm-fixtures-20261125-r13
 EXPECTED_MANIFEST_SHA256='<supplied separately>'
 
 gh release download "$release" -R pirate-social-club/pirate-operators --dir /tmp/pirate-fixtures
 
 python3 .github/ci/verify-vm-fixtures.py /tmp/pirate-fixtures/ASSET-SHA256SUMS "$EXPECTED_MANIFEST_SHA256"
+
+gh release download "$unchanged" -R pirate-social-club/pirate-operators --dir /tmp/pirate-fixtures --pattern '*' --skip-existing
 
 (cd /tmp/pirate-fixtures && sha256sum -c --strict ASSET-SHA256SUMS)
 ```
@@ -111,15 +115,15 @@ The two acceptance traces are byte-identical, nine lines each, SHA-256 `eddc4308
 
 No workflow or job sets `shell:` or `defaults.run.shell`; ordinary Linux steps use default `bash -e` without implicit `pipefail`. Every relevant pipeline has explicit `pipefail`:
 
-- `pirate-vm-final-acceptance.yml:58` sets `set -uo pipefail`; the runner/`tee` pipeline is at `:62`, captures `rc`, and exits with it at `:68`.
-- `pirate-vm-install-only.yml:55` sets `set -euo pipefail`; the runner/`tee` pipeline is at `:59`, captures `rc`, and exits with it at `:65`.
+- `pirate-vm-final-acceptance.yml:60` sets `set -uo pipefail`; the runner/`tee` pipeline is at `:64`, captures `rc`, and exits with it at `:70`.
+- `pirate-vm-install-only.yml:57` sets `set -euo pipefail`; the runner/`tee` pipeline is at `:61`, captures `rc`, and exits with it at `:67`.
 - Nested test shells retain `set -euo pipefail`; the full citations are in `WORKFLOW-EXIT-AUDIT.md`.
 
-No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `continue-on-error: true` remains limited to first-attempt Foundry installation with a retry. Aggregate jobs using `if: always()` explicitly require success. Artifact uploads remain the only other `if: always()` steps, now at final line 70 and install-only line 67.
+No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `continue-on-error: true` remains limited to first-attempt Foundry installation with a retry. Aggregate jobs using `if: always()` explicitly require success. Artifact uploads remain the only other `if: always()` steps, now at final line 72 and install-only line 69.
 
 ## Acceptance and next action
 
-There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r14. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
+There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r15. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
 
 That first passing run becomes the byte-identity baseline for later comparisons. Compare the recorded `.github/ci` tree and both workflow blob IDs; do not compare only a documentation head. Repost the corrected handoff only after the pass, with the new documentation SHA and manifest digest supplied separately.
 

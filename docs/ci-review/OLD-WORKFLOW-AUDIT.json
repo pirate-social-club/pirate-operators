@@ -1,5 +1,5 @@
 {
-  "auditedUtc": "2026-11-25T05:09:47.452023+00:00",
+  "auditedUtc": "2026-11-25T06:15:57.056813+00:00",
   "closeTimeoutFinalAcceptanceRun": {
     "baseSha": "cf03e0b57fbf4321cdbf896fdf8364683209ea01",
     "cleanup": 1,
@@ -178,22 +178,24 @@
     "r13EmptyLogs": 10,
     "r13JsonParseWouldParseAdmittedText": true,
     "r13NonemptySizeAssertionReached": false,
-    "r14FocusedResult": "pass",
-    "r14FocusedTests": 10,
-    "r14Repaired": true,
+    "r15FocusedResult": "pass",
+    "r15FocusedTests": 10,
+    "r15Repaired": true,
     "successExportIncludesLogs": false,
     "successExportReceipts": 23
   },
   "successorFixture": {
     "finalMediaHostSha256": "0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa",
     "fixtureImageId": "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23",
-    "manifestSha256": "e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca",
+    "manifestSha256": "b3760ea2be702f48aa9c0a75addfc059bab5e1e6af17b984e659a59b68302c45",
     "predecessorManifestSha256": "a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3",
     "predecessorRelease": "pirate-v1-staging-vm-fixtures-20261125-r13",
     "productSourceHead": "34f73d22f794e499a9bf86b22311629dcd2e000a",
     "productSourceTree": "94e58bd43806e484d5a85cf3ad144194c3d9f724",
-    "release": "pirate-v1-staging-vm-fixtures-20261125-r14",
-    "repairReceiptSha256": "5859b8d77d4b8cdbf941cfcc1a24c2d884aaffacab157a4824d2fb94c25b48be"
+    "release": "pirate-v1-staging-vm-fixtures-20261125-r15",
+    "releaseLayout": "repair-overlay",
+    "repairReceiptSha256": "b98ae8a999ec63afa7478aadaa356ec8cca6ce9cff9ab98b129ffc17a2662dfe",
+    "unchangedAssetRelease": "pirate-v1-staging-vm-fixtures-20261125-r13"
   },
   "zeroByteFixProof": {
     "existingEmptyManifestListedLog": "accepted",
