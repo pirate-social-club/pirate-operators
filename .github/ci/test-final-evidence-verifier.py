@@ -96,6 +96,21 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
         MODULE.verify_worker_hold(records)
 
+    def test_worker_diagnostic_collection_error_is_admitted(self):
+        path = self.root / "worker-diagnostic-error.tar"
+        archive(path, {
+            "worker-diagnostic.json": receipt("diagnostic", {
+                "schema": "pirate.native-notes-worker-diagnostic/1",
+                "unit": "pirate-native-notes-worker.service",
+                "observedUtc": "2026-11-25T07:02:59.531872901Z",
+                "workerRc": 1,
+                "systemd": {}, "cgroup": {}, "oomEvents": [], "journalEvents": [], "processes": [],
+                "collectionError": "UnicodeDecodeError",
+            }),
+        })
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        MODULE.verify_worker_hold(records)
+
     def test_unexpected_members_name_the_export_defect_and_controller_phase(self):
         path = self.root / "legacy-hold.tar"
         archive(path, {
