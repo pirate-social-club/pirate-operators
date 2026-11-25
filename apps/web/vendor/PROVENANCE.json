@@ -107,8 +107,8 @@
     },
     {
       "name": "@kobalte/core",
-      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.3.tgz",
-      "sha512": "sha512-qVYQe+UygQfYD8/z8T05z8LRhIWVZPRApk2Gh+rziqHY99zK59//Q6Fmv3MgQFzXCLOAsCALfqEsIB+w+1oRcQ==",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.4.tgz",
+      "sha512": "sha512-W93D86tjw/QuBltJYyaOe1ZJ2tm3ghghnLCX0RtS7G3sZSms26a6t2lEPVfwGEmgjwjt8WbOZsc6DNDFydL9PA==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -119,6 +119,7 @@
         "Apply vendor/patches/kobalte-solid2-rc21.patch to JSX and compiled JS exports: register dismissable layers reactively when their DOM ref arrives and clean up using the captured node",
         "Apply vendor/patches/kobalte-menu-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal menus, using the consumer-pinned @solid-primitives/interaction release that supports it",
         "Apply vendor/patches/kobalte-dialog-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal dialogs",
+        "Apply vendor/patches/kobalte-slider-thumb-editability.patch to JSX and compiled JS exports: mark slider thumbs editable reactively after DOM collection registration instead of relying on a one-time settled index",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "patches": [
@@ -136,6 +137,11 @@
           "path": "vendor/patches/kobalte-dialog-inert.patch",
           "sha512": "sha512-FN9HccLvFULf03Bj3PNNZhpEfYPyl5l/4et5OUttY4/BPo8QPeTB7fY+AjXm4UvSSbDjwlGRgrRUdHisiSJz/A==",
           "purpose": "Make modal dialog and sheet backgrounds inert so hidden controls cannot receive programmatic focus."
+        },
+        {
+          "path": "vendor/patches/kobalte-slider-thumb-editability.patch",
+          "sha512": "sha512-vaEciS8Z2lECsD4kA5BKxWZvt8KbNn3i0UC7m/LA2qqGJ8oSggG71U0U1i+ghZlDYW5fdeu4I5CVNpspTeW2jA==",
+          "purpose": "Allow slider keyboard and pointer input after Solid 2 registers thumbs in the DOM collection; the previous one-time settled read could retain index -1 and leave thumbs uneditable."
         }
       ],
       "originalArchive": {

@@ -83,7 +83,9 @@ patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="
   --input="$vendor/patches/kobalte-menu-inert.patch"
 patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/kobalte/package" \
   --input="$vendor/patches/kobalte-dialog-inert.patch"
-kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.3.tgz"
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/kobalte/package" \
+  --input="$vendor/patches/kobalte-slider-thumb-editability.patch"
+kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.4.tgz"
 tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-owner \
   -C "$work/kobalte" -cf - package | gzip -n -9 > "$kobalte_out"
 
