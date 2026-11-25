@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tarfile
@@ -16,6 +17,10 @@ VERIFIER = Path(sys.argv[1]).resolve(strict=True)
 SPEC = importlib.util.spec_from_file_location("packaged_final_verifier", VERIFIER)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+COLLECTOR_PATH = VERIFIER.parent / "collect-notes-evidence.py"
+COLLECTOR_SPEC = importlib.util.spec_from_file_location("packaged_final_collector", COLLECTOR_PATH)
+COLLECTOR = importlib.util.module_from_spec(COLLECTOR_SPEC)
+COLLECTOR_SPEC.loader.exec_module(COLLECTOR)
 
 
 def receipt(name, value):
@@ -167,6 +172,153 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 duplicate="controller-terminal.json")
         with self.assertRaisesRegex(AssertionError, "duplicate"):
             MODULE.receipt_set(path, MODULE.HOLD, set())
+
+    def test_close_progress_entered_is_admitted_and_validated(self):
+        path = self.root / "close-progress.tar"
+        archive(path, {
+            "close-progress.json": receipt("close-progress", {
+                "schema": "pirate.native-launcher-close-progress/1",
+                "logPresent": True, "closeEntered": True, "closeCompleted": False,
+                "lastMarker": "chain-dump-before", "lastMarkerUtc": "2026-11-25T08:06:11.420Z",
+                "markerCount": 14, "parseError": None,
+            }),
+        })
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        MODULE.verify_worker_hold(records)
+        self.assertEqual(records["close-progress.json"]["lastMarker"], "chain-dump-before")
+
+    def test_close_progress_never_entered_is_explicit_and_validated(self):
+        path = self.root / "close-never-entered.tar"
+        archive(path, {
+            "close-progress.json": receipt("close-progress", {
+                "schema": "pirate.native-launcher-close-progress/1",
+                "logPresent": False, "closeEntered": False, "closeCompleted": False,
+                "lastMarker": None, "lastMarkerUtc": None, "markerCount": 0, "parseError": None,
+            }),
+        })
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        MODULE.verify_worker_hold(records)
+
+    def test_close_progress_completed_close_is_validated(self):
+        path = self.root / "close-completed.tar"
+        archive(path, {
+            "close-progress.json": receipt("close-progress", {
+                "schema": "pirate.native-launcher-close-progress/1",
+                "logPresent": True, "closeEntered": True, "closeCompleted": True,
+                "lastMarker": "terminal-after", "lastMarkerUtc": "2026-11-25T08:06:59.999Z",
+                "markerCount": 21, "parseError": None,
+            }),
+        })
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        MODULE.verify_worker_hold(records)
+
+    def test_close_progress_inconsistent_fields_are_rejected(self):
+        row = {
+            "schema": "pirate.native-launcher-close-progress/1",
+            "logPresent": False, "closeEntered": False, "closeCompleted": False,
+            "lastMarker": "enter", "lastMarkerUtc": None, "markerCount": 0, "parseError": None,
+        }
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"close-progress.json": row})
+
+    def test_close_progress_unknown_marker_is_rejected(self):
+        row = {
+            "schema": "pirate.native-launcher-close-progress/1",
+            "logPresent": True, "closeEntered": True, "closeCompleted": False,
+            "lastMarker": "private-detail-leak", "lastMarkerUtc": "2026-11-25T08:06:11.420Z",
+            "markerCount": 1, "parseError": None,
+        }
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"close-progress.json": row})
+
+    def test_controller_close_error_classes_are_admitted(self):
+        for error in ("TimeoutExpired", "exact_native_runner_terminal_failure", "outer_guest_termination"):
+            path = self.root / ("controller-" + error + ".tar")
+            archive(path, {
+                "controller-terminal.json": receipt("controller", {
+                    "phase": "close", "status": "FAIL", "endedUtc": "2026-11-25T08:07:06.534+00:00",
+                    "childExit": 143, "error": error,
+                }),
+            })
+            records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+            MODULE.verify_worker_hold(records)
+            self.assertEqual(records["controller-terminal.json"]["error"], error)
+
+    def close_log(self, lines):
+        path = self.root / "close.stderr.log"
+        path.write_bytes("".join(lines).encode())
+        path.chmod(0o600)
+        return path
+
+    def test_collector_parses_canonical_prefix_and_verifier_admits_it(self):
+        log = self.close_log([
+            "2026-11-25T08:05:01.001Z enter\n",
+            "2026-11-25T08:05:01.120Z browser-before\n",
+            "2026-11-25T08:05:02.420Z browser-after\n",
+            "2026-11-25T08:05:02.430Z service-before\n",
+        ])
+        row = COLLECTOR.read_close_progress(log, owner=os.getuid())
+        self.assertEqual(row["lastMarker"], "service-before")
+        self.assertEqual(row["lastMarkerUtc"], "2026-11-25T08:05:02.430Z")
+        self.assertEqual(row["markerCount"], 4)
+        self.assertTrue(row["closeEntered"])
+        self.assertFalse(row["closeCompleted"])
+        self.assertIsNone(row["parseError"])
+        MODULE.verify_worker_hold({"close-progress.json": json.loads(json.dumps(row))})
+
+    def test_collector_completed_close_round_trips_through_verifier(self):
+        lines = []
+        for index, marker in enumerate(COLLECTOR.CLOSE_MARKERS):
+            lines.append(f"2026-11-25T08:05:{index:02d}.000Z {marker}\n")
+        row = COLLECTOR.read_close_progress(self.close_log(lines), owner=os.getuid())
+        self.assertTrue(row["closeCompleted"])
+        self.assertEqual(row["markerCount"], len(COLLECTOR.CLOSE_MARKERS))
+        MODULE.verify_worker_hold({"close-progress.json": json.loads(json.dumps(row))})
+
+    def test_collector_missing_log_is_explicit_not_entered(self):
+        row = COLLECTOR.read_close_progress(self.root / "absent.stderr.log", owner=os.getuid())
+        self.assertFalse(row["logPresent"])
+        self.assertFalse(row["closeEntered"])
+        self.assertIsNone(row["lastMarker"])
+        self.assertIsNone(row["parseError"])
+        MODULE.verify_worker_hold({"close-progress.json": row})
+
+    def test_collector_malformed_line_preserves_valid_prefix(self):
+        log = self.close_log([
+            "2026-11-25T08:05:01.001Z enter\n",
+            "2026-11-25T08:05:01.120Z browser-before\n",
+            "garbage line with private detail\n",
+            "2026-11-25T08:05:02.430Z service-before\n",
+        ])
+        row = COLLECTOR.read_close_progress(log, owner=os.getuid())
+        self.assertEqual(row["parseError"], "malformed-line")
+        self.assertEqual(row["lastMarker"], "browser-before")
+        self.assertEqual(row["markerCount"], 2)
+        MODULE.verify_worker_hold({"close-progress.json": row})
+
+    def test_collector_regressing_order_is_malformed(self):
+        log = self.close_log([
+            "2026-11-25T08:05:01.001Z enter\n",
+            "2026-11-25T08:05:01.120Z browser-after\n",
+            "2026-11-25T08:05:02.430Z browser-before\n",
+        ])
+        row = COLLECTOR.read_close_progress(log, owner=os.getuid())
+        self.assertEqual(row["parseError"], "malformed-line")
+        self.assertEqual(row["lastMarker"], "browser-after")
+
+    def test_collector_oversized_log_is_bounded(self):
+        path = self.close_log(["2026-11-25T08:05:01.001Z enter\n"])
+        with path.open("ab") as stream:
+            stream.write(b"x" * (64 * 1024))
+        row = COLLECTOR.read_close_progress(path, owner=os.getuid())
+        self.assertEqual(row["parseError"], "oversized")
+        self.assertFalse(row["closeEntered"])
+
+    def test_collector_wrong_owner_is_unreadable(self):
+        log = self.close_log(["2026-11-25T08:05:01.001Z enter\n"])
+        row = COLLECTOR.read_close_progress(log, owner=os.getuid() + 1)
+        self.assertEqual(row["parseError"], "unreadable")
+        self.assertFalse(row["closeEntered"])
 
     def test_success_receipts_remain_nonempty_and_hash_checked(self):
         path = self.root / "success.tar"

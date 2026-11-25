@@ -20,6 +20,7 @@ SUCCESS = {
 HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
+    "close-progress.json",
 }
 STARTUP_PHASES = (
     "fixture-refresh-enter",
@@ -46,7 +47,22 @@ HOLD_ERRORS = {
     "guest_prompt_timeout_startup_ready", "guest_prompt_timeout_handoff",
     "unexpected_guest_prompt_order_handoff", "native_runner_exit", "guest_private_pty_read",
     "guest_pty_event_queue_full", "unclassified-private-error",
+    "TimeoutExpired", "exact_native_runner_terminal_failure", "outer_guest_termination",
 }
+CLOSE_MARKERS = (
+    "enter",
+    "browser-before", "browser-after",
+    "service-before", "service-after",
+    "containers-before", "containers-after",
+    "servers-before", "servers-after",
+    "tick-after", "mining-after",
+    "external-after", "hosted-after",
+    "chain-dump-before", "chain-dump-after",
+    "chain-close-after", "role-agent-after",
+    "lease-before", "lease-after",
+    "terminal-before", "terminal-after",
+)
+CLOSE_PARSE_ERRORS = {"malformed-line", "unreadable", "oversized"}
 CHAIN_INIT_CLASSES = {
     "WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError", "TransactionNotFoundError",
     "HttpRequestError", "TimeoutError", "AssertionError", "AbortError", "Other",
@@ -355,6 +371,24 @@ def verify_worker_hold(held):
             assert set(process) == {"pid", "ppid", "comm", "uid", "rssKb", "executable"}
             assert all(type(process[key]) is int for key in ("pid", "ppid", "uid", "rssKb"))
             assert isinstance(process["comm"], str) and isinstance(process["executable"], str)
+    if "close-progress.json" in held:
+        row = held["close-progress.json"]
+        assert set(row) == {"schema", "logPresent", "closeEntered", "closeCompleted",
+                            "lastMarker", "lastMarkerUtc", "markerCount", "parseError"}
+        assert row["schema"] == "pirate.native-launcher-close-progress/1"
+        assert type(row["logPresent"]) is bool and type(row["closeEntered"]) is bool
+        assert type(row["closeCompleted"]) is bool
+        assert type(row["markerCount"]) is int and 0 <= row["markerCount"] <= len(CLOSE_MARKERS)
+        assert row["lastMarker"] is None or row["lastMarker"] in CLOSE_MARKERS
+        assert (row["lastMarker"] is not None) == row["closeEntered"]
+        assert row["closeCompleted"] == (row["lastMarker"] == "terminal-after")
+        if row["closeEntered"]:
+            assert row["logPresent"] and row["markerCount"] >= 1
+            assert isinstance(row["lastMarkerUtc"], str) and UTC_STAMP.fullmatch(row["lastMarkerUtc"])
+            assert row["lastMarkerUtc"].endswith("Z")
+        else:
+            assert row["lastMarkerUtc"] is None and row["markerCount"] == 0
+        assert row["parseError"] is None or row["parseError"] in CLOSE_PARSE_ERRORS
     if "install-server-refusal.json" in held:
         validate_install_server_refusal(held["install-server-refusal.json"])
         client = held.get("wizard-install-refusal.json")
@@ -473,6 +507,7 @@ def assess(run, result):
             result["workerDiagnostic"] = held.get("worker-diagnostic.json")
             result["controllerEvidence"] = held.get("controller-terminal.json")
             result["startupProgress"] = held.get("startup-progress.json")
+            result["closeProgress"] = held.get("close-progress.json")
             if "chain-init-refusal.json" in held:
                 result["chainInitRefusal"] = held["chain-init-refusal.json"]
             if "wizard-install-refusal.json" in held:

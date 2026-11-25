@@ -52,7 +52,23 @@ HOLD_ERRORS = {
     "guest_prompt_timeout_startup_ready", "guest_prompt_timeout_handoff",
     "unexpected_guest_prompt_order_handoff", "native_runner_exit", "guest_private_pty_read",
     "guest_pty_event_queue_full", "unclassified-private-error",
+    "TimeoutExpired", "exact_native_runner_terminal_failure", "outer_guest_termination",
 }
+CLOSE_MARKERS = (
+    "enter",
+    "browser-before", "browser-after",
+    "service-before", "service-after",
+    "containers-before", "containers-after",
+    "servers-before", "servers-after",
+    "tick-after", "mining-after",
+    "external-after", "hosted-after",
+    "chain-dump-before", "chain-dump-after",
+    "chain-close-after", "role-agent-after",
+    "lease-before", "lease-after",
+    "terminal-before", "terminal-after",
+)
+CLOSE_LINE = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z) ([a-z-]+)$")
+CLOSE_PARSE_ERRORS = {"malformed-line", "unreadable", "oversized"}
 CHAIN_INIT_CLASSES = {
     "WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError", "TransactionNotFoundError",
     "HttpRequestError", "TimeoutError", "AssertionError", "AbortError", "Other",
@@ -251,6 +267,53 @@ def write_json(path, value):
         file.write("\n")
 
 
+def read_close_progress(path=ROOT / "logs" / "close.stderr.log", owner=1000):
+    progress = {
+        "schema": "pirate.native-launcher-close-progress/1",
+        "logPresent": False,
+        "closeEntered": False,
+        "closeCompleted": False,
+        "lastMarker": None,
+        "lastMarkerUtc": None,
+        "markerCount": 0,
+        "parseError": None,
+    }
+    try:
+        info = path.lstat()
+    except OSError:
+        return progress
+    try:
+        assert stat.S_ISREG(info.st_mode) and path.resolve(strict=True) == path
+        assert info.st_uid == owner and info.st_nlink == 1 and info.st_mode & 0o077 == 0
+        progress["logPresent"] = True
+        if info.st_size > 64 * 1024:
+            progress["parseError"] = "oversized"
+            return progress
+        data = path.read_bytes()
+    except (AssertionError, OSError):
+        progress["parseError"] = "unreadable"
+        return progress
+    markers = []
+    malformed = False
+    position = -1
+    for line in data.decode("utf-8", "replace").splitlines():
+        match = CLOSE_LINE.fullmatch(line)
+        index = CLOSE_MARKERS.index(match.group(2)) if match and match.group(2) in CLOSE_MARKERS else -1
+        if index <= position:
+            malformed = True
+            break
+        position = index
+        markers.append((match.group(1), match.group(2)))
+    if malformed:
+        progress["parseError"] = "malformed-line"
+    if markers:
+        progress["closeEntered"] = True
+        progress["markerCount"] = len(markers)
+        progress["lastMarkerUtc"], progress["lastMarker"] = markers[-1]
+        progress["closeCompleted"] = progress["lastMarker"] == "terminal-after"
+    return progress
+
+
 def inspect_resource(config, resource):
     raw = subprocess.check_output(
         ["/usr/bin/docker", "--host", "unix:///run/docker.sock", "--config", str(config), "inspect", resource],
@@ -317,6 +380,7 @@ def collect_success(session, image, cutoff):
 
 
 def collect_hold(session):
+    write_json(session / "close-progress.json", read_close_progress())
     phases = []
     for name in STARTUP_PHASES:
         file = ROOT / f"notes-startup-{name}.json"
