@@ -18,6 +18,7 @@ The reviewed fixture pin is `.github/ci/vm-fixtures-r14.json`. Both VM workflows
 - Newer run head: `a5d7bd5b586cdd084b2245c3fdf6c2cc76628bd9`
 - Newer executed merge: `ada9563e54539fadae278e1080e228f73f443036`
 - Both executed against base: `cf03e0b57fbf4321cdbf896fdf8364683209ea01`
+- Current-main merge on #100: `fc8f6ae92a18300e326e5309b78ea6d74707df79`
 - Shared `.github/ci` tree across those heads and merges: `4ba47b4c8b20acc04a3b73ffd81fccdc376df994`
 - Shared final workflow blob: `3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd`
 - Shared install-only workflow blob: `cf434ef813ca1f6fccbc76fe0e5890db89fcaa29`
@@ -118,7 +119,7 @@ No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `co
 
 ## Acceptance and next action
 
-There is no passing baseline yet. Merge current main into #100, keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r14. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
+There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r14. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
 
 That first passing run becomes the byte-identity baseline for later comparisons. Compare the recorded `.github/ci` tree and both workflow blob IDs; do not compare only a documentation head. Repost the corrected handoff only after the pass, with the new documentation SHA and manifest digest supplied separately.
 
