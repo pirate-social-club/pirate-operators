@@ -13,8 +13,8 @@ import tarfile
 # member hashes pin the exact r20 base each vendored file diverges from; bump
 # them only in the commit that moves the fixture pin to a newer release.
 VENDORED_SEALED_R20 = {
-    'collect-notes-evidence.py': '332958b8e3877d5fe9671125a1e24958ecb8ea7662b3b720d8e0197699829913',
-    'verify-notes-run.py': 'e155ba6d4b0acee44a7fde7e29dc7198d2be33f4f8ad337110c9daa7a65dfb9e',
+    'collect-notes-evidence.py': '1f4015efb1801067f46e8c093a727fd5a90590e3a53173e4b577a6ed93d88965',
+    'verify-notes-run.py': '3d9b4c851944c88156cec5debe67b8dc66214c2d2fe94d0c13aa3547c726ee93',
 }
 
 # Sealed close-instrumentation ISO members the guest actually executes, as
