@@ -1,0 +1,11 @@
+--- a/src/patterns/overlays/action-menu/action-menu.stories.tsx
++++ b/src/patterns/overlays/action-menu/action-menu.stories.tsx
+@@ -103,6 +103,8 @@
+       // included, from assistive tech, so axe runs on the settled page instead.
+       await userEvent.keyboard("{Escape}");
+       await waitFor(() => expect(body.queryByRole("menu")).not.toBeInTheDocument());
++      await waitFor(() => expect(document.activeElement).toBe(trigger));
++      await waitFor(() => expect(trigger.closest('[aria-hidden="true"], [inert]')).toBeNull());
+     }
+   },
+ };
