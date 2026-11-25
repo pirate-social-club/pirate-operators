@@ -18,7 +18,10 @@ async function main() {
   if (!match || process.argv.length !== 2)
     throw new Error("Expected TEST_SHARD=1/4 through 4/4 and no arguments");
   const index = Number(match[1]);
-  const inventory = globSync("test/*.test.ts").sort();
+  // The container runtime probe has its own CI job so root shards stay offline.
+  const inventory = globSync("test/*.test.ts").sort().filter(
+    (file) => file !== "test/linux-image-runtime-ca.test.ts",
+  );
   if (
     inventory.length === 0 ||
     inventory.some((file) => !statSync(file).isFile())

@@ -23,10 +23,41 @@ jobs:
     uses: ./.github/workflows/community-wizard.yml
   creator:
     uses: ./.github/workflows/creator-spike.yml
+  image-runtime-ca:
+    name: image-runtime-ca
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Detect image recipe or release-seal changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          required=false
+          if [[ "$EVENT_NAME" == workflow_dispatch || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            required=true
+          else
+            changed=$(git diff --name-only "$BASE_SHA" HEAD)
+            if grep -Eq '^(deploy/linux/complete-image-recipe\.ts|harness/linux-full-target/(release-tree-modes|build-complete-artifacts)\.ts|test/linux-image-runtime-ca\.test\.ts|\.github/workflows/ci\.yml)$' <<<"$changed"; then
+              required=true
+            fi
+          fi
+          printf 'required=%s\n' "$required" >> "$GITHUB_OUTPUT"
+      - name: Run UID-1000 CA runtime probe
+        if: steps.scope.outputs.required == 'true'
+        run: node --test test/linux-image-runtime-ca.test.ts
   release-ready:
     name: release-ready
     if: always()
-    needs: [local, web, study, karaoke, wizard, creator]
+    needs: [local, web, study, karaoke, wizard, creator, image-runtime-ca]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -38,8 +69,9 @@ jobs:
           KARAOKE_RESULT: ${{ needs.karaoke.result }}
           WIZARD_RESULT: ${{ needs.wizard.result }}
           CREATOR_RESULT: ${{ needs.creator.result }}
+          IMAGE_RESULT: ${{ needs.image-runtime-ca.result }}
         run: |
           set -euo pipefail
-          for result in "$LOCAL_RESULT" "$WEB_RESULT" "$STUDY_RESULT" "$KARAOKE_RESULT" "$WIZARD_RESULT" "$CREATOR_RESULT"; do
+          for result in "$LOCAL_RESULT" "$WEB_RESULT" "$STUDY_RESULT" "$KARAOKE_RESULT" "$WIZARD_RESULT" "$CREATOR_RESULT" "$IMAGE_RESULT"; do
             test "$result" = success
           done
