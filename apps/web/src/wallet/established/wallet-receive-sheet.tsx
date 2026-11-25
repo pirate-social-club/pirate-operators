@@ -1,5 +1,6 @@
 // Independently ported 2026-11-11; exact source/blob and adaptations: docs/v1-wallet-owner-parity-20261111.md.
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import QRCode from "qrcode";
 
 import {
   Button,
@@ -50,6 +51,25 @@ export function WalletReceiveSheet(props: WalletReceiveSheetProps) {
   const view = createMemo(() =>
     buildWalletReceiveSheetView(props, selectedChainId()),
   );
+  const [qrDataUrl, setQrDataUrl] = createSignal("");
+  createEffect(
+    () => view().address,
+    (address) => {
+      if (!address) {
+        setQrDataUrl("");
+        return;
+      }
+      let active = true;
+      void QRCode.toDataURL(address, { width: 160, margin: 1 })
+        .then((url) => { if (active) setQrDataUrl(url); })
+        .catch(() => { if (active) setQrDataUrl(""); });
+      onCleanup(() => { active = false; });
+    },
+  );
+  const shortAddress = () => {
+    const address = view().address;
+    return address ? address.slice(0, 8) + "…" + address.slice(-6) : "";
+  };
 
   const selectChain = (chainId: WalletHubChainId) => {
     setCopied(false);
@@ -69,9 +89,8 @@ export function WalletReceiveSheet(props: WalletReceiveSheetProps) {
     }
   };
 
-  // Paper (Screens/Wallet/Portfolio 202, 204): a bottom sheet on a phone and
-  // a 480px dialog on desktop, as Send and Claim open. The network list and
-  // the full address carry the meaning, so there is no description line.
+  // Owner-approved pilot receive surface: QR plus a one-line shortened address
+  // and compact copy action. The chain picker appears only when it is real.
   return (
     <Modal
       forceMobile={props.forceMobile}
@@ -87,40 +106,42 @@ export function WalletReceiveSheet(props: WalletReceiveSheetProps) {
           <ModalTitle>Receive</ModalTitle>
         </ModalHeader>
 
-        <ul class="flex flex-col gap-1" aria-label="Chains">
-          <For each={view().chains}>
-            {(chain) => (
-              <li>
-                <button
-                  type="button"
-                  class={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-[var(--radius-md)] px-3 py-2 text-start transition-colors",
-                    chain.selected
-                      ? "bg-primary-subtle text-primary-text"
-                      : "hover:bg-muted",
-                    chain.disabled && "cursor-not-allowed opacity-50",
-                  )}
-                  disabled={chain.disabled}
-                  aria-pressed={chain.selected ? "true" : "false"}
-                  onClick={() => selectChain(chain.chainId)}
-                >
-                  <span class="flex min-w-0 items-center gap-3">
-                    <ChainIcon chainId={chain.chainId} class="size-8" />
-                    <span class="flex min-w-0 flex-col">
-                      <Type variant="body-strong">{chain.title}</Type>
-                      <Show when={chain.note}>
-                        {(note) => <Type variant="caption">{note()}</Type>}
-                      </Show>
+        <Show when={view().chains.length > 1}>
+          <ul class="flex flex-col gap-1" aria-label="Chains">
+            <For each={view().chains}>
+              {(chain) => (
+                <li>
+                  <button
+                    type="button"
+                    class={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-[var(--radius-md)] px-3 py-2 text-start transition-colors",
+                      chain.selected
+                        ? "bg-primary-subtle text-primary-text"
+                        : "hover:bg-muted",
+                      chain.disabled && "cursor-not-allowed opacity-50",
+                    )}
+                    disabled={chain.disabled}
+                    aria-pressed={chain.selected ? "true" : "false"}
+                    onClick={() => selectChain(chain.chainId)}
+                  >
+                    <span class="flex min-w-0 items-center gap-3">
+                      <ChainIcon chainId={chain.chainId} class="size-8" />
+                      <span class="flex min-w-0 flex-col">
+                        <Type variant="body-strong">{chain.title}</Type>
+                        <Show when={chain.note}>
+                          {(note) => <Type variant="caption">{note()}</Type>}
+                        </Show>
+                      </span>
                     </span>
-                  </span>
-                  <Type variant="caption" class="shrink-0">
-                    {chain.fiatLabel}
-                  </Type>
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
+                    <Type variant="caption" class="shrink-0">
+                      {chain.fiatLabel}
+                    </Type>
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
 
         <Show
           when={view().address}
@@ -132,26 +153,43 @@ export function WalletReceiveSheet(props: WalletReceiveSheetProps) {
             </Type>
           }
         >
-          <div class="flex flex-col gap-2 rounded-[var(--radius-md)] border border-border-soft p-4">
+          <div class="flex flex-col items-center gap-3 rounded-[var(--radius-md)] border border-border-soft p-4">
+            <Show when={qrDataUrl()}>
+              {(url) => (
+                <img
+                  src={url()}
+                  alt="Receive address QR code"
+                  width="160"
+                  height="160"
+                  class="size-40"
+                />
+              )}
+            </Show>
             <Type variant="overline">{view().selectedTitle} address</Type>
-            <Type variant="body" class="break-all font-mono">
-              {view().addressLabel}
-            </Type>
-            <Button
-              variant="outline"
-              size="sm"
-              class="self-start"
-              leadingIcon={
-                copied() ? (
-                  <IconCheck class="size-4" />
-                ) : (
-                  <IconCopy class="size-4" />
-                )
-              }
-              onClick={() => void copyAddress()}
-            >
-              {copied() ? "Copied" : "Copy address"}
-            </Button>
+            <div class="flex w-full items-center gap-2">
+              <Type
+                variant="body"
+                class="min-w-0 flex-1 truncate font-mono"
+                title={view().address ?? undefined}
+              >
+                {shortAddress()}
+              </Type>
+              <span class="sr-only">{view().address}</span>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={copied() ? "Address copied" : "Copy address"}
+                title={copied() ? "Copied" : "Copy address"}
+                leadingIcon={
+                  copied() ? (
+                    <IconCheck class="size-4" />
+                  ) : (
+                    <IconCopy class="size-4" />
+                  )
+                }
+                onClick={() => void copyAddress()}
+              />
+            </div>
           </div>
         </Show>
 

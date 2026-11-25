@@ -51,7 +51,7 @@ export interface WalletHubSheetControls {
 }
 
 export interface WalletHubProps {
-  variant?: "route" | "embedded";
+  variant?: "route" | "embedded" | "pilot";
   title?: string;
   walletLabel?: string;
   changeWalletLabel?: string;
@@ -67,6 +67,7 @@ export interface WalletHubProps {
   onClaim?: () => void;
   onReceive?: () => void;
   onSend?: () => void;
+  onRefresh?: () => void;
   /** Render callback hosting the controlled receive sheet; the hub owns its open state. */
   renderReceiveSheet?: (controls: WalletHubSheetControls) => JSX.Element;
   /** Render callback hosting the controlled send sheet; the hub owns its open state. */
