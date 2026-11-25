@@ -13,7 +13,7 @@ jobs:
       - name: Record run identity
         run: |
           python3 .github/ci/record-run-identity.py \
-            --pin .github/ci/vm-fixtures-r18.json \
+            --pin .github/ci/vm-fixtures-r19.json \
             --output "$RUNNER_TEMP/pirate-install-only-ci/RUN-IDENTITY.json"
       - name: Check fixture tooling
         run: python3 .github/ci/test-vm-fixture-tools.py
@@ -33,9 +33,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r18.json"))["release"])')
-          unchanged=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r18.json"))["unchangedAssetRelease"])')
-          expected=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r18.json"))["manifestSha256"])')
+          release=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r19.json"))["release"])')
+          unchanged=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r19.json"))["unchangedAssetRelease"])')
+          expected=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r19.json"))["manifestSha256"])')
           mkdir -p "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-install-only-ci" "$RUNNER_TEMP/pirate-vm-scratch"
           gh release download "$release" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*'
           python3 .github/ci/verify-vm-fixtures.py "$RUNNER_TEMP/pirate-vm-assets/ASSET-SHA256SUMS" "$expected"

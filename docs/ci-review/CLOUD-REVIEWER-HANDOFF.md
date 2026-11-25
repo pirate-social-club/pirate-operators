@@ -4,9 +4,9 @@
 
 PR #100 remains draft. Final acceptance remains open. Do not merge it and do not begin either live visit from this packet.
 
-The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r18 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
+The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r19 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
 
-The reviewed fixture pin is `.github/ci/vm-fixtures-r18.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
+The reviewed fixture pin is `.github/ci/vm-fixtures-r19.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
 
 ## Git and fixture identity
 
@@ -25,15 +25,17 @@ The reviewed fixture pin is `.github/ci/vm-fixtures-r18.json`. Both VM workflows
 - r16 executed checkout merge: `f603e3d27735d364de8efb38d64ebbb0f890a675`
 - r17 diagnostic-run head: `854beefaa59da838f24a9d5dfe04838f189dfaba`
 - r17 executed checkout merge: `1ca76ab78382216ffefe1301a9cbc70c99078e4b`
+- r18 trace-run head: `8f61332c07978b36a8accbc8d2f8024ca6be2121`
+- r18 executed checkout merge: `b2d48cb1765bcda1788ce3996136a86f2d85c5e4`
 - Shared `.github/ci` tree across those heads and merges: `4ba47b4c8b20acc04a3b73ffd81fccdc376df994`
 - Shared final workflow blob: `3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd`
 - Shared install-only workflow blob: `cf434ef813ca1f6fccbc76fe0e5890db89fcaa29`
 - Product source: `34f73d22f794e499a9bf86b22311629dcd2e000a`
 - Product tree: `94e58bd43806e484d5a85cf3ad144194c3d9f724`
 - Fixture image: `sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23`
-- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r18`
+- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r19`
 - Unchanged asset release: `pirate-v1-staging-vm-fixtures-20261125-r13`
-- r18 manifest SHA-256: `eefbb446bded4d3b6f426672bddcdf3aac465ed751a0fdce0f0e163054200733`
+- r19 manifest SHA-256: `287f6a0684a88f33a5bd4a94d04b3b4ff18ed1ebbe56dd8a8a246860f68dd69b`
 
 PR #100 changes CI adapters, VM workflows, fixture tooling, and reviewer documentation only. It does not change product source or rebuild the product image. The fixture is synthetic and has no live credentials, private backend source, or live effects.
 
@@ -41,20 +43,20 @@ Every new VM run writes `RUN-IDENTITY.json` before downloading fixtures. It reco
 
 ## Fixture successor and evidence repair
 
-r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r18 successor is a repair-overlay release: it carries the repaired final host runner, the complete asset manifest, `FIXTURE-REPAIR.json`, and reviewer documents. Every fixture and image byte remains unchanged. After verifying the pinned r18 manifest digest, both workflows fill missing unchanged assets from r13 with `--skip-existing` and then verify the complete manifest before extraction or execution.
+r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r19 successor is a repair-overlay release: it carries the repaired final host runner, the complete asset manifest, `FIXTURE-REPAIR.json`, and reviewer documents. Every fixture and image byte remains unchanged. After verifying the pinned r19 manifest digest, both workflows fill missing unchanged assets from r13 with `--skip-existing` and then verify the complete manifest before extraction or execution.
 
 | Asset | SHA-256 |
 |---|---|
-| r18 `ASSET-SHA256SUMS` | `eefbb446bded4d3b6f426672bddcdf3aac465ed751a0fdce0f0e163054200733` |
-| r18 `final-media-host.tar` | `590f8fbca075f865bb625b36d7ae63741f20d30f74459c4993f1860cb7230f15` |
-| r18 `FIXTURE-REPAIR.json` | `172fbb712e65c60be73b5eeefb663cb0a7765cee06d33b45208b65e7d9349fd9` |
+| r19 `ASSET-SHA256SUMS` | `287f6a0684a88f33a5bd4a94d04b3b4ff18ed1ebbe56dd8a8a246860f68dd69b` |
+| r19 `final-media-host.tar` | `3875f126ec3c4dfd42efa65f51fec6525931eee7bdd474affc8ebbf3bc147a1d` |
+| r19 `FIXTURE-REPAIR.json` | `2cf97700419dc0a65885764c8b38e47ff98ac0eb241f489f01ef7aac7064a6eb` |
 | `final-notes-entry.iso` | `d74f98d17ff107d040f7d47b07d4cce7f3a75dee9366a57cf6ab3f02e12b2934` |
 | `install-diagnostic.iso` | `a018a6f7648b2b65275f4d1b342a6adc6b9202f5813caf0384af5ea29f1f9885` |
 | `install-only-host.tar` | `d648cf2ff59abeedd3ca60c6cbf2022de6be21681abdf38a36ec2567f88e412e` |
 
 The r13 HOLD exporter returned logs, text files, and a private controller receipt outside the verifier's HOLD allowlist. The verifier stopped at the allowlist assertion before reaching its nonempty-size assertion, and its final JSON parse would also have tried to parse admitted text logs. The success exporter already returned 23 JSON receipts plus the manifest and no logs.
 
-r18 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. A failed worker also exports sanitized `worker-diagnostic.json` with systemd result, cgroup memory, kernel OOM victim identity, journal PID/executable mapping, and top UID-1000 process RSS. Collection decodes subprocess output with replacement and writes an explicit `collectionError` receipt if it fails, so diagnostic loss cannot be silent. Twelve focused receipt-boundary checks pass.
+r19 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. A failed worker also exports sanitized `worker-diagnostic.json` with systemd result, cgroup memory, kernel OOM victim identity, journal PID/executable mapping, and top UID-1000 process RSS. Collection decodes subprocess output with replacement and writes an explicit `collectionError` receipt if it fails, so diagnostic loss cannot be silent. Twelve focused receipt-boundary checks pass.
 
 The fixed verifier was run against the original `45541957126` guest archive, SHA-256 `e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21`. The archive was not modified. Only omitted host metadata was reconstructed for the local verifier exercise. The verifier exited 1 and returned `held` with this intelligible reason:
 
@@ -66,10 +68,10 @@ The fixed result is SHA-256 `2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190
 
 ## Checksum verification
 
-Download r18, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
+Download r19, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
 
 ```bash
-release=pirate-v1-staging-vm-fixtures-20261125-r18
+release=pirate-v1-staging-vm-fixtures-20261125-r19
 unchanged=pirate-v1-staging-vm-fixtures-20261125-r13
 EXPECTED_MANIFEST_SHA256='<supplied separately>'
 
@@ -94,7 +96,9 @@ Run `45560410081` on head `020a45fe700ddea7204dae0a7c8914565f155d6d` and execute
 
 Run `45564123575` on head `e849b78d250454cc84a3caba4543182738832323` and executed checkout merge `f603e3d27735d364de8efb38d64ebbb0f890a675` again held at `ordinary_native_restart`. The guest kernel OOM-killed UID-1000 process 3496 (`MainThread`, about 1.7 GiB anonymous RSS); the controller recorded child exit -9, cleanup was 1, and QEMU exited 0 and was absent. The first worker-diagnostic collector failed silently, so `workerDiagnostic` was null.
 
-Run `45567884207` on head `854beefaa59da838f24a9d5dfe04838f189dfaba` and executed checkout merge `1ca76ab78382216ffefe1301a9cbc70c99078e4b` again held at `ordinary_native_restart`. The guest kernel OOM-killed UID-1000 process 3440 (`MainThread`, about 1.46 GiB anonymous RSS); cleanup was 1 and QEMU exited 0 and was absent. The hardened collector wrote its receipt beside the session, but the HOLD exporter packed only `hold-evidence`, so `workerDiagnostic` was still null. r18 copies the diagnostic into `hold-evidence` before packing.
+Run `45567884207` on head `854beefaa59da838f24a9d5dfe04838f189dfaba` and executed checkout merge `1ca76ab78382216ffefe1301a9cbc70c99078e4b` again held at `ordinary_native_restart`. The guest kernel OOM-killed UID-1000 process 3440 (`MainThread`, about 1.46 GiB anonymous RSS); cleanup was 1 and QEMU exited 0 and was absent. The hardened collector wrote its receipt beside the session, but the HOLD exporter packed only `hold-evidence`, so `workerDiagnostic` was still null.
+
+Run `45570424284` on head `8f61332c07978b36a8accbc8d2f8024ca6be2121` and executed checkout merge `b2d48cb1765bcda1788ce3996136a86f2d85c5e4` failed before the worker. Its last completed operation was `prepare-guest-smoke.sh`; there was no guest terminal and the evidence archive was empty, so the verifier returned only a generic assertion. r19 traces that sealed preparation script and `close_guest`, and marks every immediately following operation start/finish, so the next terminal artifact can identify the exact silent exit without changing a timeout.
 
 If a later run stalls at close, first capture each shutdown operation's start and finish around the controller's bounded wait. Identify the operation before changing the timeout or assigning cause.
 
@@ -135,7 +139,7 @@ No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `co
 
 ## Acceptance and next action
 
-There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r18. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
+There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r19. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
 
 That first passing run becomes the byte-identity baseline for later comparisons. Compare the recorded `.github/ci` tree and both workflow blob IDs; do not compare only a documentation head. Repost the corrected handoff only after the pass, with the new documentation SHA and manifest digest supplied separately.
 
