@@ -1,0 +1,60 @@
+--- a/src/components/media/scrubber/scrubber.stories.tsx
++++ b/src/components/media/scrubber/scrubber.stories.tsx
+@@ -46,7 +46,7 @@
+     const [value, setValue] = createSignal(args.value);
+     return (
+       <div
+-        class="w-[36rem] max-w-full space-y-3 rounded-[var(--radius-xl)] border border-border-soft bg-card p-5"
++        class="mx-auto w-[36rem] max-w-[calc(100vw-2rem)] space-y-3 rounded-[var(--radius-xl)] border border-border-soft bg-card p-5"
+         data-testid="scrubber-card"
+       >
+         <div class="flex items-center justify-between text-base text-muted-foreground">
+@@ -79,7 +79,7 @@
+     const [bubbleValue, setBubbleValue] = createSignal(42);
+     const [thumbValue, setThumbValue] = createSignal(68);
+     return (
+-      <div class="flex w-[36rem] max-w-full flex-col gap-10 pt-10" data-testid="scrubber-variants">
++      <div class="flex mx-auto w-[36rem] max-w-[calc(100vw-2rem)] flex-col gap-10 pt-10" data-testid="scrubber-variants">
+         <Scrubber
+           value={thumbValue()}
+           onChange={setThumbValue}
+@@ -114,7 +114,7 @@
+ 
+ export const Disabled: Story = {
+   render: () => (
+-    <div class="w-[36rem] max-w-full" data-testid="scrubber-disabled">
++    <div class="mx-auto w-[36rem] max-w-[calc(100vw-2rem)]" data-testid="scrubber-disabled">
+       <Scrubber value={50} showThumb disabled ariaLabel="Playback position" />
+     </div>
+   ),
+--- a/src/components/media/waveform/waveform.stories.tsx
++++ b/src/components/media/waveform/waveform.stories.tsx
+@@ -34,7 +34,7 @@
+ export const Default: Story = {
+   render: (args) => (
+     <div
+-      class="w-[36rem] max-w-full rounded-[var(--radius-lg)] border border-border-soft bg-card p-5"
++      class="mx-auto w-[36rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-lg)] border border-border-soft bg-card p-5"
+       data-testid="waveform-card"
+     >
+       <Waveform {...args} />
+@@ -56,7 +56,7 @@
+ 
+ export const Variants: Story = {
+   render: () => (
+-    <StoryStack class="w-[36rem] max-w-full">
++    <StoryStack class="mx-auto w-[36rem] max-w-[calc(100vw-2rem)]">
+       <div class="rounded-[var(--radius-lg)] border border-border-soft bg-card p-5">
+         <Waveform
+           peaks={[0.18, 0.42, 0.7, 0.35, 0.88, 0.54, 0.3, 0.62, 0.22, 0.76, 0.48, 0.31]}
+--- a/src/patterns/forms/copy-field/copy-field.stories.tsx
++++ b/src/patterns/forms/copy-field/copy-field.stories.tsx
+@@ -14,7 +14,7 @@
+   },
+   // Paper draws every row 448px wide.
+   render: (args) => (
+-    <div class="w-[28rem] max-w-full" data-testid="copy-frame">
++    <div class="mx-auto w-[28rem] max-w-[calc(100vw-2rem)]" data-testid="copy-frame">
+       <CopyField {...args} />
+     </div>
+   ),
