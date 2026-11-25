@@ -107,8 +107,8 @@
     },
     {
       "name": "@kobalte/core",
-      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.4.tgz",
-      "sha512": "sha512-W93D86tjw/QuBltJYyaOe1ZJ2tm3ghghnLCX0RtS7G3sZSms26a6t2lEPVfwGEmgjwjt8WbOZsc6DNDFydL9PA==",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.5.tgz",
+      "sha512": "sha512-B+RYp9ZxjYBAe3/SFZ854k1ZbRIc2HsAS9mVtqbn6bSne69jph9qn8q36eysZyODvErLUlQYW2IBN6lFJ13dDQ==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -120,6 +120,7 @@
         "Apply vendor/patches/kobalte-menu-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal menus, using the consumer-pinned @solid-primitives/interaction release that supports it",
         "Apply vendor/patches/kobalte-dialog-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal dialogs",
         "Apply vendor/patches/kobalte-slider-thumb-editability.patch to JSX and compiled JS exports: mark slider thumbs editable reactively after DOM collection registration instead of relying on a one-time settled index",
+        "Apply vendor/patches/kobalte-dialog-focus-fallback.patch to JSX and compiled JS exports: when a modal dialog has no connected Kobalte trigger, allow the focus trap to restore its original focused element instead of suppressing the fallback",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "patches": [
@@ -142,6 +143,11 @@
           "path": "vendor/patches/kobalte-slider-thumb-editability.patch",
           "sha512": "sha512-vaEciS8Z2lECsD4kA5BKxWZvt8KbNn3i0UC7m/LA2qqGJ8oSggG71U0U1i+ghZlDYW5fdeu4I5CVNpspTeW2jA==",
           "purpose": "Allow slider keyboard and pointer input after Solid 2 registers thumbs in the DOM collection; the previous one-time settled read could retain index -1 and leave thumbs uneditable."
+        },
+        {
+          "path": "vendor/patches/kobalte-dialog-focus-fallback.patch",
+          "sha512": "sha512-X+VpzedwkmkRrN2QN1I5WnEs6TjoMXhRGjMtrAHKptiWzrikJIw9713w/rHaMPB8D61ibe9n93r+ZLdFcQUlMg==",
+          "purpose": "Return focus to the original opener for externally controlled modal sheets that do not render a Kobalte Dialog.Trigger."
         }
       ],
       "originalArchive": {
