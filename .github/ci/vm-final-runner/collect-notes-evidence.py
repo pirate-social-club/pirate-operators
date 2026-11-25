@@ -526,7 +526,7 @@ def read_native_progress(path=ROOT / "logs" / "native-progress.ndjson", owner=10
 
 
 NATIVE_MEMORY_BASE_KEYS = {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
-NATIVE_MEMORY_HEAP_KEYS = {"heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb", "topRss"}
+NATIVE_MEMORY_HEAP_KEYS = {"heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb", "transferCount", "transferBytes", "transferPeakBytes", "transferPeakPath", "topRss"}
 
 
 def validate_native_memory_sample(row):
@@ -542,13 +542,16 @@ def validate_native_memory_sample(row):
         return False
     numeric_keys = ["launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"]
     if extended:
-        numeric_keys += ["heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb"]
+        numeric_keys += ["heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb", "transferCount", "transferBytes", "transferPeakBytes"]
     for key in numeric_keys:
         if row[key] is not None and not (type(row[key]) is int and 0 <= row[key] < 2 ** 40):
             return False
     if row["servicePid"] is not None and not (type(row["servicePid"]) is int and row["servicePid"] > 0):
         return False
     if extended:
+        peak_path = row["transferPeakPath"]
+        if peak_path is not None and not (type(peak_path) is str and len(peak_path) <= 48):
+            return False
         top = row["topRss"]
         if type(top) is not list or len(top) > 5:
             return False

@@ -201,6 +201,14 @@ const roleMark = (role: "launcher" | "service", pid: number) => {
  const stat = procStat(pid);
  if (stat) ndjsonLine(progressLogPath, { at: new Date().toISOString(), kind: "role", role, pid: stat.pid, ppid: stat.ppid, startTicks: stat.startTicks, comm: stat.comm });
 };
+// Cumulative response-transfer counters attribute the transient binary peaks:
+// every response proxied by the fixture transport is fully buffered, so the
+// peak bytes and busiest paths identify what the big allocations carry.
+const transferStats = { count: 0, bytes: 0, peakBytes: 0, peakPath: null as string | null };
+const noteTransfer = (path: string, bytes: number) => {
+ transferStats.count++; transferStats.bytes += bytes;
+ if (bytes > transferStats.peakBytes) { transferStats.peakBytes = bytes; transferStats.peakPath = path.slice(0, 48); }
+};
 // /proc/self/smaps aggregation answers what the V8 counters cannot: which
 // resident mappings stay large after the JavaScript heap contracts. Anonymous
 // native zones, file-backed mappings and memfd or deleted-file shared memory
@@ -246,6 +254,7 @@ const memorySample = () => {
    heapUsedKb: kb(usage.heapUsed), heapTotalKb: kb(usage.heapTotal), externalKb: kb(usage.external), arrayBuffersKb: kb(usage.arrayBuffers),
    largeObjectKb: kb(getHeapSpaceStatistics().filter(space => space.space_name === "large_object_space").reduce((total, space) => total + space.space_used_size, 0)),
    ...smapsBreakdown(),
+   transferCount: transferStats.count, transferBytes: transferStats.bytes, transferPeakBytes: transferStats.peakBytes, transferPeakPath: transferStats.peakPath,
    topRss });
  } catch { /* diagnostic capture never affects the rehearsal */ }
 };
@@ -385,11 +394,12 @@ fixtureRun: try {
     response = await external!.fetch(match[1]!, new Request(logical + match[2] + url.search, { method, headers, body: ["GET", "HEAD"].includes(method) ? undefined : body }));
    } else { assert(!machineOnly && ["/prepare", "/redeem", "/status", "/initial-topup"].includes(url.pathname) && !url.search); response = await hosted!.fetch(new Request(hostedOrigin + url.pathname, { method, headers: { "content-type": "application/json" }, body: ["GET", "HEAD"].includes(method) ? undefined : body })); }
   }
-  res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer()));
+  const responseBytes = Buffer.from(await response.arrayBuffer()); noteTransfer(url.pathname, responseBytes.length);
+  res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(responseBytes);
  })().catch(() => { if (!res.headersSent) res.writeHead(503).end("owned fixture transport unavailable"); else res.destroy(); }); };
  router = createServer(handler); router.listen(0, "127.0.0.1"); await once(router, "listening"); const routerAddress = router.address(); assert(routerAddress && typeof routerAddress !== "string"); const routerOrigin = "http://127.0.0.1:" + routerAddress.port;
  const socket = join(state, "external-transport/router.sock"); socketRouter = createServer(handler); socketRouter.listen(socket); await once(socketRouter, "listening"); await execute("/usr/bin/chmod", ["600", socket]);
- helperServer = tlsServer({ key: await readFile(helperKey), cert: await readFile(helperCert) }, (req, res) => { void (async () => { assert(req.headers.host === new URL(helperOrigin).host); const response = await external!.fetch("helper", new Request(helperOrigin + req.url, { method: req.method, headers: { host: req.headers.host } })); res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer())); })().catch(() => res.writeHead(503).end()); }); helperServer.listen(ports.helper, "127.0.0.1"); await once(helperServer, "listening");
+ helperServer = tlsServer({ key: await readFile(helperKey), cert: await readFile(helperCert) }, (req, res) => { void (async () => { assert(req.headers.host === new URL(helperOrigin).host); const response = await external!.fetch("helper", new Request(helperOrigin + req.url, { method: req.method, headers: { host: req.headers.host } })); const helperBytes = Buffer.from(await response.arrayBuffer()); noteTransfer("helper:" + new URL(req.url ?? "/", helperOrigin).pathname.slice(0, 40), helperBytes.length); res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(helperBytes); })().catch(() => res.writeHead(503).end()); }); helperServer.listen(ports.helper, "127.0.0.1"); await once(helperServer, "listening");
  const proxyCode = `const h=require('node:http');const s=h.createServer((q,r)=>{const p=h.request({socketPath:${JSON.stringify(socket)},path:q.url,method:q.method,headers:q.headers},a=>{r.writeHead(a.statusCode,a.headers);a.pipe(r)});p.on('error',()=>r.writeHead(503).end());q.pipe(p)});s.listen(8180,'0.0.0.0');process.on('SIGTERM',()=>{s.closeAllConnections();s.close(()=>process.exit(0))})`;
  sidecarId = (await docker(["run", "--detach", "--name", "pw2-" + runId + "-transport", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user", "1000:1000", "--network", networkId, "--label", "io.pirate.fixture=" + installationId, "--mount", "type=bind,src=" + join(state, "external-transport") + ",dst=" + join(state, "external-transport") + ",readonly", "--entrypoint", release + "/toolchain/node", imageId, "-e", proxyCode])).stdout.trim();
  const sidecar = await container(sidecarId), networks = object(object(sidecar.NetworkSettings).Networks); const ownNetwork = Object.values(networks).map(object).find(n => n.NetworkID === networkId); assert(ownNetwork && typeof ownNetwork.IPAddress === "string"); const fixturePeer = ownNetwork.IPAddress;
