@@ -117,6 +117,11 @@ def main():
     demo_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-demo.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-demo.ts"'
     browser_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-browser.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-browser.ts"'
     raw = replace(raw, demo_install, demo_install + '\n' + browser_install)
+    close_exit_trap = 'trap close_guest EXIT'
+    bootmark_shell = 'bootmark() { printf \'BOOTMARK %s\\n\' "$1" >/dev/ttyS0 2>/dev/null || true; }\ntrap \'rc=$?; printf "BOOTMARK err line=%s rc=%s phase=%s\\n" "$LINENO" "$rc" "$pre_docker_phase" >/dev/ttyS0 2>/dev/null || true\' ERR\nbootmark enter'
+    raw = replace(raw, close_exit_trap, close_exit_trap + '\n' + bootmark_shell)
+    serial_redirect_step = 'pre_docker_step serial-redirect'
+    raw = replace(raw, serial_redirect_step, 'bootmark pre-serial-redirect\n' + serial_redirect_step)
     export_tail = 'notes-before.json binding-before.json notes-after.json binding-after.json)'
     raw = replace(raw, export_tail,
                   'notes-before.json binding-before.json notes-after.json binding-after.json native-progress.json native-memory.json)')
