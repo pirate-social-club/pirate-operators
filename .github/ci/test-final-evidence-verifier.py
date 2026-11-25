@@ -320,6 +320,113 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         self.assertEqual(row["parseError"], "unreadable")
         self.assertFalse(row["closeEntered"])
 
+    def artifact_root(self, run_id="manual-abcdef123456"):
+        root = self.root / "pw2"
+        directory = root / "artifacts" / run_id
+        directory.mkdir(parents=True)
+        return root, directory
+
+    def test_collector_artifact_progress_round_trips_through_verifier(self):
+        root, directory = self.artifact_root()
+        (directory / "rehearsal-reopened-original.json").write_text("{}")
+        (directory / "rehearsal-reopened-original.json").chmod(0o600)
+        row = COLLECTOR.read_artifact_progress(root)
+        self.assertEqual(row["runId"], "manual-abcdef123456")
+        self.assertIsNone(row["parseError"])
+        reopened = row["entries"]["rehearsal-reopened-original.json"]
+        self.assertTrue(reopened["present"])
+        self.assertEqual(reopened["size"], 2)
+        self.assertTrue(reopened["mtimeUtc"].endswith("Z"))
+        self.assertFalse(row["entries"]["rehearsal-notes-replay.json"]["present"])
+        self.assertEqual(set(row["entries"]["rehearsal-notes-replay.json"]), {"present"})
+        MODULE.verify_worker_hold({"artifact-progress.json": json.loads(json.dumps(row))})
+
+    def test_collector_artifact_progress_missing_root_is_explicit(self):
+        row = COLLECTOR.read_artifact_progress(self.root / "absent")
+        self.assertIsNone(row["runId"])
+        self.assertIsNone(row["parseError"])
+        self.assertTrue(all(not entry["present"] for entry in row["entries"].values()))
+        MODULE.verify_worker_hold({"artifact-progress.json": row})
+
+    def test_collector_artifact_progress_ambiguous_run_dirs(self):
+        root, _directory = self.artifact_root()
+        other = root / "artifacts" / "manual-000000aaaaaa"
+        other.mkdir()
+        row = COLLECTOR.read_artifact_progress(root)
+        self.assertEqual(row["parseError"], "ambiguous-run-dir")
+        self.assertIsNone(row["runId"])
+        MODULE.verify_worker_hold({"artifact-progress.json": row})
+
+    def test_collector_artifact_progress_skips_symlink_entries(self):
+        root, directory = self.artifact_root()
+        target = self.root / "elsewhere.json"
+        target.write_text("{}")
+        (directory / "manual-demo-ended.json").symlink_to(target)
+        row = COLLECTOR.read_artifact_progress(root)
+        self.assertFalse(row["entries"]["manual-demo-ended.json"]["present"])
+
+    def test_artifact_progress_inconsistent_entries_are_rejected(self):
+        row = {
+            "schema": "pirate.native-launcher-artifact-progress/1",
+            "runId": None,
+            "entries": {name: {"present": True, "size": 2, "mtimeUtc": "2026-11-25T08:05:01.000Z"}
+                        for name in COLLECTOR.ARTIFACT_NAMES},
+            "parseError": None,
+        }
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"artifact-progress.json": row})
+
+    def test_artifact_progress_unknown_entry_shape_is_rejected(self):
+        entries = {name: {"present": False} for name in COLLECTOR.ARTIFACT_NAMES}
+        entries["terminal.json"] = {"present": True}
+        row = {
+            "schema": "pirate.native-launcher-artifact-progress/1",
+            "runId": "manual-abcdef123456",
+            "entries": entries,
+            "parseError": None,
+        }
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"artifact-progress.json": row})
+
+    def memory_files(self, meminfo, vmstat):
+        mem = self.root / "meminfo"
+        mem.write_text(meminfo)
+        stat = self.root / "vmstat"
+        stat.write_text(vmstat)
+        return mem, stat
+
+    def test_collector_guest_memory_round_trips_through_verifier(self):
+        mem, stat = self.memory_files(
+            "MemTotal:        4045712 kB\nMemFree:          120000 kB\nMemAvailable:     300000 kB\n"
+            "Buffers:           10000 kB\nCached:           400000 kB\nSwapTotal:       1000000 kB\n"
+            "SwapFree:         900000 kB\nCommitted_AS:    3000000 kB\n",
+            "pswpin 12\npswpout 34\noom_kill 0\notherkey 99\n",
+        )
+        row = COLLECTOR.read_guest_memory(mem, stat)
+        self.assertIsNone(row["parseError"])
+        self.assertEqual(row["meminfoKb"]["MemTotal"], 4045712)
+        self.assertEqual(row["meminfoKb"]["Committed_AS"], 3000000)
+        self.assertEqual(row["vmstat"]["pswpin"], 12)
+        self.assertEqual(row["vmstat"]["pswpout"], 34)
+        self.assertEqual(row["vmstat"]["oom_kill"], 0)
+        MODULE.verify_worker_hold({"guest-memory.json": json.loads(json.dumps(row))})
+
+    def test_collector_guest_memory_missing_files_is_explicit(self):
+        row = COLLECTOR.read_guest_memory(self.root / "absent-meminfo", self.root / "absent-vmstat")
+        self.assertEqual(row["parseError"], "unreadable")
+        MODULE.verify_worker_hold({"guest-memory.json": row})
+
+    def test_guest_memory_out_of_range_total_is_rejected(self):
+        row = {
+            "schema": "pirate.guest-memory-hold/1",
+            "meminfoKb": {key: None for key in COLLECTOR.MEMINFO_KEYS},
+            "vmstat": {key: None for key in COLLECTOR.VMSTAT_KEYS},
+            "parseError": None,
+        }
+        row["meminfoKb"]["MemTotal"] = 1024
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"guest-memory.json": row})
+
     def test_success_receipts_remain_nonempty_and_hash_checked(self):
         path = self.root / "success.tar"
         archive(path, {name: receipt(name, {}) for name in MODULE.SUCCESS})

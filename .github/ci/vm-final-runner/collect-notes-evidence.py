@@ -1,5 +1,6 @@
 """Return only scoped Notes receipts from the closed disposable guest."""
 import argparse
+import datetime
 import json
 import os
 from pathlib import Path
@@ -267,6 +268,106 @@ def write_json(path, value):
         file.write("\n")
 
 
+ARTIFACT_NAMES = (
+    "rehearsal-release-image.json",
+    "inputs.json",
+    "notes-initial-unpaired.json",
+    "disposable-registration-approval.json",
+    "hosted-keys-retired-originals.json",
+    "managed-services-prestarted.json",
+    "manual-wizard-observed-running.json",
+    "registrar-permission-succession.json",
+    "rehearsal-restart-original.json",
+    "rehearsal-restart-terminal.json",
+    "rehearsal-restart-new-boot.json",
+    "rehearsal-reopened-original.json",
+    "rehearsal-notes-replay.json",
+    "manual-demo-ended.json",
+    "manual-interruption.json",
+    "owned-local-chain-state.json",
+    "terminal.json",
+)
+RUN_DIR = re.compile(r"manual-[a-f0-9]{12}\Z")
+MEMORY_PARSE_ERRORS = {"unreadable"}
+ARTIFACT_PARSE_ERRORS = {"artifacts-unreadable", "ambiguous-run-dir"}
+
+
+def stamp_utc(epoch):
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:23] + "Z"
+
+
+def read_artifact_progress(root=ROOT):
+    progress = {
+        "schema": "pirate.native-launcher-artifact-progress/1",
+        "runId": None,
+        "entries": {name: {"present": False} for name in ARTIFACT_NAMES},
+        "parseError": None,
+    }
+    try:
+        artifact_root = root / "artifacts"
+        if not artifact_root.is_dir():
+            return progress
+        assert artifact_root.resolve(strict=True) == artifact_root
+        assert artifact_root.stat().st_uid == 1000
+        runs = sorted(
+            item.name for item in artifact_root.iterdir()
+            if RUN_DIR.fullmatch(item.name) and item.is_dir() and not item.is_symlink()
+        )
+    except (AssertionError, OSError):
+        progress["parseError"] = "artifacts-unreadable"
+        return progress
+    if not runs:
+        return progress
+    if len(runs) != 1:
+        progress["parseError"] = "ambiguous-run-dir"
+        return progress
+    progress["runId"] = runs[0]
+    directory = artifact_root / runs[0]
+    for name in ARTIFACT_NAMES:
+        try:
+            file = directory / name
+            info = file.lstat()
+            if not stat.S_ISREG(info.st_mode) or file.resolve(strict=True) != file:
+                continue
+            if info.st_uid != 1000 or info.st_nlink != 1 or info.st_mode & 0o077:
+                continue
+            progress["entries"][name] = {
+                "present": True,
+                "size": info.st_size,
+                "mtimeUtc": stamp_utc(info.st_mtime),
+            }
+        except OSError:
+            continue
+    return progress
+
+
+MEMINFO_KEYS = ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Committed_AS")
+VMSTAT_KEYS = ("pswpin", "pswpout", "oom_kill")
+
+
+def read_guest_memory(meminfo=Path("/proc/meminfo"), vmstat=Path("/proc/vmstat")):
+    receipt = {
+        "schema": "pirate.guest-memory-hold/1",
+        "meminfoKb": {key: None for key in MEMINFO_KEYS},
+        "vmstat": {key: None for key in VMSTAT_KEYS},
+        "parseError": None,
+    }
+    try:
+        for line in meminfo.read_text().splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0].rstrip(":") in MEMINFO_KEYS and parts[1].isdigit():
+                receipt["meminfoKb"][parts[0].rstrip(":")] = int(parts[1])
+        for line in vmstat.read_text().splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] in VMSTAT_KEYS and parts[1].isdigit():
+                receipt["vmstat"][parts[0]] = int(parts[1])
+    except OSError:
+        receipt["parseError"] = "unreadable"
+    if receipt["meminfoKb"]["MemTotal"] is None:
+        receipt["parseError"] = "unreadable"
+    return receipt
+
+
 def read_close_progress(path=ROOT / "logs" / "close.stderr.log", owner=1000):
     progress = {
         "schema": "pirate.native-launcher-close-progress/1",
@@ -381,6 +482,8 @@ def collect_success(session, image, cutoff):
 
 def collect_hold(session):
     write_json(session / "close-progress.json", read_close_progress())
+    write_json(session / "artifact-progress.json", read_artifact_progress())
+    write_json(session / "guest-memory.json", read_guest_memory())
     phases = []
     for name in STARTUP_PHASES:
         file = ROOT / f"notes-startup-{name}.json"

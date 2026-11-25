@@ -20,7 +20,7 @@ SUCCESS = {
 HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
-    "close-progress.json",
+    "close-progress.json", "artifact-progress.json", "guest-memory.json",
 }
 STARTUP_PHASES = (
     "fixture-refresh-enter",
@@ -63,6 +63,30 @@ CLOSE_MARKERS = (
     "terminal-before", "terminal-after",
 )
 CLOSE_PARSE_ERRORS = {"malformed-line", "unreadable", "oversized"}
+ARTIFACT_NAMES = (
+    "rehearsal-release-image.json",
+    "inputs.json",
+    "notes-initial-unpaired.json",
+    "disposable-registration-approval.json",
+    "hosted-keys-retired-originals.json",
+    "managed-services-prestarted.json",
+    "manual-wizard-observed-running.json",
+    "registrar-permission-succession.json",
+    "rehearsal-restart-original.json",
+    "rehearsal-restart-terminal.json",
+    "rehearsal-restart-new-boot.json",
+    "rehearsal-reopened-original.json",
+    "rehearsal-notes-replay.json",
+    "manual-demo-ended.json",
+    "manual-interruption.json",
+    "owned-local-chain-state.json",
+    "terminal.json",
+)
+RUN_ID = re.compile(r"manual-[a-f0-9]{12}\Z")
+ARTIFACT_PARSE_ERRORS = {"artifacts-unreadable", "ambiguous-run-dir"}
+MEMINFO_KEYS = ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Committed_AS")
+VMSTAT_KEYS = ("pswpin", "pswpout", "oom_kill")
+MEMORY_PARSE_ERRORS = {"unreadable"}
 CHAIN_INIT_CLASSES = {
     "WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError", "TransactionNotFoundError",
     "HttpRequestError", "TimeoutError", "AssertionError", "AbortError", "Other",
@@ -389,6 +413,39 @@ def verify_worker_hold(held):
         else:
             assert row["lastMarkerUtc"] is None and row["markerCount"] == 0
         assert row["parseError"] is None or row["parseError"] in CLOSE_PARSE_ERRORS
+    if "artifact-progress.json" in held:
+        row = held["artifact-progress.json"]
+        assert set(row) == {"schema", "runId", "entries", "parseError"}
+        assert row["schema"] == "pirate.native-launcher-artifact-progress/1"
+        assert row["runId"] is None or (isinstance(row["runId"], str) and RUN_ID.fullmatch(row["runId"]))
+        assert set(row["entries"]) == set(ARTIFACT_NAMES)
+        for entry in row["entries"].values():
+            assert type(entry.get("present")) is bool
+            if entry["present"]:
+                assert set(entry) == {"present", "size", "mtimeUtc"}
+                assert type(entry["size"]) is int and 0 < entry["size"] <= 1024 ** 2
+                assert isinstance(entry["mtimeUtc"], str) and UTC_STAMP.fullmatch(entry["mtimeUtc"])
+                assert entry["mtimeUtc"].endswith("Z")
+            else:
+                assert set(entry) == {"present"}
+        assert row["parseError"] is None or row["parseError"] in ARTIFACT_PARSE_ERRORS
+        if row["parseError"] == "ambiguous-run-dir":
+            assert row["runId"] is None
+        if row["runId"] is None:
+            assert all(not entry["present"] for entry in row["entries"].values())
+    if "guest-memory.json" in held:
+        row = held["guest-memory.json"]
+        assert set(row) == {"schema", "meminfoKb", "vmstat", "parseError"}
+        assert row["schema"] == "pirate.guest-memory-hold/1"
+        assert set(row["meminfoKb"]) == set(MEMINFO_KEYS)
+        assert set(row["vmstat"]) == set(VMSTAT_KEYS)
+        for key, value in row["meminfoKb"].items():
+            assert value is None or (type(value) is int and 0 <= value <= 2 ** 40)
+        if row["meminfoKb"]["MemTotal"] is not None:
+            assert 262144 <= row["meminfoKb"]["MemTotal"] <= 2 ** 40
+        for key, value in row["vmstat"].items():
+            assert value is None or (type(value) is int and 0 <= value <= 2 ** 63)
+        assert row["parseError"] is None or row["parseError"] in MEMORY_PARSE_ERRORS
     if "install-server-refusal.json" in held:
         validate_install_server_refusal(held["install-server-refusal.json"])
         client = held.get("wizard-install-refusal.json")
@@ -508,6 +565,8 @@ def assess(run, result):
             result["controllerEvidence"] = held.get("controller-terminal.json")
             result["startupProgress"] = held.get("startup-progress.json")
             result["closeProgress"] = held.get("close-progress.json")
+            result["artifactProgress"] = held.get("artifact-progress.json")
+            result["guestMemory"] = held.get("guest-memory.json")
             if "chain-init-refusal.json" in held:
                 result["chainInitRefusal"] = held["chain-init-refusal.json"]
             if "wizard-install-refusal.json" in held:
