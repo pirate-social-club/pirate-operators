@@ -27,6 +27,13 @@ export function parseIndex(index) {
   return stories.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function selectStories(stories, requestedIds) {
+  const indexed = new Set(stories.map((story) => story.id));
+  const unknown = [...requestedIds].filter((id) => !indexed.has(id));
+  if (unknown.length) throw new Error("Unknown Storybook IDs: " + unknown.join(", "));
+  return stories.filter((story) => requestedIds.has(story.id));
+}
+
 export function sizesFor(metadata, presets) {
   if (!metadata) throw new Error("Missing viewport metadata");
   const parameters = metadata.parameterViewport;

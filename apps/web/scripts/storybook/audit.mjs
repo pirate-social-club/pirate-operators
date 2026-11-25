@@ -8,7 +8,7 @@ import { chromium } from "@playwright/test";
 import { MINIMAL_VIEWPORTS } from "storybook/viewport";
 import { installAuditChannel } from "./audit-channel.mjs";
 import { bindBrowser, verifyBrowserUnchanged } from "./audit-browser.mjs";
-import { auditReceipt, matrixFor, parseIndex, reviewModesFor, summarize } from "./audit-results.mjs";
+import { auditReceipt, matrixFor, parseIndex, reviewModesFor, selectStories, summarize } from "./audit-results.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 
 export function parseOptions(argv) {
@@ -204,10 +204,7 @@ export async function runAudit(options) {
     run.indexSha256 = createHash("sha256").update(JSON.stringify(index)).digest("hex");
     await writeFile(path.join(options.out, "index.json"), JSON.stringify(index, null, 2) + "\n");
     let stories = parseIndex(index);
-    if (options.storyIds) {
-      stories = stories.filter((story) => options.storyIds.has(story.id));
-      if (!stories.length) throw new Error("No requested Storybook IDs matched the index");
-    }
+    if (options.storyIds) stories = selectStories(stories, options.storyIds);
     if (options.limit !== undefined) stories = stories.slice(0, options.limit);
     run.catalog = stories;
     run.matrix = options.matrix;

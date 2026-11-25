@@ -3,7 +3,7 @@ import { installAuditChannel } from "./audit-channel.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { auditReceipt, classify, globalsFor, matrixFor, parseIndex, reviewModesFor, sizesFor, summarize } from "./audit-results.mjs";
+import { auditReceipt, classify, globalsFor, matrixFor, parseIndex, reviewModesFor, selectStories, sizesFor, summarize } from "./audit-results.mjs";
 
 const size = { width: 390, height: 844 };
 const phase = (name, width = 390, height = 844) => ({
@@ -86,6 +86,13 @@ test("index accepts app and pinned design-system stories but rejects foreign pat
     { entries: { a: entry, b: entry } }]) {
     assert.throws(() => parseIndex(index));
   }
+});
+test("requested story filtering rejects every unknown id", () => {
+  const stories = [{ id: "app--ready" }, { id: "button--primary" }];
+  assert.deepEqual(selectStories(stories, new Set(["app--ready", "button--primary"])), stories);
+  assert.throws(() => selectStories(stories, new Set(["app--ready", "missing--story"])),
+    /missing--story/u);
+  assert.throws(() => selectStories(stories, new Set(["missing--story"])), /missing--story/u);
 });
 test("default matrix and declared viewport dimensions are explicit", () => {
   assert.deepEqual(sizesFor({}, {}).map(({ width, height }) => [width, height]),
