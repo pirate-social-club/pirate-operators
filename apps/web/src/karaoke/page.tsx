@@ -886,7 +886,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                     >
                       <ActivityStatusShell
                         title="Starting karaoke…"
-                        description="Checking whether this take opened."
+                        description="This can take a few seconds."
                         exitIcon="back"
                         exitLabel="Exit karaoke"
                         onExit={props.onExit}
