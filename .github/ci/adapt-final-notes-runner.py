@@ -141,6 +141,7 @@ def main():
             replaced += 1
         lines.append(line)
     assert replaced == len(repinned)
+    manifest.chmod(0o600)
     manifest.write_text('\n'.join(lines) + '\n')
     manifest.chmod(0o600)
     print('Final CI runner adapted')
