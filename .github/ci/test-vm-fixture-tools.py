@@ -89,7 +89,7 @@ class RunIdentityTests(unittest.TestCase):
         self.git("checkout", "-q", self.merge)
         self.pin = self.root / "pin.json"
         self.pin.write_text(json.dumps({
-            "release": "fixtures-r15",
+            "release": "fixtures-r16",
             "unchangedAssetRelease": "fixtures-r13",
             "manifestSha256": "a" * 64,
             "productSourceHead": "b" * 40,
@@ -124,7 +124,7 @@ class RunIdentityTests(unittest.TestCase):
         self.assertEqual(row["executedMergeSha"], self.merge)
         self.assertEqual(row["baseSha"], self.base)
         self.assertEqual(row["checkoutSha"], self.merge)
-        self.assertEqual(row["fixtureRelease"], "fixtures-r15")
+        self.assertEqual(row["fixtureRelease"], "fixtures-r16")
         self.assertEqual(row["unchangedAssetRelease"], "fixtures-r13")
         self.assertEqual(row["fixtureManifestSha256"], "a" * 64)
         self.assertEqual(row["productSourceHead"], "b" * 40)
@@ -133,6 +133,14 @@ class RunIdentityTests(unittest.TestCase):
         self.assertEqual(len(row["checkoutCiTreeSha"]), 40)
         self.assertEqual(len(row["checkoutFinalWorkflowBlobSha"]), 40)
         self.assertEqual(len(row["checkoutInstallWorkflowBlobSha"]), 40)
+
+    def test_pull_request_uses_checkout_merge_not_stale_event_merge(self):
+        row = self.run_record("pull_request", {
+            "pull_request": {"head": {"sha": self.head}, "base": {"sha": self.base},
+                             "merge_commit_sha": self.base},
+        }, self.merge)
+        self.assertEqual(row["executedMergeSha"], self.merge)
+        self.assertEqual(row["checkoutSha"], self.merge)
 
     def test_workflow_dispatch_has_no_executed_merge(self):
         self.git("checkout", "-q", self.head)

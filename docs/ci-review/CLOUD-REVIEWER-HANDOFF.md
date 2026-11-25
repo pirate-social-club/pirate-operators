@@ -4,9 +4,9 @@
 
 PR #100 remains draft. Final acceptance remains open. Do not merge it and do not begin either live visit from this packet.
 
-The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r15 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
+The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r16 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
 
-The reviewed fixture pin is `.github/ci/vm-fixtures-r15.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
+The reviewed fixture pin is `.github/ci/vm-fixtures-r16.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
 
 ## Git and fixture identity
 
@@ -19,15 +19,17 @@ The reviewed fixture pin is `.github/ci/vm-fixtures-r15.json`. Both VM workflows
 - Newer executed merge: `ada9563e54539fadae278e1080e228f73f443036`
 - Both executed against base: `cf03e0b57fbf4321cdbf896fdf8364683209ea01`
 - Current-main merge on #100: `fc8f6ae92a18300e326e5309b78ea6d74707df79`
+- r15 decisive-run head: `020a45fe700ddea7204dae0a7c8914565f155d6d`
+- r15 executed checkout merge: `21ee3ddcad3f118b0284971021d6d08950cb08a2`
 - Shared `.github/ci` tree across those heads and merges: `4ba47b4c8b20acc04a3b73ffd81fccdc376df994`
 - Shared final workflow blob: `3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd`
 - Shared install-only workflow blob: `cf434ef813ca1f6fccbc76fe0e5890db89fcaa29`
 - Product source: `34f73d22f794e499a9bf86b22311629dcd2e000a`
 - Product tree: `94e58bd43806e484d5a85cf3ad144194c3d9f724`
 - Fixture image: `sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23`
-- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r15`
+- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r16`
 - Unchanged asset release: `pirate-v1-staging-vm-fixtures-20261125-r13`
-- r15 manifest SHA-256: `b3760ea2be702f48aa9c0a75addfc059bab5e1e6af17b984e659a59b68302c45`
+- r16 manifest SHA-256: `b2494919213f712d591c584b4d0a6a9132e4251aa7533a0af18e251c5bf5b27a`
 
 PR #100 changes CI adapters, VM workflows, fixture tooling, and reviewer documentation only. It does not change product source or rebuild the product image. The fixture is synthetic and has no live credentials, private backend source, or live effects.
 
@@ -35,20 +37,20 @@ Every new VM run writes `RUN-IDENTITY.json` before downloading fixtures. It reco
 
 ## Fixture successor and evidence repair
 
-r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r15 successor is a repair-overlay release: it carries the repaired final host runner, the complete asset manifest, `FIXTURE-REPAIR.json`, and reviewer documents. Every fixture and image byte remains unchanged. After verifying the pinned r15 manifest digest, both workflows fill missing unchanged assets from r13 with `--skip-existing` and then verify the complete manifest before extraction or execution.
+r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r16 successor is a repair-overlay release: it carries the repaired final host runner, the complete asset manifest, `FIXTURE-REPAIR.json`, and reviewer documents. Every fixture and image byte remains unchanged. After verifying the pinned r16 manifest digest, both workflows fill missing unchanged assets from r13 with `--skip-existing` and then verify the complete manifest before extraction or execution.
 
 | Asset | SHA-256 |
 |---|---|
-| r15 `ASSET-SHA256SUMS` | `b3760ea2be702f48aa9c0a75addfc059bab5e1e6af17b984e659a59b68302c45` |
-| r15 `final-media-host.tar` | `0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa` |
-| r15 `FIXTURE-REPAIR.json` | `b98ae8a999ec63afa7478aadaa356ec8cca6ce9cff9ab98b129ffc17a2662dfe` |
+| r16 `ASSET-SHA256SUMS` | `b2494919213f712d591c584b4d0a6a9132e4251aa7533a0af18e251c5bf5b27a` |
+| r16 `final-media-host.tar` | `8d30963dbd06d79f11c0d41f66434f423561455dad6c6222a72581eb07459605` |
+| r16 `FIXTURE-REPAIR.json` | `a6c1f9d4b00c4e003a2507d1e02b0a312e7f6fa216c5ada56b66d8179d1ce5de` |
 | `final-notes-entry.iso` | `d74f98d17ff107d040f7d47b07d4cce7f3a75dee9366a57cf6ab3f02e12b2934` |
 | `install-diagnostic.iso` | `a018a6f7648b2b65275f4d1b342a6adc6b9202f5813caf0384af5ea29f1f9885` |
 | `install-only-host.tar` | `d648cf2ff59abeedd3ca60c6cbf2022de6be21681abdf38a36ec2567f88e412e` |
 
 The r13 HOLD exporter returned logs, text files, and a private controller receipt outside the verifier's HOLD allowlist. The verifier stopped at the allowlist assertion before reaching its nonempty-size assertion, and its final JSON parse would also have tried to parse admitted text logs. The success exporter already returned 23 JSON receipts plus the manifest and no logs.
 
-r15 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. Ten focused receipt-boundary checks pass.
+r16 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. A failed worker also exports sanitized `worker-diagnostic.json` with systemd result, cgroup memory, kernel OOM victim identity, journal PID/executable mapping, and top UID-1000 process RSS. Eleven focused receipt-boundary checks pass.
 
 The fixed verifier was run against the original `45541957126` guest archive, SHA-256 `e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21`. The archive was not modified. Only omitted host metadata was reconstructed for the local verifier exercise. The verifier exited 1 and returned `held` with this intelligible reason:
 
@@ -60,10 +62,10 @@ The fixed result is SHA-256 `2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190
 
 ## Checksum verification
 
-Download r15, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
+Download r16, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
 
 ```bash
-release=pirate-v1-staging-vm-fixtures-20261125-r15
+release=pirate-v1-staging-vm-fixtures-20261125-r16
 unchanged=pirate-v1-staging-vm-fixtures-20261125-r13
 EXPECTED_MANIFEST_SHA256='<supplied separately>'
 
@@ -83,6 +85,8 @@ gh release download "$unchanged" -R pirate-social-club/pirate-operators --dir /t
 Run `45541957126` reached `notes-replay`, then the controller's bounded close wait timed out and sent stop. The controller recorded child exit 143; the guest reported cleanup 1. QEMU subsequently exited 0 and was absent. The evidence still does not identify which shutdown operation stalled. Do not raise the timeout or label this fixture-only.
 
 Run `45544464948` did not repeat the close stall. It reached `ordinary_native_restart`; the guest kernel OOM-killed UID-1000 process 3440 after the restart command. The controller held with `outer_guest_termination`, cleanup 1, and no child exit. QEMU exited 0 and was absent. This is a restart-path resource failure, not evidence of a shutdown hang and not yet proof of fixture-only causality.
+
+Run `45560410081` on head `020a45fe700ddea7204dae0a7c8914565f155d6d` and executed checkout merge `21ee3ddcad3f118b0284971021d6d08950cb08a2` again held at `ordinary_native_restart`. The repaired evidence path returned `holdTerminal` and `controllerEvidence` without an assertion crash. The guest kernel OOM-killed UID-1000 process 3442 (`MainThread`, about 1.6 GiB anonymous RSS); cleanup was 1 and QEMU exited 0 and was absent. The event payload's `merge_commit_sha` was stale, so the recorder now uses the validated checkout SHA as `executedMergeSha`. r16 adds the sanitized worker diagnostic needed to map the OOM victim to its executable and cgroup without exporting private logs.
 
 If a later run stalls at close, first capture each shutdown operation's start and finish around the controller's bounded wait. Identify the operation before changing the timeout or assigning cause.
 
@@ -123,7 +127,7 @@ No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `co
 
 ## Acceptance and next action
 
-There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r15. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
+There is no passing baseline yet. Current main is merged into #100 at `fc8f6ae92a18300e326e5309b78ea6d74707df79`. Keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r16. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
 
 That first passing run becomes the byte-identity baseline for later comparisons. Compare the recorded `.github/ci` tree and both workflow blob IDs; do not compare only a documentation head. Repost the corrected handoff only after the pass, with the new documentation SHA and manifest digest supplied separately.
 

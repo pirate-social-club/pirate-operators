@@ -76,6 +76,26 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
         MODULE.verify_worker_hold(records)
 
+    def test_worker_diagnostic_is_admitted_and_validated(self):
+        path = self.root / "worker-diagnostic.tar"
+        archive(path, {
+            "worker-diagnostic.json": receipt("diagnostic", {
+                "schema": "pirate.native-notes-worker-diagnostic/1",
+                "unit": "pirate-native-notes-worker.service",
+                "observedUtc": "2026-11-25T06:33:27.005202541Z",
+                "workerRc": 1,
+                "systemd": {"result": "oom-kill", "execMainCode": "exited", "execMainStatus": "1"},
+                "cgroup": {"memoryPeak": "1614960", "memoryCurrent": "0", "events": {"oom": "1", "oom_kill": "1"}},
+                "oomEvents": [{"pid": 3442, "comm": "MainThread", "uid": 1000,
+                              "totalVmKb": 63732780, "anonRssKb": 1614960}],
+                "journalEvents": [{"pid": 3442, "executable": "node", "message": "worker started"}],
+                "processes": [{"pid": 3442, "ppid": 1, "comm": "MainThread", "uid": 1000,
+                              "rssKb": 1614960, "executable": "node"}],
+            }),
+        })
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        MODULE.verify_worker_hold(records)
+
     def test_unexpected_members_name_the_export_defect_and_controller_phase(self):
         path = self.root / "legacy-hold.tar"
         archive(path, {

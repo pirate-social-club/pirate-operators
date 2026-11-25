@@ -70,7 +70,9 @@ def build_identity(repo, pin_path, env):
             raise ValueError("pull_request event is missing pull_request")
         head = pull.get("head", {}).get("sha")
         base = pull.get("base", {}).get("sha")
-        merge = pull.get("merge_commit_sha") or (github_sha if github_sha != head else None)
+        # The event's merge_commit_sha can be stale. GITHUB_SHA is the ref
+        # actions/checkout actually executed and is validated against HEAD below.
+        merge = github_sha if github_sha != head else None
         if not isinstance(head, str) or not HEX40.fullmatch(head):
             raise ValueError("pull request head SHA is invalid")
         if not isinstance(base, str) or not HEX40.fullmatch(base):
