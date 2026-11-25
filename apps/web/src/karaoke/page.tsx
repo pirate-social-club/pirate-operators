@@ -847,7 +847,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         />
       }
     >
-      <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
+      <div class="live-karaoke">
         <Show when={notice() && song() && startPhase() === "idle" && (take() || finished())}>
           <div
             role="alert"

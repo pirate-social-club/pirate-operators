@@ -554,7 +554,7 @@ export function LiveKaraoke(props: {
     URL.revokeObjectURL(url);
   }
   return (
-    <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
+    <div class="live-karaoke">
       <Show when={notice()}>
         <div
           role="alert"
