@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.4.tgz",
-      "sha512": "sha512-x3Jxm62Jp0GMDCIsooOrmZsrp/eLLHPiEMhcwTfLy6uHKeez8IViMy4pjylXh1qhb2M394rcXEUEcB/bQd9CXQ==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.5.tgz",
+      "sha512": "sha512-zPth00oOD2/lxdTmkxd3UqiqMiee86mNJwSdi01GeNt3iIvuARG1hzyd6cILdpcYp5BKMvJh/8PYyP3GZ/Gj9w==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,11 +13,12 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.4 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.5 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
         "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
         "Apply vendor/patches/solid-ui-action-menu-open-accessibility.patch: add a catalog story that leaves ActionMenu open for the accessibility reporter and asserts focus inside the menu",
         "Apply vendor/patches/solid-ui-action-menu-focus-restore.patch: assert Escape returns focus to the trigger and removes modal hiding from its ancestors",
+        "Suppress GNU patch backup output so implementation backups such as action-menu.stories.tsx.orig are not packaged",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "consumerRequirements": [

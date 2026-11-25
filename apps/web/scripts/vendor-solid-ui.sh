@@ -24,18 +24,18 @@ git -C "$source_repo" archive "$full" packages/solid-ui "$kobalte" vendor/kobalt
 
 # Apply the consumer-owned Solid rc.21 and catalog repairs. Keep the original
 # imported source and Kobalte patch series independently reproducible.
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/packages/solid-ui" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
   --input="$vendor/patches/solid-ui-solid2-rc21.patch"
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/packages/solid-ui" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
   --input="$vendor/patches/solid-ui-action-menu-rtl.patch"
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/packages/solid-ui" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
   --input="$vendor/patches/solid-ui-action-menu-open-accessibility.patch"
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/packages/solid-ui" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
   --input="$vendor/patches/solid-ui-action-menu-focus-restore.patch"
 
 # Add the npm package version and declare the consumer's pinned runtime.
 # Kobalte keeps its source file: specifier; the consumer override redirects it.
-solid_ui_version="0.0.0-git.$short.solid2-rc21.4"
+solid_ui_version="0.0.0-git.$short.solid2-rc21.5"
 node -e '
   const fs = require("node:fs");
   const [file, version] = process.argv.slice(1);
@@ -59,9 +59,9 @@ cp "$work/vendor/kobalte-core-provenance.json" "$vendor/"
 # patched archive and derive a separately identified consumer successor.
 mkdir -p "$work/kobalte"
 tar -xzf "$work/$kobalte" -C "$work/kobalte"
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/kobalte/package" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/kobalte/package" \
   --input="$vendor/patches/kobalte-solid2-rc21.patch"
-patch --batch --forward --fuzz=0 --strip=1 --directory="$work/kobalte/package" \
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/kobalte/package" \
   --input="$vendor/patches/kobalte-menu-inert.patch"
 kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.2.tgz"
 tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-owner \
