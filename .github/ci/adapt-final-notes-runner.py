@@ -10,26 +10,26 @@ import tarfile
 
 
 # Git-vendored harness source overlaid onto the sealed bundle. The sealed
-# member hashes pin the exact r19 base each vendored file diverges from; bump
+# member hashes pin the exact r20 base each vendored file diverges from; bump
 # them only in the commit that moves the fixture pin to a newer release.
-VENDORED_SEALED_R19 = {
+VENDORED_SEALED_R20 = {
     'collect-notes-evidence.py': '332958b8e3877d5fe9671125a1e24958ecb8ea7662b3b720d8e0197699829913',
-    'verify-notes-run.py': '8a0e4b947f017a51d99dd7bced97de736829b26478551c3f70a90b74c45f483b',
+    'verify-notes-run.py': 'e155ba6d4b0acee44a7fde7e29dc7198d2be33f4f8ad337110c9daa7a65dfb9e',
 }
 
 # Sealed close-instrumentation ISO members the guest actually executes, as
-# pinned digests of the r19 packaging. The adapter verifies the packaged
+# pinned digests of the r20 packaging. The adapter verifies the packaged
 # members against these digests before rebuilding the ISO around the vendored
 # copies, so the vendored provenance claim is checked on every adaptation.
-CLOSE_ISO_SEALED_R19 = {
+CLOSE_ISO_SEALED_R20 = {
     'controller/guest-notes-controller.py': '0c7d9883e32da572356454f15a39386aac9414d550725b06f3773df363fb1258',
     '.local/web2-native-private-practice-reviewed/manual-demo.ts': 'f872dab0b57eea52fcd7564f25be03c9cf3f7bc3b5c551c62b1b37816e3dcfff',
 }
 
 # The effective manual-browser.ts is not overridden by the close-instrumentation
 # ISO; it reaches the guest through launcher-overlay.tar inside notes-entry.iso.
-# This pin is the r19 packaged digest of that member.
-ENTRY_OVERLAY_MANUAL_BROWSER_R19 = '24f3384bb962f80c07b4bfedfd3f34a48f01f711c37cd162cddbd9b7d936690e'
+# This pin is the r20 packaged digest of that member.
+ENTRY_OVERLAY_MANUAL_BROWSER_R20 = '24f3384bb962f80c07b4bfedfd3f34a48f01f711c37cd162cddbd9b7d936690e'
 
 
 def iso_member(iso, member):
@@ -73,25 +73,25 @@ def main():
 
     vendored_root = Path(__file__).resolve().parent / 'vm-final-runner'
     repinned = {}
-    for name, sealed_pin in VENDORED_SEALED_R19.items():
+    for name, sealed_pin in VENDORED_SEALED_R20.items():
         member = bundle / name
         actual = hashlib.sha256(member.read_bytes()).hexdigest()
-        assert actual == sealed_pin, f'{name}: sealed member {actual} diverges from pinned r19 base {sealed_pin}'
+        assert actual == sealed_pin, f'{name}: sealed member {actual} diverges from pinned r20 base {sealed_pin}'
         member.write_bytes((vendored_root / name).read_bytes())
         member.chmod(0o600)
         repinned[name] = hashlib.sha256(member.read_bytes()).hexdigest()
 
     close_iso = bundle / 'close-instrumentation.iso'
-    for member, sealed_pin in CLOSE_ISO_SEALED_R19.items():
+    for member, sealed_pin in CLOSE_ISO_SEALED_R20.items():
         actual = hashlib.sha256(iso_member(close_iso, member)).hexdigest()
-        assert actual == sealed_pin, f'close-instrumentation.iso:{member} sealed {actual} diverges from pinned r19 base {sealed_pin}'
+        assert actual == sealed_pin, f'close-instrumentation.iso:{member} sealed {actual} diverges from pinned r20 base {sealed_pin}'
     overlay_bytes = iso_member(bundle / 'notes-entry.iso', 'launcher-overlay.tar')
     with tarfile.open(fileobj=io.BytesIO(overlay_bytes)) as overlay:
         browser_member = overlay.extractfile('.local/web2-native-private-practice-reviewed/manual-browser.ts')
         assert browser_member is not None
         actual = hashlib.sha256(browser_member.read()).hexdigest()
-    assert actual == ENTRY_OVERLAY_MANUAL_BROWSER_R19, \
-        f'notes-entry.iso launcher-overlay manual-browser.ts sealed {actual} diverges from pinned r19 base {ENTRY_OVERLAY_MANUAL_BROWSER_R19}'
+    assert actual == ENTRY_OVERLAY_MANUAL_BROWSER_R20, \
+        f'notes-entry.iso launcher-overlay manual-browser.ts sealed {actual} diverges from pinned r20 base {ENTRY_OVERLAY_MANUAL_BROWSER_R20}'
 
     iso_root = scratch / 'close-iso-rebuild'
     demo_target = iso_root / '.local/web2-native-private-practice-reviewed/manual-demo.ts'
