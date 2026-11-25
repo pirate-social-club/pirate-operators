@@ -1,0 +1,11 @@
+--- a/src/patterns/navigation/app-header/app-header.stories.tsx
++++ b/src/patterns/navigation/app-header/app-header.stories.tsx
+@@ -101,7 +101,7 @@
+ };
+ 
+ export const DesktopHeaderOverflowChat: Story = {
+-  render: () => <HeaderOnlyStory unreadChatCount={120} />,
++  render: () => <HeaderOnlyStory forceMobile={false} unreadChatCount={120} />,
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+     const chat = canvas.getByRole("button", { name: "Messages, 99+" });

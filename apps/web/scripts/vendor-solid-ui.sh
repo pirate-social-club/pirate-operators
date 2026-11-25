@@ -46,10 +46,12 @@ patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="
   --input="$vendor/patches/solid-ui-pill-count-accessible-names.patch"
 patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
   --input="$vendor/patches/solid-ui-app-header-naming.patch"
+patch --batch --forward --fuzz=0 --no-backup-if-mismatch --strip=1 --directory="$work/packages/solid-ui" \
+  --input="$vendor/patches/solid-ui-app-header-chat-story-viewport.patch"
 
 # Add the npm package version and declare the consumer's pinned runtime.
 # Kobalte keeps its source file: specifier; the consumer override redirects it.
-solid_ui_version="0.0.0-git.$short.solid2-rc21.11"
+solid_ui_version="0.0.0-git.$short.solid2-rc21.12"
 node -e '
   const fs = require("node:fs");
   const [file, version] = process.argv.slice(1);
