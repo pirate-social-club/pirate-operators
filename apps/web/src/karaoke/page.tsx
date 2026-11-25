@@ -315,7 +315,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       setNotice(
         error instanceof Error
           ? error.message
-          : "We couldn't load karaoke for this song.",
+          : "Karaoke couldn't be loaded for this song.",
       );
       setSong(null);
     }
@@ -819,7 +819,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
               <KaraokeRouteLoadFailureState
                 title="Karaoke unavailable"
                 description={
-                  notice() ?? "We couldn't load karaoke for this song."
+                  notice() ?? "Karaoke couldn't be loaded for this song."
                 }
                 onRetry={() => void loadSong()}
                 onGoHome={props.onExit}

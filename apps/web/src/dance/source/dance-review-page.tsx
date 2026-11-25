@@ -168,7 +168,7 @@ export function DanceReviewPage(props: {
       return;
     if (++observations > 90) {
       setNotice(
-        "You can leave this screen. We’ll check for updates when you return.",
+        "You can leave this screen. Check for updates when you return.",
       );
       return;
     }
@@ -216,7 +216,7 @@ export function DanceReviewPage(props: {
         setPhase("error");
         setNotice(
           (originalHoldCopy(error) ? "This recording needs confirmation. Resume to continue." : null) ??
-            "We couldn’t confirm your recording’s status.",
+            "Your recording’s status couldn’t be confirmed.",
         );
       }
     }
@@ -232,7 +232,7 @@ export function DanceReviewPage(props: {
       if(!current(attempt,pending.signal))return;
       if(privateAccessLost(error)){failure(error);return;}
       journey.send({type:"REVIEW_ERROR",error});
-      setNotice("Your private recording is saved. We couldn’t finish closing it. Try Done again.");
+      setNotice("Your private recording is saved. It couldn’t be closed. Try Done again.");
     }
   }
   async function act(operation: "submit" | "withdraw") {
@@ -442,7 +442,7 @@ export function DanceReviewPage(props: {
           </div>
         </Show>
         <Show when={phase() === "error"}>
-          <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">We couldn’t confirm your recording’s status.</p>
+          <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">Your recording’s status couldn’t be confirmed.</p>
             <Button variant="secondary" onClick={() => void load(false)}>Check again</Button>
             <Button onClick={() => void load(true)}>Resume submission</Button>
             <Button variant="secondary" onClick={provided.onBack}>Back to dance</Button>

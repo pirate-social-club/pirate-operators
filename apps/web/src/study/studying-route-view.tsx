@@ -776,7 +776,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
             <StudyRouteLoadFailureState
               description={errorMessage(
                 loadError(),
-                "We couldn't load this study session.",
+                "This study session couldn't be loaded.",
               )}
               onGoHome={props.onExit}
               onRetry={() => load()}

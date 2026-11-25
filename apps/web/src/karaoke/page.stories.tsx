@@ -68,7 +68,7 @@ function storyPort(
     song: async () => {
       if (state === "loading") return new Promise(() => {});
       if (state === "error")
-        throw new globalThis.Error("We couldn't load karaoke for this song.");
+        throw new globalThis.Error("Karaoke couldn't be loaded for this song.");
       return state === "empty" ? { lines: [], segments: [] } : song;
     },
     attempt: async () => (state === "recovered" ? view : { state: "none" }),
