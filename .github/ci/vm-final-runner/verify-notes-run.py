@@ -68,7 +68,7 @@ def validate_native_memory_receipt(row):
 
 
 
-IMAGE = "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23"
+IMAGE = "sha256:887846c126071ccf298647f00e40cee83d76fd7dfa441d112acf60301b715fdf"
 SUCCESS = {
     "isolation.json", "socket.json", "socket-image.json", "socket-terminal.json", "resources.json",
     "controller-terminal.json", "browser-egress.json",
