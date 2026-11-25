@@ -136,6 +136,42 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         self.assertIn("phase=close", message)
         self.assertIn("childExit=143", message)
 
+    def test_install_server_refusal_extended_shape_accepted(self):
+        for module in (MODULE, COLLECTOR):
+            base = {
+                "boundary": "install-apply", "errorClass": "AssertionError",
+                "message": "original_start_effect_uncertain", "responseStatus": 502,
+                "throwSite": "apply-start-effect",
+            }
+            module.validate_install_server_refusal(dict(base))
+            with_container = dict(base, container={
+                "present": True, "running": False, "exitCode": 1, "oomKilled": False,
+            })
+            module.validate_install_server_refusal(with_container)
+            module.validate_install_server_refusal(dict(base, container={"present": False}))
+            module.validate_install_server_refusal(dict(
+                base, boundary="install-before-apply", errorClass="NotFound",
+                message="unclassified-private-error", throwSite="unknown"))
+            module.validate_install_server_refusal(dict(base, boundary="install-after-apply"))
+
+    def test_install_server_refusal_rejects_malformed_shape(self):
+        base = {
+            "boundary": "install-apply", "errorClass": "AssertionError",
+            "message": "original_start_effect_uncertain", "responseStatus": 502,
+            "throwSite": "apply-start-effect",
+        }
+        for module in (MODULE, COLLECTOR):
+            for broken in (
+                dict(base, message="Some Private Detail"),
+                dict(base, container={"present": True, "running": False, "exitCode": 256, "oomKilled": False}),
+                dict(base, container={"present": True, "running": False, "oomKilled": False}),
+                dict(base, boundary="install-during-apply"),
+                dict(base, throwSite="apply-start-effect", errorClass="TypeError"),
+                {k: v for k, v in base.items() if k != "message"},
+            ):
+                with self.assertRaises(AssertionError):
+                    module.validate_install_server_refusal(broken)
+
     def test_empty_allowlisted_receipt_is_rejected_by_name(self):
         path = self.root / "empty.tar"
         archive(path, {"controller-terminal.json": b""})

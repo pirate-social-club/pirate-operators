@@ -140,6 +140,7 @@ INSTALL_SERVER_BOUNDARIES = {
     "installed-prepare-admission-sign", "installed-prepare-after-admission-sign",
     "installed-prepare-profile-sign", "installed-prepare-after-profile-sign",
     "wizard-after-install-port",
+    "install-before-apply", "install-apply", "install-after-apply",
 }
 INSTALL_SERVER_CLASSES = {
     "AssertionError", "NotFound", "AccessDenied", "NoSpace", "Timeout", "ConnectionRefused",
@@ -168,6 +169,9 @@ INSTALL_SERVER_THROW_SITES = {
     "release-symlink",
     "release-file-mode",
     "release-file-bytes",
+    "apply-ingress-custody",
+    "apply-start-intent",
+    "apply-start-effect",
 }
 
 
@@ -215,14 +219,32 @@ def validate_install_client_observation(row):
     assert type(observed["clickCapMs"]) is int and observed["clickCapMs"] == 15000
 
 
+def validate_install_server_container(row):
+    if "container" not in row:
+        return
+    container = row["container"]
+    assert isinstance(container, dict)
+    if container.get("present") is False:
+        assert set(container) == {"present"}
+        return
+    assert set(container) == {"present", "running", "exitCode", "oomKilled"}
+    assert container["present"] is True
+    assert type(container["running"]) is bool and type(container["oomKilled"]) is bool
+    assert type(container["exitCode"]) is int and 0 <= container["exitCode"] <= 255
+
+
 def validate_install_server_refusal(row):
-    assert isinstance(row, dict) and set(row) == {"boundary", "errorClass", "responseStatus", "throwSite"}
+    base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
+    assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
     assert row["boundary"] in INSTALL_SERVER_BOUNDARIES and row["errorClass"] in INSTALL_SERVER_CLASSES
     assert type(row["responseStatus"]) is int and row["responseStatus"] == 502
     assert row["throwSite"] in INSTALL_SERVER_THROW_SITES
     assert row["throwSite"] == "unknown" or row["errorClass"] == "AssertionError"
+    assert type(row["message"]) is str and (
+        re.fullmatch(r"[a-z0-9_]{1,80}", row["message"]) or row["message"] == "unclassified-private-error")
     if row["boundary"] == "http-before-setup":
         assert row["errorClass"] == "Other"
+    validate_install_server_container(row)
 
 
 def private_json(file):
@@ -758,7 +780,7 @@ def collect_hold(session):
         else:
             write_json(session / "wizard-install-refusal.json", row)
             server = ROOT / "notes-install-server-refusal.json"
-            if (row["stage"], row["responseStatus"]) == ("installation-prepare-response", 502):
+            if (row["stage"], row["responseStatus"]) in {("installation-prepare-response", 502), ("install-response", 502)}:
                 try:
                     evidence = read_bounded_install_refusal(server)
                     validate_install_server_refusal(evidence)
