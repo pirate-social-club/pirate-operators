@@ -296,7 +296,7 @@ def stamp_utc(epoch):
     return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:23] + "Z"
 
 
-def read_artifact_progress(root=ROOT):
+def read_artifact_progress(root=ROOT, owner=1000):
     progress = {
         "schema": "pirate.native-launcher-artifact-progress/1",
         "runId": None,
@@ -308,7 +308,7 @@ def read_artifact_progress(root=ROOT):
         if not artifact_root.is_dir():
             return progress
         assert artifact_root.resolve(strict=True) == artifact_root
-        assert artifact_root.stat().st_uid == 1000
+        assert artifact_root.stat().st_uid == owner
         runs = sorted(
             item.name for item in artifact_root.iterdir()
             if RUN_DIR.fullmatch(item.name) and item.is_dir() and not item.is_symlink()
@@ -329,7 +329,7 @@ def read_artifact_progress(root=ROOT):
             info = file.lstat()
             if not stat.S_ISREG(info.st_mode) or file.resolve(strict=True) != file:
                 continue
-            if info.st_uid != 1000 or info.st_nlink != 1 or info.st_mode & 0o077:
+            if info.st_uid != owner or info.st_nlink != 1 or info.st_mode & 0o077:
                 continue
             progress["entries"][name] = {
                 "present": True,

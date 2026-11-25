@@ -330,7 +330,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         root, directory = self.artifact_root()
         (directory / "rehearsal-reopened-original.json").write_text("{}")
         (directory / "rehearsal-reopened-original.json").chmod(0o600)
-        row = COLLECTOR.read_artifact_progress(root)
+        row = COLLECTOR.read_artifact_progress(root, owner=os.getuid())
         self.assertEqual(row["runId"], "manual-abcdef123456")
         self.assertIsNone(row["parseError"])
         reopened = row["entries"]["rehearsal-reopened-original.json"]
@@ -342,7 +342,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         MODULE.verify_worker_hold({"artifact-progress.json": json.loads(json.dumps(row))})
 
     def test_collector_artifact_progress_missing_root_is_explicit(self):
-        row = COLLECTOR.read_artifact_progress(self.root / "absent")
+        row = COLLECTOR.read_artifact_progress(self.root / "absent", owner=os.getuid())
         self.assertIsNone(row["runId"])
         self.assertIsNone(row["parseError"])
         self.assertTrue(all(not entry["present"] for entry in row["entries"].values()))
@@ -352,7 +352,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         root, _directory = self.artifact_root()
         other = root / "artifacts" / "manual-000000aaaaaa"
         other.mkdir()
-        row = COLLECTOR.read_artifact_progress(root)
+        row = COLLECTOR.read_artifact_progress(root, owner=os.getuid())
         self.assertEqual(row["parseError"], "ambiguous-run-dir")
         self.assertIsNone(row["runId"])
         MODULE.verify_worker_hold({"artifact-progress.json": row})
@@ -362,7 +362,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         target = self.root / "elsewhere.json"
         target.write_text("{}")
         (directory / "manual-demo-ended.json").symlink_to(target)
-        row = COLLECTOR.read_artifact_progress(root)
+        row = COLLECTOR.read_artifact_progress(root, owner=os.getuid())
         self.assertFalse(row["entries"]["manual-demo-ended.json"]["present"])
 
     def test_artifact_progress_inconsistent_entries_are_rejected(self):
