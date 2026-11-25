@@ -1,27 +1,24 @@
 # Workflow exit-propagation audit
 
-Scope: every workflow present on PR #100 head `96e95edf38d6add084aea1ebcc4329f68af4e2b3` (nine files), plus every workflow on `main` at `b18e2764b63d56f065ca0fb7d40b8a92bb889796` (seven files).
+Scope: the PR #100 candidate working tree, all six historical install-only false-green runs, the close-timeout final run `45541957126`, and the newer final run `45544464948`. The exact candidate SHA is supplied with the reviewer handoff. Historical shared CI identities are `.github/ci` tree `4ba47b4c8b20acc04a3b73ffd81fccdc376df994`, final workflow blob `3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd`, and install-only workflow blob `cf434ef813ca1f6fccbc76fe0e5890db89fcaa29`.
 
-Reproduction command:
+Reproduction commands:
 
 ```bash
-git grep -n -E 'continue-on-error|\|\| true|\|\| :|set -[[:alnum:]]*e|pipefail|shell:' \
-  96e95edf38d6add084aea1ebcc4329f68af4e2b3 -- .github/workflows
-git grep -n ' | ' 96e95edf38d6add084aea1ebcc4329f68af4e2b3 -- .github/workflows
+git grep -n -E 'continue-on-error|\|\| true|\|\| :|set -[[:alnum:]]*e|pipefail|shell:' -- .github/workflows
+git grep -n ' | ' -- .github/workflows
 ```
 
 ## Shell defaults
 
-No workflow or job sets `shell:` or `defaults.run.shell` at head `96e95ed`. The only `defaults:` blocks are `community-wizard.yml:11`, `creator-spike.yml:11`, and `web.yml:11`; they set `run.working-directory`, not a shell.
-
-Therefore ordinary Linux `run` steps use GitHub Actions' default `bash -e`, without implicit `pipefail`. Every pipeline that can hide a producer failure has an explicit `set -uo pipefail` or `set -euo pipefail` in the same block.
+No workflow or job sets `shell:` or `defaults.run.shell`. The existing `defaults:` blocks set `run.working-directory`, not a shell. Ordinary Linux `run` steps therefore use GitHub Actions' default `bash -e`, without implicit `pipefail`. Every pipeline that can hide a producer failure has explicit `pipefail` in the same block.
 
 ## Pipefail citations
 
-- `local.yml:52` sets `set -euo pipefail`; checksum pipelines are at `local.yml:59`, `:60`, `:62`, and `:64`.
-- `web.yml:46` sets `set -euo pipefail`; the reproducibility pipeline is at `web.yml:48`.
-- `pirate-vm-final-acceptance.yml:46` sets `set -uo pipefail`; the runner/`tee` pipeline is at `:50`, captures `rc`, and exits with it at `:56`.
-- `pirate-vm-install-only.yml:45` sets `set -euo pipefail`; the runner/`tee` pipeline is at `:49`, captures `rc`, and exits with it at `:55`.
+- `local.yml:52` sets `set -euo pipefail`; checksum pipelines are at `:59`, `:60`, `:62`, and `:64`.
+- `web.yml:46` sets `set -euo pipefail`; the reproducibility pipeline is at `:48`.
+- `pirate-vm-final-acceptance.yml:58` sets `set -uo pipefail`; the runner/`tee` pipeline is at `:62`, captures `rc`, and exits with it at `:68`.
+- `pirate-vm-install-only.yml:55` sets `set -euo pipefail`; the runner/`tee` pipeline is at `:59`, captures `rc`, and exits with it at `:65`.
 - Nested test shells use `set -euo pipefail` at `local.yml:74` and `:137`, `karaoke.yml:52`, and `study.yml:37`.
 
 ## Other exit paths
@@ -30,6 +27,8 @@ Therefore ordinary Linux `run` steps use GitHub Actions' default `bash -e`, with
 - `continue-on-error: true` appears only on first-attempt Foundry installation at `community-wizard.yml:25`, `karaoke.yml:23`, `local.yml:28`, and `local.yml:109`. Each is followed by a retry without `continue-on-error`; a failed retry fails the job.
 - `ci.yml:59-60` uses `if: always()` with explicit `needs`; `ci.yml:74-77` requires every dependency result to equal `success`.
 - `local.yml:156-157` uses `if: always()` with explicit `needs`; `local.yml:164-166` requires both root tests and offline acceptance to equal `success`.
-- Remaining `if: always()` steps are artifact uploads: `community-wizard.yml:51`, `karaoke.yml:58`, `local.yml:84` and `:146`, `pirate-vm-final-acceptance.yml:58`, `pirate-vm-install-only.yml:57`, `study.yml:42`, and `web.yml:50`.
+- The VM artifact uploads are the remaining relevant `if: always()` steps: `pirate-vm-final-acceptance.yml:70` and `pirate-vm-install-only.yml:67`. Other artifact uploads remain at `community-wizard.yml:51`, `karaoke.yml:58`, `local.yml:84` and `:146`, `study.yml:42`, and `web.yml:50`.
 
-Conclusion: no additional unpropagated test or verifier exit was found. No workflow behavior was changed by this audit.
+The fixture trust check runs before asset verification, host-runner extraction, or guest execution. A manifest digest mismatch exits nonzero. The final verifier test runs against the packaged r14 verifier before preflight. A held final verdict remains nonzero and is propagated through the runner/`tee` pipeline.
+
+Conclusion: no additional unpropagated test or verifier exit was found. The workflow changes add trust and evidence checks; they do not weaken an exit path.

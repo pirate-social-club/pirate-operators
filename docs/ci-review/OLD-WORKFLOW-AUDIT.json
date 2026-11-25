@@ -1,110 +1,203 @@
 {
-  "schema": "pirate.old-ci-verifier-audit/1",
-  "auditedUtc": "2026-11-25T03:58:45Z",
+  "auditedUtc": "2026-11-25T04:58:57.515050+00:00",
+  "closeTimeoutFinalAcceptanceRun": {
+    "baseSha": "cf03e0b57fbf4321cdbf896fdf8364683209ea01",
+    "cleanup": 1,
+    "controllerError": "TimeoutExpired",
+    "controllerPhase": "close",
+    "event": "pull_request",
+    "executedMergeSha": "4fb494e106cc7f036d6b7a2ca33233c490b2bb26",
+    "fixedVerifierExit": 1,
+    "fixedVerifierMessage": "unexpected evidence member(s): logs/installed-service.stderr.log, logs/installed-service.stdout.log, logs/native-notes-control.mjs.publish.stderr.log, logs/native-notes-control.mjs.publish.stdout.log, logs/native-notes-control.mjs.replay.stderr.log, logs/native-notes-control.mjs.replay.stdout.log, logs/native-runner.private.log, logs/wizard-notes-control.mjs.fund-original.stderr.log, logs/wizard-notes-control.mjs.fund-original.stdout.log, logs/wizard-notes-control.mjs.hold-registration.stderr.log, logs/wizard-notes-control.mjs.hold-registration.stdout.log, logs/wizard-notes-control.mjs.install-original.stderr.log, logs/wizard-notes-control.mjs.install-original.stdout.log, logs/wizard-notes-control.mjs.retained-repair.stderr.log, logs/wizard-notes-control.mjs.retained-repair.stdout.log, notes-controller-terminal.json, worker-private.txt; controller phase=close status=FAIL childExit=143 error=unclassified-private-error",
+    "fixedVerifierResult": "held",
+    "fixedVerifierResultSha256": "2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190edfc878141580",
+    "guestEvidenceArchiveSha256": "e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21",
+    "headSha": "96e95edf38d6add084aea1ebcc4329f68af4e2b3",
+    "journeyReached": "notes-replay",
+    "run": "45541957126",
+    "verifierError": "AssertionError",
+    "verifierResult": "held",
+    "workflowConclusion": "failure",
+    "workflowName": "Pirate VM final acceptance"
+  },
+  "correctedControlRun": {
+    "headSha": "0240c7c99b090d2dde2edc7dbd49c57af8a215d1",
+    "installPhase": "install-only-complete",
+    "installStatus": "PASS",
+    "run": "45540542223",
+    "verifierResult": "pass",
+    "workflowConclusion": "success",
+    "zeroByteLogs": 6
+  },
+  "gitIdentity": {
+    "perRunRecord": "RUN-IDENTITY.json",
+    "sharedCiTree": "4ba47b4c8b20acc04a3b73ffd81fccdc376df994",
+    "sharedFinalWorkflowBlob": "3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd",
+    "sharedInstallWorkflowBlob": "cf434ef813ca1f6fccbc76fe0e5890db89fcaa29"
+  },
+  "latestFinalAcceptanceRun": {
+    "baseSha": "cf03e0b57fbf4321cdbf896fdf8364683209ea01",
+    "cleanup": 1,
+    "controllerError": "outer_guest_termination",
+    "controllerPhase": "ordinary_native_restart",
+    "event": "pull_request",
+    "executedMergeSha": "ada9563e54539fadae278e1080e228f73f443036",
+    "guestEvidence": "kernel OOM kill of UID 1000 process 3440 after restart command",
+    "headSha": "a5d7bd5b586cdd084b2245c3fdf6c2cc76628bd9",
+    "qemuExit": "0",
+    "qemuProcessAfterWait": "absent",
+    "run": 45544464948,
+    "shutdownStallObserved": false,
+    "verifierResult": "held",
+    "workflowConclusion": "failure",
+    "workflowName": "Pirate VM final acceptance"
+  },
+  "oldFinalAcceptanceRuns": [
+    {
+      "run": "45497222060",
+      "verifierResult": "not reached; preflight failed",
+      "workflowConclusion": "failure"
+    },
+    {
+      "guestTerminal": [],
+      "run": "45500341798",
+      "verifierError": "AssertionError",
+      "verifierResult": "held",
+      "workflowConclusion": "failure"
+    },
+    {
+      "holdCodes": [
+        "native-worker-refused"
+      ],
+      "run": "45500768649",
+      "verifierError": "AssertionError",
+      "verifierResult": "held",
+      "workflowConclusion": "failure"
+    },
+    {
+      "holdCodes": [
+        "native-worker-refused"
+      ],
+      "run": "45525879313",
+      "verifierError": "AssertionError",
+      "verifierResult": "held",
+      "workflowConclusion": "failure"
+    }
+  ],
   "oldInstallOnlyRuns": [
     {
-      "run": "45491608403",
+      "controllerStatus": "PASS",
       "headSha": "f9194a428825e2ecdb9ac46dae8d36b58495048b",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
+      "run": "45491608403",
       "verifierError": "AssertionError",
-      "controllerStatus": "PASS",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     },
     {
-      "run": "45497221664",
+      "controllerStatus": "PASS",
       "headSha": "a437ad23eca736443a175d52e6ff8ad3a1c920df",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
+      "run": "45497221664",
       "verifierError": "AssertionError",
-      "controllerStatus": "PASS",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     },
     {
-      "run": "45500341785",
+      "controllerStatus": "PASS",
       "headSha": "cf2cb309f4c18496d409539fbe8d25bd72e8dd2d",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
+      "run": "45500341785",
       "verifierError": "AssertionError",
-      "controllerStatus": "PASS",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     },
     {
-      "run": "45500768688",
+      "controllerStatus": "PASS",
       "headSha": "3833fe4c448d5cb5a45ea0a2c561fa0ff518e898",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
+      "run": "45500768688",
       "verifierError": "AssertionError",
-      "controllerStatus": "PASS",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     },
     {
-      "run": "45525879298",
+      "controllerStatus": "PASS",
       "headSha": "ef21dedbdfbe7c58ee95f2a66fc63321ec7a9e64",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
+      "run": "45525879298",
       "verifierError": "AssertionError",
-      "controllerStatus": "PASS",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     },
     {
-      "run": "45539180872",
-      "headSha": "0458b343e7f3eae30bc66e2b1fd75c78091a1eef",
-      "workflowConclusion": "success",
-      "verifierResult": "held",
-      "verifierError": "AssertionError",
       "controllerStatus": "PASS",
+      "headSha": "0458b343e7f3eae30bc66e2b1fd75c78091a1eef",
+      "run": "45539180872",
+      "verifierError": "AssertionError",
+      "verifierResult": "held",
+      "workflowConclusion": "success",
       "zeroByteLogs": 6
     }
   ],
-  "correctedControlRun": {
-    "run": "45540542223",
-    "headSha": "0240c7c99b090d2dde2edc7dbd49c57af8a215d1",
-    "workflowConclusion": "success",
-    "verifierResult": "pass",
-    "installStatus": "PASS",
-    "installPhase": "install-only-complete",
-    "zeroByteLogs": 6
-  },
-  "currentFinalAcceptanceRun": {
-    "run": "45541957126",
-    "headSha": "96e95edf38d6add084aea1ebcc4329f68af4e2b3",
-    "workflowName": "Pirate VM final acceptance",
-    "event": "pull_request",
-    "workflowConclusion": "failure",
-    "verifierResult": "held",
-    "verifierError": "AssertionError",
-    "cleanup": 1,
-    "controllerPhase": "close",
-    "controllerError": "TimeoutExpired",
-    "journeyReached": "notes-replay"
-  },
-  "sealedFinalVerifierZeroByteAssumption": {
-    "present": true,
-    "source": "verify-notes-run.py:220",
-    "assertion": "all(member.isfile() and 0 < member.size <= 1024 * 1024 for member in members)",
-    "currentRunCause": false,
-    "currentRunPrimaryFailure": "close TimeoutExpired with cleanup 1"
-  },
-  "oldFinalAcceptanceRuns": [
-    {"run": "45497222060", "workflowConclusion": "failure", "verifierResult": "not reached; preflight failed"},
-    {"run": "45500341798", "workflowConclusion": "failure", "verifierResult": "held", "verifierError": "AssertionError", "guestTerminal": []},
-    {"run": "45500768649", "workflowConclusion": "failure", "verifierResult": "held", "verifierError": "AssertionError", "holdCodes": ["native-worker-refused"]},
-    {"run": "45525879313", "workflowConclusion": "failure", "verifierResult": "held", "verifierError": "AssertionError", "holdCodes": ["native-worker-refused"]}
-  ],
   "pr99": {
-    "run": "45471920123",
-    "headSha": "8deb8593face31e90dd98031d60c631c7b06fa2f",
-    "vmWorkflowsPresent": false,
-    "affectedVerifierPresent": false,
-    "rootTests": {"tests": 97, "failures": 0, "errors": 0, "skipped": 0},
     "acceptanceTraceLinesEach": 9,
+    "acceptanceTraceSha256": "eddc4308c3ef483c256e438c00d0dd99e95c2191baac971f39e777cf63e2ebf0",
     "acceptanceTracesIdentical": true,
-    "releaseReady": "success"
+    "affectedVerifierPresent": false,
+    "directTestcaseChildrenMissedBySuiteSum": 2699,
+    "headSha": "8deb8593face31e90dd98031d60c631c7b06fa2f",
+    "junitTestcaseCounts": [
+      680,
+      758,
+      695,
+      663
+    ],
+    "releaseReady": "success",
+    "rootTests": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 1,
+      "tests": 2796
+    },
+    "run": "45471920123",
+    "skip": {
+      "coveredElsewhere": false,
+      "intentional": true,
+      "normalUiMossQualified": false,
+      "reason": "MOSS_BUNDLE_PATH unset"
+    },
+    "testsuiteAttributeSum": 97,
+    "vmWorkflowsPresent": false
+  },
+  "schema": "pirate.old-ci-verifier-audit/1",
+  "sealedFinalVerifierArchiveBoundary": {
+    "failedArchiveSha256": "e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21",
+    "fixedVerifierResultSha256": "2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190edfc878141580",
+    "r13AllowlistAssertionRejectedMembers": 17,
+    "r13EmptyLogs": 10,
+    "r13JsonParseWouldParseAdmittedText": true,
+    "r13NonemptySizeAssertionReached": false,
+    "r14FocusedResult": "pass",
+    "r14FocusedTests": 10,
+    "r14Repaired": true,
+    "successExportIncludesLogs": false,
+    "successExportReceipts": 23
+  },
+  "successorFixture": {
+    "finalMediaHostSha256": "0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa",
+    "fixtureImageId": "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23",
+    "manifestSha256": "e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca",
+    "predecessorManifestSha256": "a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3",
+    "predecessorRelease": "pirate-v1-staging-vm-fixtures-20261125-r13",
+    "productSourceHead": "34f73d22f794e499a9bf86b22311629dcd2e000a",
+    "productSourceTree": "94e58bd43806e484d5a85cf3ad144194c3d9f724",
+    "release": "pirate-v1-staging-vm-fixtures-20261125-r14",
+    "repairReceiptSha256": "5859b8d77d4b8cdbf941cfcc1a24c2d884aaffacab157a4824d2fb94c25b48be"
   },
   "zeroByteFixProof": {
     "existingEmptyManifestListedLog": "accepted",
-    "missingManifestListedLog": "rejected with KeyError",
-    "hashVerificationRetained": true
+    "hashVerificationRetained": true,
+    "missingManifestListedLog": "rejected with KeyError"
   }
 }

@@ -1,240 +1,125 @@
 # Pirate v1 cloud reviewer handoff
 
-## Trust anchor
+## Status and trust anchor
 
-The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the documentation commit SHA out-of-band and verifies the files at that exact commit.
+PR #100 remains draft. Final acceptance remains open. Do not merge it and do not begin either live visit from this packet.
 
-Do not trust hashes read from release assets or from this document. Release assets are mutable. The independently supplied trust values are the documentation commit SHA and `ASSET-SHA256SUMS` SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`.
+The authoritative copies of this handoff and both audits are committed under `docs/ci-review/` on PR #100. The reviewer receives the candidate/documentation SHA and the r14 `ASSET-SHA256SUMS` digest out of band. Verify the documents at that exact Git commit. Do not trust release copies of these documents or hashes read from the release itself.
 
-## Identity and scope
+The reviewed fixture pin is `.github/ci/vm-fixtures-r14.json`. Both VM workflows read it from Git, verify the downloaded manifest against its pinned digest, and only then verify assets, extract the host runner, or execute guest content.
+
+## Git and fixture identity
 
 - Repository: `pirate-social-club/pirate-operators`
 - PR: https://github.com/pirate-social-club/pirate-operators/pull/100
 - Branch: `ci/vm-runner-probe-20261124`
-- Acceptance-evidence head: `96e95edf38d6add084aea1ebcc4329f68af4e2b3`
-- Documentation commit: supplied separately; it must not change `.github/ci/` or either VM workflow.
-- PR state: draft and behind `main`; do not merge yet.
-- Product hotfix: `34f73d22f794e499a9bf86b22311629dcd2e000a`
+- Close-timeout run head: `96e95edf38d6add084aea1ebcc4329f68af4e2b3`
+- Close-timeout executed merge: `4fb494e106cc7f036d6b7a2ca33233c490b2bb26`
+- Newer run head: `a5d7bd5b586cdd084b2245c3fdf6c2cc76628bd9`
+- Newer executed merge: `ada9563e54539fadae278e1080e228f73f443036`
+- Both executed against base: `cf03e0b57fbf4321cdbf896fdf8364683209ea01`
+- Shared `.github/ci` tree across those heads and merges: `4ba47b4c8b20acc04a3b73ffd81fccdc376df994`
+- Shared final workflow blob: `3604c60f04ac90ad5f5d0b674ba5a268fb5e1afd`
+- Shared install-only workflow blob: `cf434ef813ca1f6fccbc76fe0e5890db89fcaa29`
+- Product source: `34f73d22f794e499a9bf86b22311629dcd2e000a`
 - Product tree: `94e58bd43806e484d5a85cf3ad144194c3d9f724`
-- Product fix on main: `b18e2764b63d56f065ca0fb7d40b8a92bb889796` through PR #99
-- Disposable fixture image: `sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23`
+- Fixture image: `sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23`
+- Successor release: `pirate-v1-staging-vm-fixtures-20261125-r14`
+- r14 manifest SHA-256: `e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca`
 
-PR #100 changes CI adapters, VM workflows, and reviewer documentation only. It does not change product source or rebuild the product image. The fixture is synthetic and has no live credentials, private backend source, or live effects.
+PR #100 changes CI adapters, VM workflows, fixture tooling, and reviewer documentation only. It does not change product source or rebuild the product image. The fixture is synthetic and has no live credentials, private backend source, or live effects.
 
-## Public evidence
+Every new VM run writes `RUN-IDENTITY.json` before downloading fixtures. It records `headSha`, `executedMergeSha`, `baseSha`, `checkoutSha`, checkout and head object IDs for `.github/ci` and both workflows, the fixture release and manifest digest, the fixture-pin digest, and the product head/tree/image. The artifact upload includes that file.
 
-Fixture release: https://github.com/pirate-social-club/pirate-operators/releases/tag/pirate-v1-staging-vm-fixtures-20261125-r13
+## Fixture successor and evidence repair
+
+r13 remains unchanged at manifest SHA-256 `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3`. The r14 successor keeps every fixture and image byte unchanged and replaces only the final host runner's HOLD exporter/verifier path. `FIXTURE-REPAIR.json` is included in the pinned manifest.
 
 | Asset | SHA-256 |
 |---|---|
-| `ASSET-SHA256SUMS` | `a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3` |
+| r14 `ASSET-SHA256SUMS` | `e29dd8abc51a938c6145035a13c4b3abcc5dea8ae91270bcd22fb5c3c93e7fca` |
+| r14 `final-media-host.tar` | `0247a711d255195f7bcd0f7a9d33924a08251a6837ee2b45bf8176a963b19daa` |
+| r14 `FIXTURE-REPAIR.json` | `5859b8d77d4b8cdbf941cfcc1a24c2d884aaffacab157a4824d2fb94c25b48be` |
 | `final-notes-entry.iso` | `d74f98d17ff107d040f7d47b07d4cce7f3a75dee9366a57cf6ab3f02e12b2934` |
 | `install-diagnostic.iso` | `a018a6f7648b2b65275f4d1b342a6adc6b9202f5813caf0384af5ea29f1f9885` |
-| `final-media-host.tar` | `dddc0270b47491cfe79c8b237cb9bfffc8cc70307d71f69cf3a8d63b3344deaf` |
 | `install-only-host.tar` | `d648cf2ff59abeedd3ca60c6cbf2022de6be21681abdf38a36ec2567f88e412e` |
 
-Release copies of the audits are convenience copies only. The git commit is authoritative.
+The r13 HOLD exporter returned logs, text files, and a private controller receipt outside the verifier's HOLD allowlist. The verifier stopped at the allowlist assertion before reaching its nonempty-size assertion, and its final JSON parse would also have tried to parse admitted text logs. The success exporter already returned 23 JSON receipts plus the manifest and no logs.
 
-## PR scope and fix commits
+r14 makes the HOLD exporter return `hold-terminal.json` plus allowlisted JSON receipts only. The verifier hash-checks every archive member before grading, names unexpected members, includes the controller phase/status/child exit in that held reason, requires nonempty JSON receipts, reports `verifyMessage`, and retains the same nonempty hash-checked success boundary. Ten focused receipt-boundary checks pass.
 
-Run:
-
-```bash
-gh pr diff 100 -R pirate-social-club/pirate-operators --name-only
-```
-
-Expected files after the documentation commit:
+The fixed verifier was run against the original `45541957126` guest archive, SHA-256 `e93ca81d9712e3dfad973c810e6e65d614845508a4c12e87014fe2a24d691e21`. The archive was not modified. Only omitted host metadata was reconstructed for the local verifier exercise. The verifier exited 1 and returned `held` with this intelligible reason:
 
 ```text
-.github/ci/adapt-final-notes-runner.py
-.github/ci/adapt-install-only-runner.py
-.github/workflows/pirate-vm-final-acceptance.yml
-.github/workflows/pirate-vm-install-only.yml
-docs/ci-review/CLOUD-REVIEWER-HANDOFF.md
-docs/ci-review/OLD-WORKFLOW-AUDIT.json
-docs/ci-review/WORKFLOW-EXIT-AUDIT.md
+unexpected evidence member(s): logs/installed-service.stderr.log, logs/installed-service.stdout.log, logs/native-notes-control.mjs.publish.stderr.log, logs/native-notes-control.mjs.publish.stdout.log, logs/native-notes-control.mjs.replay.stderr.log, logs/native-notes-control.mjs.replay.stdout.log, logs/native-runner.private.log, logs/wizard-notes-control.mjs.fund-original.stderr.log, logs/wizard-notes-control.mjs.fund-original.stdout.log, logs/wizard-notes-control.mjs.hold-registration.stderr.log, logs/wizard-notes-control.mjs.hold-registration.stdout.log, logs/wizard-notes-control.mjs.install-original.stderr.log, logs/wizard-notes-control.mjs.install-original.stdout.log, logs/wizard-notes-control.mjs.retained-repair.stderr.log, logs/wizard-notes-control.mjs.retained-repair.stdout.log, notes-controller-terminal.json, worker-private.txt; controller phase=close status=FAIL childExit=143 error=unclassified-private-error
 ```
 
-Relevant commits:
-
-- `0458b343e7f3eae30bc66e2b1fd75c78091a1eef` — install-only workflow uses fixture release r13.
-- `0240c7c99b090d2dde2edc7dbd49c57af8a215d1` — both CI fixes: accept existing zero-byte install-only evidence files while retaining existence/hash checks, and propagate the install-only verifier exit with `exit "$rc"`.
-- `96e95edf38d6add084aea1ebcc4329f68af4e2b3` — final-acceptance workflow uses fixture release r13; this is the head used by run `45541957126`.
-- Documentation commit — supplied separately after commit.
-
-Inspect the exact CI fix:
-
-```bash
-gh api repos/pirate-social-club/pirate-operators/commits/0240c7c99b090d2dde2edc7dbd49c57af8a215d1 \
-  --jq '.sha, .commit.message, (.files[].filename)'
-```
+The fixed result is SHA-256 `2ef12d4d3b093a45ef47a45735e6954267340d23928fecc8190edfc878141580`.
 
 ## Checksum verification
 
-Download the release, verify the checksum list against the independently supplied hash first, and only then verify the fixture assets:
+Download r14, supply the expected digest separately, and stop on a mismatch before checking or executing any asset:
 
 ```bash
-gh release download pirate-v1-staging-vm-fixtures-20261125-r13 \
-  -R pirate-social-club/pirate-operators \
-  --dir /tmp/pirate-fixtures
+release=pirate-v1-staging-vm-fixtures-20261125-r14
+EXPECTED_MANIFEST_SHA256='<supplied separately>'
 
-cd /tmp/pirate-fixtures
+gh release download "$release" -R pirate-social-club/pirate-operators --dir /tmp/pirate-fixtures
 
-printf '%s  %s\n' \
-  'a386ef81cef55c105338e5617c3293c3f9f1dc134613a6b08c77dadcc46253e3' \
-  'ASSET-SHA256SUMS' | sha256sum -c -
+python3 .github/ci/verify-vm-fixtures.py /tmp/pirate-fixtures/ASSET-SHA256SUMS "$EXPECTED_MANIFEST_SHA256"
 
-sha256sum -c --strict ASSET-SHA256SUMS
+(cd /tmp/pirate-fixtures && sha256sum -c --strict ASSET-SHA256SUMS)
 ```
 
-Do not use release copies of this handoff or the audits as trust anchors. Verify them at the separately supplied git commit.
+`verify-vm-fixtures.py` accepts the digest as its second argument, validates its shape, computes the downloaded manifest digest, and exits nonzero with both expected and actual values on mismatch.
 
-## Run binding and evidence
+## Terminal evidence
 
-First confirm that the final run is bound to the acceptance-evidence head and expected workflow:
+Run `45541957126` reached `notes-replay`, then the controller's bounded close wait timed out and sent stop. The controller recorded child exit 143; the guest reported cleanup 1. QEMU subsequently exited 0 and was absent. The evidence still does not identify which shutdown operation stalled. Do not raise the timeout or label this fixture-only.
 
-```bash
-gh run view 45541957126 \
-  -R pirate-social-club/pirate-operators \
-  --json headSha,workflowName,event,status,conclusion,url
-```
+Run `45544464948` did not repeat the close stall. It reached `ordinary_native_restart`; the guest kernel OOM-killed UID-1000 process 3440 after the restart command. The controller held with `outer_guest_termination`, cleanup 1, and no child exit. QEMU exited 0 and was absent. This is a restart-path resource failure, not evidence of a shutdown hang and not yet proof of fixture-only causality.
 
-Expected identity fields:
+If a later run stalls at close, first capture each shutdown operation's start and finish around the controller's bounded wait. Identify the operation before changing the timeout or assigning cause.
 
-```text
-headSha="96e95edf38d6add084aea1ebcc4329f68af4e2b3"
-workflowName="Pirate VM final acceptance"
-event="pull_request"
-```
+## Reviewer evidence and no-NIC check
 
-Confirm that this head pins fixture r13:
+The no-NIC assertion already exists in the packaged verifier's `assess()` function: it requires `-nic none`, rejects `-netdev` and `-virtfs`, and requires the expected QEMU device. The gap was artifact access. The final workflow now uploads `QEMU-IDENTITY.json` and `WORKER-CUTOFF-MS.txt`, along with `RUN-IDENTITY.json`, memory samples, QEMU log, overlay identity, dispatch expiry, execution pin, and seed hashes.
 
-```bash
-gh api \
-  'repos/pirate-social-club/pirate-operators/contents/.github/workflows/pirate-vm-final-acceptance.yml?ref=96e95edf38d6add084aea1ebcc4329f68af4e2b3' \
-  -H 'Accept: application/vnd.github.raw+json' \
-  | grep -F 'pirate-v1-staging-vm-fixtures-20261125-r13'
-```
-
-| Run | Workflow conclusion | Verifier/controller result |
-|---|---|---|
-| `45525879313` | failure | Final acceptance held; Caddy port `42819` was already in use |
-| `45539180872` | success | Guest controller PASS; verifier `held/AssertionError` on normal zero-byte logs |
-| `45540542223` | success | Verifier `pass`, `installStatus=PASS`, cleanup 0, QEMU absent, no virtual NIC |
-| `45541957126` | failure | Reached `notes-replay`, then close controller timed out; cleanup 1; verifier `held/AssertionError` |
-
-Strict install-only evidence:
-
-```bash
-gh run view 45540542223 \
-  -R pirate-social-club/pirate-operators \
-  --json status,conclusion,jobs
-
-gh run download 45540542223 \
-  -R pirate-social-club/pirate-operators \
-  -n pirate-install-only-diagnostic \
-  -D /tmp/pirate-install-evidence
-```
-
-Expected `RESULT.json` fields include `result="pass"`, `installStatus="PASS"`, `installPhase="install-only-complete"`, `independentClosure=true`, `qemuProcessAfterWait="absent"`, and `noVirtualNic=true`.
-
-Failed final-acceptance evidence:
-
-```bash
-gh run view 45541957126 \
-  -R pirate-social-club/pirate-operators \
-  --json status,conclusion,jobs
-
-gh run download 45541957126 \
-  -R pirate-social-club/pirate-operators \
-  -n pirate-final-acceptance \
-  -D /tmp/pirate-final-evidence
-```
-
-The current failure is not the zero-byte verifier issue. `notes-controller-terminal.json` reached `notes-replay`, then failed at `close` with `TimeoutExpired` and child exit 143; the serial terminal reports cleanup 1.
-
-## Sealed final-verifier issue confirmed
-
-The sealed `verify-notes-run.py` also assumes non-empty evidence members. At line 220, `receipt_set()` asserts:
-
-```python
-all(member.isfile() and 0 < member.size <= 1024 * 1024 for member in members)
-```
-
-The failed final archive contains normal zero-byte logs, so a future close-success archive can be falsely held for the same harmless reason. This must be repaired before the next final-acceptance run. It did not cause run `45541957126`, which failed earlier at close with cleanup 1.
-
-Inspect the sealed verifier:
-
-```bash
-tar -xOf /tmp/pirate-fixtures/final-media-host.tar verify-notes-run.py \
-  | nl -ba | sed -n '214,222p'
-```
-
-## Exact final-acceptance field map
-
-`RESULT.json` is emitted by the sealed `verify-notes-run.py`. A held verdict exits nonzero and the workflow propagates it.
-
-`guestTerminal` positions are `[stage, rc, cleanup, cutoffMs, utc]`.
+`guestTerminal` positions are `[stage, rc, cleanup, cutoffMs, utc]`. The five positions and the workflow shell/pipeline citations were independently checked.
 
 | Requirement | Exact field/evidence and expected value |
 |---|---|
-| Overall full journey | `RESULT.json.result == "pass"`; `guestTerminal == [["evidence-sent", "0", "0", "<exact WORKER-CUTOFF-MS>", "<UTC>"]]`. Pass is only set after all required success receipts exist, including `wizard-installed.json`, `wizard-reopened.json`, `notes-before.json`, `notes-after.json`, `restart-before.json`, `restart-terminal.json`, `restart-after.json`, `reopened-original.json`, and `replay.json`. |
-| HTTPS, publication and playback | Required guest receipts `wizard-installed.json` and `wizard-reopened.json`; `notes-before.json.playback.wire.range == 206`; `notes-after.json.playback.wire.range == 206`; both `playback.analysis.ok == true`. |
-| Ordinary restart and same Store | `RESULT.json.sameStore == true`; `RESULT.json.oldAndNewBrowserDecoded == true`; required `restart-before.json`, `restart-terminal.json`, `restart-after.json`, and `reopened-original.json`. |
-| Replay with zero duplicate effects | `RESULT.json.newEffectsOnReplay == 0`; guest `resources.json.newEffectsOnReplay == 0`; `notes-after.json.counts.seal == 0`; `notes-before.json.proof == notes-after.json.proof`; playback wire values are equal. |
-| Cleanup 0 | `RESULT.json.guestTerminal[0][2] == "0"` and `RESULT.json.independentClosure == true`. |
-| QEMU absent and clean exit | `RESULT.json.qemuProcessAfterWait == "absent"` and `RESULT.json.qemuExit == "0"`. |
-| No virtual NIC | Final `RESULT.json` has no `noVirtualNic` field. Verify `QEMU-IDENTITY.json.argv` contains `-nic none` and no `-netdev`; guest `isolation.json.guestUplink == "no-virtual-nic"` and `hostAndBrowserEgress == "denied"`. |
-| Exact image and retained identity | `RESULT.json.imageId == "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23"`; `installationId`, `grantId`, `attachmentDigest`, and `postId` are present. |
+| Overall full journey | `RESULT.json.result == "pass"`; `guestTerminal == [["evidence-sent", "0", "0", "<exact WORKER-CUTOFF-MS>", "<UTC>"]]`. Required success receipts include install, reopen, playback, restart and replay. |
+| HTTPS, publication and playback | `wizard-installed.json` and `wizard-reopened.json`; both `notes-before.json` and `notes-after.json` have `playback.wire.range == 206` and `playback.analysis.ok == true`. |
+| Ordinary restart and same Store | `RESULT.json.sameStore == true`; `RESULT.json.oldAndNewBrowserDecoded == true`; restart and reopened receipts are present. |
+| Replay with zero duplicate effects | `RESULT.json.newEffectsOnReplay == 0`; `resources.json.newEffectsOnReplay == 0`; `notes-after.json.counts.seal == 0`; before/after proof and playback wire values match. |
+| Cleanup 0 | `guestTerminal[0][2] == "0"` and `independentClosure == true`. |
+| QEMU absent and clean exit | `qemuProcessAfterWait == "absent"` and `qemuExit == "0"`. |
+| No virtual NIC | `QEMU-IDENTITY.json.argv` contains `-nic none` and no `-netdev`; guest `isolation.json.guestUplink == "no-virtual-nic"` and `hostAndBrowserEgress == "denied"`. |
+| Exact image and retained identity | `RESULT.json.imageId == "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23"`; installation, grant, attachment and post identities are present. |
 
-## Post-merge identity rule
+## PR #99 correction
 
-The acceptance evidence belongs to `96e95edf38d6add084aea1ebcc4329f68af4e2b3`. After updating #100 from `main`, require all of the following or rerun final acceptance:
+PR #99 head `8deb8593face31e90dd98031d60c631c7b06fa2f` contained neither VM workflow. CI run `45471920123` has four JUnit files with 680, 758, 695 and 663 direct `<testcase>` elements: 2,796 total, zero failures, zero errors and one skip. Summing `<testsuite>` attributes gives 97 and misses 2,699 direct testcase children.
 
-1. `.github/ci/` and both VM workflows are byte-identical to `96e95ed`.
-2. The accepted release evidence still reports product source head `34f73d22f794e499a9bf86b22311629dcd2e000a` and source tree `94e58bd43806e484d5a85cf3ad144194c3d9f724`.
-3. The final run remains bound to the reviewed workflow and fixture release.
+The skip is intentional and conditional: `test/learning-sign-in-moss.test.ts` skips the hosted-bundle source/hash assertion when `MOSS_BUNDLE_PATH` is unset. No other CI check supplies that bundle or covers that assertion. The normal transcription/pattern tests still run, and `docs/learning-v4-rollout.md` explicitly leaves normal-UI MOSS and real-account ERC-1271 acceptance unqualified. The skip is therefore disclosed environment-gated coverage, not a hidden failure and not a claim of hosted-wallet acceptance.
 
-Check the CI/workflow delta after updating the branch:
+The two acceptance traces are byte-identical, nine lines each, SHA-256 `eddc4308c3ef483c256e438c00d0dd99e95c2191baac971f39e777cf63e2ebf0`.
 
-```bash
-gh api repos/pirate-social-club/pirate-operators/compare/96e95edf38d6add084aea1ebcc4329f68af4e2b3...<new-head> \
-  --jq '[.files[] | select((.filename|startswith(".github/ci/")) or .filename==".github/workflows/pirate-vm-final-acceptance.yml" or .filename==".github/workflows/pirate-vm-install-only.yml") | {filename,status}]'
-```
+## Workflow exit audit
 
-Expected output is `[]`. Any entry requires review or a fresh acceptance run.
+No workflow or job sets `shell:` or `defaults.run.shell`; ordinary Linux steps use default `bash -e` without implicit `pipefail`. Every relevant pipeline has explicit `pipefail`:
 
-## Historical verifier audit
+- `pirate-vm-final-acceptance.yml:58` sets `set -uo pipefail`; the runner/`tee` pipeline is at `:62`, captures `rc`, and exits with it at `:68`.
+- `pirate-vm-install-only.yml:55` sets `set -euo pipefail`; the runner/`tee` pipeline is at `:59`, captures `rc`, and exits with it at `:65`.
+- Nested test shells retain `set -euo pipefail`; the full citations are in `WORKFLOW-EXIT-AUDIT.md`.
 
-The six earlier green install-only workflows all returned verifier `held/AssertionError`, while their guest controllers passed installation:
+No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit. `continue-on-error: true` remains limited to first-attempt Foundry installation with a retry. Aggregate jobs using `if: always()` explicitly require success. Artifact uploads remain the only other `if: always()` steps, now at final line 70 and install-only line 67.
 
-- `45491608403`
-- `45497221664`
-- `45500341785`
-- `45500768688`
-- `45525879298`
-- `45539180872`
+## Acceptance and next action
 
-Each archive contains six normal zero-byte Wizard stdout/stderr logs. The old install-only verifier required every evidence member to be non-empty, and the old workflow omitted `exit "$rc"`.
+There is no passing baseline yet. Merge current main into #100, keep the PR draft, run focused checks and required CI, then run decisive final acceptance on r14. Require a terminal pass, cleanup 0, QEMU absent with exit 0, and the restart, playback and zero-duplicate replay receipts on that exact candidate. Record its head, executed merge, fixture digest and product identity from `RUN-IDENTITY.json`.
 
-PR #99 was not affected: head `8deb8593face31e90dd98031d60c631c7b06fa2f` contained neither VM workflow. CI run `45471920123` produced 97 root tests with zero failures/errors/skips and two identical nine-line acceptance traces.
+That first passing run becomes the byte-identity baseline for later comparisons. Compare the recorded `.github/ci` tree and both workflow blob IDs; do not compare only a documentation head. Repost the corrected handoff only after the pass, with the new documentation SHA and manifest digest supplied separately.
 
-The corrected install-only verifier accepts an existing empty manifest-listed log, still hash-checks it, and rejects a manifest-listed missing log. The sealed final verifier still needs the equivalent repair.
-
-## Other workflow exit audit
-
-All nine workflows on acceptance head `96e95ed` and all seven workflows on `main` were checked. Full citations are in `docs/ci-review/WORKFLOW-EXIT-AUDIT.md`.
-
-- No workflow or job sets `shell:` or `defaults.run.shell`; ordinary Linux steps use default `bash -e` without implicit `pipefail`.
-- Every relevant pipeline has explicit `pipefail`: `local.yml:52` for pipelines at `:59`, `:60`, `:62`, `:64`; `web.yml:46` for `:48`; `pirate-vm-final-acceptance.yml:46` for `:50`; `pirate-vm-install-only.yml:45` for `:49`.
-- Nested test shells use `set -euo pipefail` at `local.yml:74` and `:137`, `karaoke.yml:52`, and `study.yml:37`.
-- No `|| true` or `|| :` swallows a test, verifier, build, or acceptance exit.
-- `continue-on-error: true` is limited to first-attempt Foundry installation at `community-wizard.yml:25`, `karaoke.yml:23`, `local.yml:28`, and `local.yml:109`; each has a retry without `continue-on-error`.
-- Aggregate jobs using `if: always()` explicitly require success at `ci.yml:74-77` and `local.yml:164-166`.
-- No additional unpropagated test/verifier exit was found. No workflow behavior was changed by the audit.
-
-## Reviewer decision
-
-Do not merge PR #100 or begin live visits. First repair the close timeout and the sealed final verifier's zero-byte assumption, rerun final acceptance, and apply the post-merge identity rule.
-
-No live Visit 1 or Visit 2 action is authorized by this packet. Those still require separate-session Lane 6 GOs.
+Live Visits 1 and 2 retain their separate Lane 6 approvals. This packet authorizes no live arm, invite, registration or publication.
