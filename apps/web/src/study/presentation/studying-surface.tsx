@@ -18,6 +18,7 @@ import {
 } from "../ui.ts";
 import { ActivityProgressHeader } from "../../karaoke/activity-progress-header.tsx";
 import { ActivityResults, clampResultPercent, resultHeadline } from "../../karaoke/activity-results.tsx";
+import { ActivityFooter } from "../../ui/activity-footer.tsx";
 import {
   previousStreakForAnimation,
   primaryActionDisabled,
@@ -50,54 +51,6 @@ export interface StudyingSurfaceProps {
   rewardSlot?: JSX.Element;
   sayItBackIdleLabel?: string;
   state: StudyingSurfaceState;
-}
-
-function ActivityFooter(props: {
-  onPrimaryAction?: () => void;
-  onSecondaryAction?: () => void;
-  primaryDisabled?: boolean;
-  primaryIcon?: JSX.Element;
-  primaryLabel?: string;
-  primaryVariant?: "default" | "destructive" | "secondary";
-  secondaryIcon?: JSX.Element;
-  secondaryLabel?: string;
-  /** Results: "again" and Continue side by side, Continue on the right. */
-  results?: boolean;
-}) {
-  return (
-    <Show when={props.primaryLabel}>
-      <footer class="sticky bottom-0 z-10 mx-auto w-full max-w-[640px] border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl">
-        <div class={cn("mx-auto grid w-full max-w-[640px] gap-3", props.secondaryLabel && (props.results ? "grid-cols-2" : "sm:grid-cols-2"))}>
-          <Show when={props.results && props.secondaryLabel}>
-            <Button class="h-13 w-full" leadingIcon={props.secondaryIcon} onClick={props.onSecondaryAction} size="lg" variant="secondary">
-              {props.secondaryLabel}
-            </Button>
-          </Show>
-          <Button
-            class="h-13 w-full"
-            disabled={props.primaryDisabled}
-            leadingIcon={props.primaryIcon}
-            onClick={props.onPrimaryAction}
-            size="lg"
-            variant={props.primaryVariant ?? "default"}
-          >
-            {props.primaryLabel}
-          </Button>
-          <Show when={!props.results && props.secondaryLabel}>
-            <Button
-              class="h-13 w-full"
-              leadingIcon={props.secondaryIcon}
-              onClick={props.onSecondaryAction}
-              size="lg"
-              variant="secondary"
-            >
-              {props.secondaryLabel}
-            </Button>
-          </Show>
-        </div>
-      </footer>
-    </Show>
-  );
 }
 
 /** Shared upper-aligned exercise prompt used by every interactive study type. */

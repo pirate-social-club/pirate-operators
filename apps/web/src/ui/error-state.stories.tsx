@@ -17,7 +17,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Locked error-state composite. Copy says what happened, distinguishes blocked from resumable, and ranks recovery before exit. Paused is reserved for resumable states; a disabled button is never used as a status message. The route X is optional; callers do not add a second exit button.",
+          "Content-only error state. Route shells own the page header, exit control and footer actions; inline pages such as Wallet may render the actions here.",
       },
     },
   },
@@ -45,16 +45,5 @@ export const Resumable: Story = {
     status: "Paused for this session.",
     primaryAction: { label: "Resume", onClick: fn() },
     secondaryAction: { label: "Leave", onClick: fn() },
-  },
-};
-
-export const WithExit: Story = {
-  args: {
-    title: "Couldn't get your result",
-    description: "This lesson can't continue. Start a new one.",
-    tone: "blocked",
-    primaryAction: { label: "New lesson", onClick: fn() },
-    onExit: fn(),
-    exitLabel: "Exit study",
   },
 };

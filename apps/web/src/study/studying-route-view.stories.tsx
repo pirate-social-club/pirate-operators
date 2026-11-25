@@ -75,6 +75,7 @@ export const RecordingOutcomeUnknown: Story = {
 };
 
 export const ExpiredLesson: Story = {
+  name: "Lesson ended",
   render: () => (
     <StudyingRouteView
       client={createStoryLessonClient({

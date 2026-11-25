@@ -134,3 +134,5 @@ export { MobilePageHeader } from "@/patterns/navigation/mobile-page-header/mobil
 export { cn } from "@/lib/cn";
 export { createMediaQuery } from "@/lib/media-query";
 export { ErrorState } from "./ui/error-state.tsx";
+export { ActivityStatusShell } from "./ui/activity-status-shell.tsx";
+export { ActivityFooter } from "./ui/activity-footer.tsx";
