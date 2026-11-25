@@ -219,9 +219,9 @@ test("an unknown Karaoke start checks itself and returns to the normal start scr
   button!.click();
   await vi.advanceTimersByTimeAsync(0);
   expect(host.textContent).toContain("Starting karaoke…");
-  expect(host.querySelector('[role="status"]')?.textContent).toContain(
-    "Starting karaoke…",
-  );
+  const status = host.querySelector('[role="status"]');
+  expect(status?.textContent).toContain("Starting karaoke…");
+  expect(status?.closest('[aria-busy="true"]')).not.toBeNull();
   expect(host.textContent).not.toContain("Checking whether this take opened.");
   expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
@@ -257,9 +257,9 @@ test("an unresolved Karaoke start offers Back after automatic checking and has n
   button!.click();
   await vi.advanceTimersByTimeAsync(0);
   expect(host.textContent).toContain("Starting karaoke…");
-  expect(host.querySelector('[role="status"]')?.textContent).toContain(
-    "Starting karaoke…",
-  );
+  const status = host.querySelector('[role="status"]');
+  expect(status?.textContent).toContain("Starting karaoke…");
+  expect(status?.closest('[aria-busy="true"]')).not.toBeNull();
   expect(host.textContent).not.toContain("Checking whether this take opened.");
   expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);

@@ -35,6 +35,7 @@ export function ActivityStatusShell(props: ActivityStatusShellProps) {
   return (
     <Dynamic
       component={props.asMain ? "main" : "div"}
+      aria-busy={props.loading ? "true" : undefined}
       aria-label={props.asMain ? props.mainLabel : undefined}
       class="flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-background text-foreground"
     >
