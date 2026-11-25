@@ -52,10 +52,10 @@ for (const observed of ["none", "finished"] as const)
       assert.ok(release);
       assert.equal(port.ticket(), pending);
       assert.equal(posts, 1);
-      const rejected = assert.rejects(pending, /It may still be starting/);
+      const rejected = assert.rejects(pending, /karaoke_start_outcome_unknown/);
       release({ error: "wallet_reservation_ack_lost" });
       await rejected;
-      await assert.rejects(port.ticket(), /It may still be starting/);
+      await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
       assert.equal(posts, 1);
       assert.equal(sequence, 1);
       assert.equal(reservation, "original-reservation");
@@ -174,7 +174,7 @@ for (const [status, code] of [
       assert.equal(posts, 1); // No automatic create retry.
       // The transport must mask before decoding code. Even a real pre-handler
       // refusal is conservatively held when only its auth headers are known.
-      await assert.rejects(port.ticket(), /It may still be starting/);
+      await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
       assert.equal(posts, 1);
     } finally {
       port.dispose();

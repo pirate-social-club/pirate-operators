@@ -20,7 +20,7 @@ import type {
 } from "../api-contract.ts";
 import { useKaraokeCapture } from "./use-karaoke-capture.ts";
 import { Button } from "../design-system.ts";
-import { ErrorState } from "../ui/error-state.tsx";
+import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
 import {
   KaraokeAuthRequiredState,
   KaraokeRouteLoadingState,
@@ -162,7 +162,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     [take, setTake] = createSignal<OpenTake | null>(null),
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
-    [startUnknown, setStartUnknown] = createSignal(false),
+    [startPhase, setStartPhase] = createSignal<"idle" | "checking" | "unknown">("idle"),
     [restoredRatingKey, setRestoredRatingKey] = createSignal<string | null>(
       null,
     ),
@@ -248,6 +248,46 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       throw error;
     }
   };
+  function returnToStart(message?: string) {
+    if (!isCurrentOwner()) return;
+    setStartPhase("idle");
+    setStarting(false);
+    setTake(null);
+    setFinished(null);
+    setFeedback(null);
+    setResume(null);
+    setNotice(message ?? null);
+  }
+  async function recoverUnknownStart() {
+    if (!isCurrentOwner()) return;
+    setStartPhase("checking");
+    setNotice(null);
+    const deadline = performance.now() + 10_000;
+    let last: AttemptView | "error" = "error";
+    while (isCurrentOwner() && performance.now() < deadline) {
+      try {
+        const value = await attemptView();
+        if (!isCurrentOwner()) return;
+        last = value;
+        if (value.state === "open" || value.state === "finished") {
+          apply(value);
+          setStartPhase("idle");
+          setNotice(null);
+          return;
+        }
+      } catch {
+        if (!isCurrentOwner()) return;
+        last = "error";
+      }
+      await sleep(250);
+    }
+    if (!isCurrentOwner()) return;
+    if (last !== "error" && last.state === "none") {
+      returnToStart("Karaoke didn't start. Try again.");
+      return;
+    }
+    setStartPhase("unknown");
+  }
   const retainHistoryDownload = (
     result: Extract<AttemptView, { state: "finished" }>["result"]["body"],
   ) => {
@@ -292,7 +332,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     if (!isCurrentOwner()) return;
     setLoaded(false);
     setNotice(null);
-    setStartUnknown(false);
+    setStartPhase("idle");
     try {
       const loaded = await port.song();
       if (!isCurrentOwner()) return;
@@ -548,7 +588,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     scoringResponses.reset();
     scoringRecoveryUsed = false;
     setStarting(true);
-    setStartUnknown(false);
+    setStartPhase("idle");
     try {
       let currentTake = take();
       if (currentTake && capture.state()?.status === "error") {
@@ -670,8 +710,12 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         failure instanceof Error
           ? failure.message
           : "This take couldn't start.";
-      setStartUnknown(message === KARAOKE_START_UNKNOWN_MESSAGE);
-      setNotice(message);
+      if (message === KARAOKE_START_UNKNOWN_MESSAGE) {
+        void recoverUnknownStart();
+      } else {
+        setStartPhase("idle");
+        setNotice(message);
+      }
     } finally {
       if (isCurrentOwner()) setStarting(false);
     }
@@ -764,21 +808,15 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         );
         return;
       }
-      if (value.state === "none" && startUnknown()) {
-        setNotice(KARAOKE_START_UNKNOWN_MESSAGE);
-        return;
-      }
       apply(value);
-      setStartUnknown(false);
+      setStartPhase("idle");
       setNotice(null);
     } catch (error) {
       if (isCurrentOwner()) {
         if (isLearningAuthorityLoss(error)) loseAuthority(error);
         else
           setNotice(
-            startUnknown()
-              ? KARAOKE_START_UNKNOWN_MESSAGE
-              : "Your result is still unavailable. Check the same take again.",
+            "Your result is still unavailable. Check the same take again.",
           );
       }
     }
@@ -796,7 +834,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
     >
       <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
-        <Show when={notice() && song() && !startUnknown()}>
+        <Show when={notice() && song() && startPhase() === "idle"}>
           <div
             role="alert"
             class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
@@ -828,78 +866,93 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
           >
             {(timed) => (
               <Show
-                when={startUnknown()}
+                when={startPhase() === "idle"}
                 fallback={
-              <KaraokePracticeSurface
-                title={props.title}
-                rewardSlot={
-                  <>
-                    <KaraokeCompletionStatus
-                      state={finished()?.record.publication?.state ?? null}
-                      onCheck={() => void checkResult()}
-                    />
-                    {props.rewardSlot}
-                  </>
-                }
-                instrumentalAudioUrl={port.playbackUrl()}
-                lines={karaokeStageLinesOf(timed().lines)}
-                initialTimeMs={resume()?.elapsedMs ?? 0}
-                singingStatus={singingStatus()}
-                summary={finished()?.result.presentation ?? null}
-                bestCombo={
-                  finished()?.result.presentation?.bestCombo ??
-                  currentFeedback().bestCombo
-                }
-                rating={
-                  singingStatus() === "active" &&
-                  currentFeedback().rating?.key !== restoredRatingKey()
-                    ? currentFeedback().rating
-                    : null
-                }
-                onExit={props.onExit}
-                onStartSinging={(ms) => void start(ms)}
-                onPlaybackElement={(element) => {
-                  if (playback !== element) cancelPlaybackPosition?.();
-                  playback = element;
-                  capture.controls.attachPlaybackElement(element);
-                }}
-                playbackInterrupted={capture.playbackInterrupted()}
-                onResumePlayback={() => capture.controls.resumePlayback()}
-                onTimeChange={(ms) => {
-                  songMs = ms;
-                  capture.controls.noteTime(ms);
-                  watchScoringResponses(ms);
-                  void buyAhead();
-                }}
-                onPlay={(ms) => capture.controls.notePlay(ms)}
-                onPause={(ms) => {
-                  // Once capture is complete, an interrupted outro can show the
-                  // result without reopening the microphone or trapping the UI.
-                  setPlayingOutro(false);
-                  scoringResponses.reset();
-                  return capture.controls.notePause(ms);
-                }}
-                onSeek={(ms) => {
-                  scoringResponses.reset();
-                  capture.controls.noteSeek(ms);
-                }}
-                onFinish={(ms) => {
-                  setPlayingOutro(false);
-                  void finish(ms);
-                }}
-              />
+                  <main class="live-karaoke" aria-label={`Karaoke: ${props.title}`}>
+                    <h1 class="sr-only">{props.title}</h1>
+                    <Show
+                      when={startPhase() === "checking"}
+                      fallback={
+                        <ActivityStatusShell
+                          title="Couldn't start karaoke"
+                          description="Go back and try again in a minute."
+                          tone="blocked"
+                          exitIcon="back"
+                          exitLabel="Exit karaoke"
+                          onExit={props.onExit}
+                          primaryAction={{ label: "Back", onClick: () => returnToStart() }}
+                        />
+                      }
+                    >
+                      <ActivityStatusShell
+                        title="Starting karaoke…"
+                        description="Checking whether this take opened."
+                        exitIcon="back"
+                        exitLabel="Exit karaoke"
+                        onExit={props.onExit}
+                      />
+                    </Show>
+                  </main>
                 }
               >
-                <div class="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-5 py-8">
-                  <ErrorState
-                    title="Couldn't start this take"
-                    description={KARAOKE_START_UNKNOWN_MESSAGE}
-                    tone="blocked"
-                    primaryAction={{ label: "Check again", onClick: () => void checkResult() }}
-                    onExit={props.onExit}
-                    exitLabel="Exit karaoke"
-                  />
-                </div>
+                <KaraokePracticeSurface
+                  title={props.title}
+                  rewardSlot={
+                    <>
+                      <KaraokeCompletionStatus
+                        state={finished()?.record.publication?.state ?? null}
+                        onCheck={() => void checkResult()}
+                      />
+                      {props.rewardSlot}
+                    </>
+                  }
+                  instrumentalAudioUrl={port.playbackUrl()}
+                  lines={karaokeStageLinesOf(timed().lines)}
+                  initialTimeMs={resume()?.elapsedMs ?? 0}
+                  singingStatus={singingStatus()}
+                  summary={finished()?.result.presentation ?? null}
+                  bestCombo={
+                    finished()?.result.presentation?.bestCombo ??
+                    currentFeedback().bestCombo
+                  }
+                  rating={
+                    singingStatus() === "active" &&
+                    currentFeedback().rating?.key !== restoredRatingKey()
+                      ? currentFeedback().rating
+                      : null
+                  }
+                  onExit={props.onExit}
+                  onStartSinging={(ms) => void start(ms)}
+                  onPlaybackElement={(element) => {
+                    if (playback !== element) cancelPlaybackPosition?.();
+                    playback = element;
+                    capture.controls.attachPlaybackElement(element);
+                  }}
+                  playbackInterrupted={capture.playbackInterrupted()}
+                  onResumePlayback={() => capture.controls.resumePlayback()}
+                  onTimeChange={(ms) => {
+                    songMs = ms;
+                    capture.controls.noteTime(ms);
+                    watchScoringResponses(ms);
+                    void buyAhead();
+                  }}
+                  onPlay={(ms) => capture.controls.notePlay(ms)}
+                  onPause={(ms) => {
+                    // Once capture is complete, an interrupted outro can show the
+                    // result without reopening the microphone or trapping the UI.
+                    setPlayingOutro(false);
+                    scoringResponses.reset();
+                    return capture.controls.notePause(ms);
+                  }}
+                  onSeek={(ms) => {
+                    scoringResponses.reset();
+                    capture.controls.noteSeek(ms);
+                  }}
+                  onFinish={(ms) => {
+                    setPlayingOutro(false);
+                    void finish(ms);
+                  }}
+                />
               </Show>
             )}
           </Show>

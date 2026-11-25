@@ -142,12 +142,12 @@ test("actual committed409 remains held through stale empty/finished observations
   }) as typeof fetch;
   try {
     f.fault("cas");
-    await assert.rejects(port.ticket(), /It may still be starting/);
+    await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
     const original = await f.walletState();
     assert.ok(original.open);
-    await assert.rejects(port.ticket(), /It may still be starting/);
+    await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
     observation = "finished";
-    await assert.rejects(port.ticket(), /It may still be starting/);
+    await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
     assert.equal(f.counts.ticketPosts, 1);
     observation = "canonical";
     assert.equal((await port.ticket()).ticketId, original.open.ticketId);
@@ -170,7 +170,7 @@ test("CAS commit/lost acknowledgement409 recovers only through ordinary canonica
   try {
     f.fault("cas");
     f.fault("beforePrepare");
-    await assert.rejects(port.ticket(), /It may still be starting/);
+    await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
     const original = await f.walletState();
     assert.equal(original.sequence, 1);
     assert.ok(original.open?.recoveryScope);

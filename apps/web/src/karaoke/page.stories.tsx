@@ -54,7 +54,7 @@ const song = {
   segments: [],
 };
 function storyPort(
-  state: "ready" | "loading" | "empty" | "error" | "unknown" | "recovered",
+  state: "ready" | "loading" | "empty" | "error" | "unknown" | "unknown-unresolved" | "recovered",
 ): OperatorKaraokePort {
   const view: KaraokeAttemptView = {
     state: "open",
@@ -63,6 +63,7 @@ function storyPort(
     proof: "story-proof",
     elapsedMs: 1500,
   };
+  let reads = 0;
   return {
     playbackUrl: () => undefined,
     song: async () => {
@@ -71,9 +72,14 @@ function storyPort(
         throw new globalThis.Error("Karaoke couldn't be loaded for this song.");
       return state === "empty" ? { lines: [], segments: [] } : song;
     },
-    attempt: async () => (state === "recovered" ? view : { state: "none" }),
+    attempt: async () => {
+      reads++;
+      if (state === "unknown-unresolved" && reads > 1)
+        throw new globalThis.Error("Karaoke status is unavailable.");
+      return state === "recovered" ? view : { state: "none" };
+    },
     ticket: async () => {
-      if (state === "unknown")
+      if (state === "unknown" || state === "unknown-unresolved")
         throw new globalThis.Error(
           KARAOKE_START_UNKNOWN_MESSAGE,
         );
@@ -172,25 +178,45 @@ export const StartUnknown: Story = {
       await canvas.findByRole("button", { name: "Start karaoke" }),
     );
     await expect(
-      await canvas.findByRole("heading", { name: "Couldn't start this take" }),
+      await canvas.findByRole("heading", { name: "Starting karaoke…" }),
     ).toBeVisible();
     await expect(
-      canvas.getByText("It may still be starting. Check again in a moment."),
+      await canvas.findByText(
+        "Karaoke didn't start. Try again.",
+        {},
+        { timeout: 15_000 },
+      ),
     ).toBeVisible();
     await expect(
-      canvas.getByRole("button", { name: "Check again" }),
+      canvas.getByRole("button", { name: "Start karaoke" }),
     ).toBeEnabled();
-    await userEvent.click(canvas.getByRole("button", { name: "Check again" }));
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+  },
+};
+export const StartUnknownUnresolved: Story = {
+  render: example("unknown-unresolved"),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Start karaoke" }),
+    );
     await expect(
-      canvas.getByRole("heading", { name: "Couldn't start this take" }),
+      await canvas.findByRole("heading", { name: "Starting karaoke…" }),
     ).toBeVisible();
     await expect(
-      canvas.queryByRole("button", { name: "Start karaoke" }),
-    ).toBeNull();
+      await canvas.findByRole(
+        "heading",
+        { name: "Couldn't start karaoke" },
+        { timeout: 15_000 },
+      ),
+    ).toBeVisible();
     await expect(
-      canvas.queryByRole("button", { name: "Start karaoke" }),
-    ).toBeNull();
-    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+      canvas.getByText("Go back and try again in a minute."),
+    ).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Back" }));
+    await expect(
+      canvas.getByRole("button", { name: "Start karaoke" }),
+    ).toBeEnabled();
   },
 };
 export const RecoveredOpenTake: Story = {
