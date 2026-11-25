@@ -29,6 +29,6 @@ No workflow or job sets `shell:` or `defaults.run.shell`. The existing `defaults
 - `local.yml:156-157` uses `if: always()` with explicit `needs`; `local.yml:164-166` requires both root tests and offline acceptance to equal `success`.
 - The VM artifact uploads are the remaining relevant `if: always()` steps: `pirate-vm-final-acceptance.yml:72` and `pirate-vm-install-only.yml:69`. Other artifact uploads remain at `community-wizard.yml:51`, `karaoke.yml:58`, `local.yml:84` and `:146`, `study.yml:42`, and `web.yml:50`.
 
-The fixture trust check runs before asset verification, host-runner extraction, or guest execution. A manifest digest mismatch exits nonzero. The final verifier test runs against the packaged r17 verifier before preflight. A held final verdict remains nonzero and is propagated through the runner/`tee` pipeline.
+The fixture trust check runs before asset verification, host-runner extraction, or guest execution. A manifest digest mismatch exits nonzero. The final verifier test runs against the packaged r18 verifier before preflight. A held final verdict remains nonzero and is propagated through the runner/`tee` pipeline.
 
 Conclusion: no additional unpropagated test or verifier exit was found. The workflow changes add trust and evidence checks; they do not weaken an exit path.
