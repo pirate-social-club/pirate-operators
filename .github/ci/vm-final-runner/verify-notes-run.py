@@ -1,11 +1,23 @@
 """Verify only the offline Notes guest's allowlisted return and terminal facts."""
 from datetime import datetime
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
 import sys
 import tarfile
+
+
+def _load_collector():
+    spec = importlib.util.spec_from_file_location(
+        "collect_notes_evidence", Path(__file__).resolve().parent / "collect-notes-evidence.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+validate_native_memory_sample = _load_collector().validate_native_memory_sample
 
 
 IMAGE = "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23"
@@ -525,13 +537,7 @@ def verify_worker_hold(held):
         assert type(row["samples"]) is list and type(row["sampleCount"]) is int
         assert row["sampleCount"] == len(row["samples"]) and 0 <= row["sampleCount"] <= 2048
         for sample in row["samples"]:
-            assert type(sample) is dict
-            assert set(sample) == {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
-            assert sample["kind"] == "sample"
-            assert isinstance(sample["at"], str) and UTC_STAMP.fullmatch(sample["at"])
-            for key in ("launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"):
-                assert sample[key] is None or (type(sample[key]) is int and 0 <= sample[key] < 2 ** 40)
-            assert sample["servicePid"] is None or (type(sample["servicePid"]) is int and sample["servicePid"] > 0)
+            assert type(sample) is dict and validate_native_memory_sample(sample)
         assert row["finalSample"] is None or row["sampleCount"] >= 1
         if row["sampleCount"]:
             assert row["finalSample"] == row["samples"][-1]

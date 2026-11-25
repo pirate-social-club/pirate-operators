@@ -525,6 +525,45 @@ def read_native_progress(path=ROOT / "logs" / "native-progress.ndjson", owner=10
     return receipt
 
 
+NATIVE_MEMORY_BASE_KEYS = {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
+NATIVE_MEMORY_HEAP_KEYS = {"heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "topRss"}
+
+
+def validate_native_memory_sample(row):
+    if set(row) == NATIVE_MEMORY_BASE_KEYS:
+        extended = False
+    elif set(row) == NATIVE_MEMORY_BASE_KEYS | NATIVE_MEMORY_HEAP_KEYS:
+        extended = True
+    else:
+        return False
+    if row.get("kind") != "sample":
+        return False
+    if type(row["at"]) is not str or not UTC_STAMP.fullmatch(row["at"]):
+        return False
+    numeric_keys = ["launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"]
+    if extended:
+        numeric_keys += ["heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb"]
+    for key in numeric_keys:
+        if row[key] is not None and not (type(row[key]) is int and 0 <= row[key] < 2 ** 40):
+            return False
+    if row["servicePid"] is not None and not (type(row["servicePid"]) is int and row["servicePid"] > 0):
+        return False
+    if extended:
+        top = row["topRss"]
+        if type(top) is not list or len(top) > 5:
+            return False
+        for entry in top:
+            if type(entry) is not dict or set(entry) != {"pid", "comm", "rssKb"}:
+                return False
+            if type(entry["pid"]) is not int or entry["pid"] <= 0:
+                return False
+            if type(entry["comm"]) is not str or not 0 < len(entry["comm"]) <= 64:
+                return False
+            if type(entry["rssKb"]) is not int or not 0 <= entry["rssKb"] < 2 ** 40:
+                return False
+    return True
+
+
 def read_native_memory(path=ROOT / "logs" / "native-memory.ndjson", owner=1000):
     receipt = {
         "schema": "pirate.native-memory-samples/1",
@@ -559,11 +598,7 @@ def read_native_memory(path=ROOT / "logs" / "native-memory.ndjson", owner=1000):
         try:
             row = json.loads(line)
             assert type(row) is dict and row.get("kind") == "sample"
-            assert set(row) == {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
-            assert type(row["at"]) is str and UTC_STAMP.fullmatch(row["at"])
-            for key in ("launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"):
-                assert row[key] is None or (type(row[key]) is int and 0 <= row[key] < 2 ** 40)
-            assert row["servicePid"] is None or (type(row["servicePid"]) is int and row["servicePid"] > 0)
+            assert validate_native_memory_sample(row)
         except (AssertionError, ValueError, TypeError):
             malformed = True
             break

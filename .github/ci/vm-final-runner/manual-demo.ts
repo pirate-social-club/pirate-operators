@@ -204,18 +204,23 @@ const memorySample = () => {
  try {
   const meminfo = readFileSync("/proc/meminfo", "utf8"), available = /^MemAvailable:\s+(\d+) kB/m.exec(meminfo);
   let uidRssKb: number | null = 0;
+  const uidProcs: { pid: number, comm: string, rssKb: number }[] = [];
   for (const entry of readdirSync("/proc")) {
    if (!/^[0-9]+$/.test(entry)) continue;
    try {
     if (lstatSync("/proc/" + entry).uid !== process.getuid!()) continue;
     const stat = procStat(Number(entry));
-    if (stat) uidRssKb += stat.rssKb;
+    if (stat) { uidRssKb += stat.rssKb; uidProcs.push({ pid: stat.pid, comm: stat.comm, rssKb: stat.rssKb }); }
    } catch { /* process exited during the sweep */ }
   }
   const self = procStat(process.pid), servicePid = service?.pid, serviceStat = typeof servicePid === "number" ? procStat(servicePid) : null;
+  const usage = process.memoryUsage(), kb = (bytes: number) => Math.round(bytes / 1024);
+  const topRss = uidProcs.sort((a, b) => b.rssKb - a.rssKb).slice(0, 5);
   ndjsonLine(memoryLogPath, { at: new Date().toISOString(), kind: "sample", launcherRssKb: self?.rssKb ?? null,
    servicePid: serviceStat ? servicePid ?? null : null, serviceRssKb: serviceStat?.rssKb ?? null,
-   memAvailableKb: available ? Number(available[1]) : null, uidRssKb });
+   memAvailableKb: available ? Number(available[1]) : null, uidRssKb,
+   heapUsedKb: kb(usage.heapUsed), heapTotalKb: kb(usage.heapTotal), externalKb: kb(usage.external), arrayBuffersKb: kb(usage.arrayBuffers),
+   topRss });
  } catch { /* diagnostic capture never affects the rehearsal */ }
 };
 roleMark("launcher", process.pid);
