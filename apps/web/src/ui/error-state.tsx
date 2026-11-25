@@ -1,14 +1,5 @@
 import { Show } from "solid-js";
-import {
-  Button,
-  buttonVariants,
-  Card,
-  CardContent,
-  cn,
-  IconButton,
-  IconX,
-  Type,
-} from "../design-system.ts";
+import { Button, buttonVariants, Card, CardContent, cn, Type } from "../design-system.ts";
 
 export type ErrorStateTone = "blocked" | "retryable" | "resumable";
 
@@ -27,30 +18,18 @@ export interface ErrorStateProps {
   status?: string;
   primaryAction?: ErrorStateAction;
   secondaryAction?: ErrorStateAction;
-  onExit?: () => void;
-  exitLabel?: string;
 }
 
 /**
- * Locked error-state composite from PR94, extended with the route's existing X
- * exit so callers do not add a second exit button. Copy says what happened,
- * distinguishes locked from resumable, and ranks the primary recovery.
+ * Locked error-state composite. Copy says what happened, distinguishes locked
+ * from resumable, and ranks the primary recovery before exit. "Paused" belongs
+ * only to resumable states; callers must not render a disabled action as status.
  */
 export function ErrorState(props: ErrorStateProps) {
   return (
     <Card>
-      <CardContent class="relative flex flex-col items-start gap-4 p-6">
-        <Show when={props.onExit}>
-          <IconButton
-            aria-label={props.exitLabel ?? "Exit"}
-            class="absolute right-4 top-4"
-            onClick={() => props.onExit?.()}
-            variant="ghost"
-          >
-            <IconX class="size-5" />
-          </IconButton>
-        </Show>
-        <Type as="h2" class="pr-12" variant="h3">{props.title}</Type>
+      <CardContent class="flex flex-col items-start gap-4 p-6">
+        <Type as="h2" variant="h3">{props.title}</Type>
         <Type role="alert">{props.description}</Type>
         <Show when={props.tone === "resumable" && props.status}>
           <Type role="status" variant="caption">{props.status}</Type>

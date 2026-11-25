@@ -180,26 +180,28 @@ for (const width of [1440, 390])
               })
             : json({ error: "session_required" }, 401);
         if (path === "/api/profile/owner")
-          return json({
-            schema: "pirate.community-profile-owner/1",
-            communityId,
-            accountId,
-            profile: {
-              schema: "pirate.community-profile/1",
-              communityId,
-              authorId,
-              revision: 1,
-              displayName: "Fixture member",
-              bio: null,
-              avatarRef: null,
-              coverRef: null,
-            },
-            capabilities: {
-              metadata: true,
-              handles: false,
-              publicMedia: false,
-            },
-          });
+          return signed
+            ? json({
+                schema: "pirate.community-profile-owner/1",
+                communityId,
+                accountId,
+                profile: {
+                  schema: "pirate.community-profile/1",
+                  communityId,
+                  authorId,
+                  revision: 1,
+                  displayName: "Fixture member",
+                  bio: null,
+                  avatarRef: null,
+                  coverRef: null,
+                },
+                capabilities: {
+                  metadata: true,
+                  handles: false,
+                  publicMedia: false,
+                },
+              })
+            : json({ error: "session_required" }, 401);
         if (path === "/api/uploads") {
           if (request.method() === "POST") {
             reservations.push({
@@ -219,8 +221,8 @@ for (const width of [1440, 390])
           // trailing control; the mobile sign-in path runs through the
           // footer profile tab to the account page, then back to publish.
           await page
+            .getByRole("navigation", { name: "Primary navigation" })
             .getByRole("button", { name: "Profile", exact: true })
-            .first()
             .click();
           await page
             .getByRole("button", { name: "Sign in", exact: true })

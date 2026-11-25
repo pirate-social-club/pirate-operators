@@ -280,23 +280,6 @@ export function CommunityAppShell(props: {
                         </Type>
                       </Show>
                     }
-                    mobileTrailingContent={
-                      <div class="flex items-center gap-1">
-                        <Show
-                          when={
-                            !props.signedIn && props.ready && props.canSignIn
-                          }
-                        >
-                          <Button
-                            onClick={props.onSignIn}
-                            size="sm"
-                            variant="ghost"
-                          >
-                            Sign in
-                          </Button>
-                        </Show>
-                      </div>
-                    }
                   />
                 </div>
               </Show>
