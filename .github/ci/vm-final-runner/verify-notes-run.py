@@ -20,6 +20,54 @@ def _load_collector():
 validate_native_memory_sample = _load_collector().validate_native_memory_sample
 
 
+def validate_native_progress_receipt(row):
+    assert set(row) == {"schema", "logPresent", "rows", "rowCount", "finalRow", "openOps", "parseError"}
+    assert row["schema"] == "pirate.native-launcher-progress/1"
+    assert type(row["logPresent"]) is bool
+    assert type(row["rows"]) is list and type(row["rowCount"]) is int
+    assert row["rowCount"] == len(row["rows"]) and 0 <= row["rowCount"] <= 4096
+    for entry in row["rows"]:
+        assert type(entry) is dict and isinstance(entry.get("at"), str) and UTC_STAMP.fullmatch(entry["at"])
+        if entry.get("kind") == "op":
+            assert set(entry) == {"at", "kind", "op", "event"}
+            assert entry["op"] in PROGRESS_OPS and entry["event"] in {"enter", "return"}
+        else:
+            assert entry.get("kind") == "role"
+            assert set(entry) == {"at", "kind", "role", "pid", "ppid", "startTicks", "comm"}
+            assert entry["role"] in PROGRESS_ROLES
+            assert type(entry["pid"]) is int and entry["pid"] > 0
+            assert type(entry["ppid"]) is int and entry["ppid"] > 0
+            assert isinstance(entry["startTicks"], str) and entry["startTicks"].isdigit()
+            assert isinstance(entry["comm"], str) and 0 < len(entry["comm"]) <= 64
+    assert row["finalRow"] is None or row["rowCount"] >= 1
+    if row["rowCount"]:
+        assert row["finalRow"] == row["rows"][-1]
+    else:
+        assert row["finalRow"] is None
+    assert type(row["openOps"]) is list and all(op in PROGRESS_OPS for op in row["openOps"])
+    assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
+
+
+def validate_native_memory_receipt(row):
+    assert set(row) == {"schema", "logPresent", "samples", "sampleCount", "finalSample",
+                        "peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb", "parseError"}
+    assert row["schema"] == "pirate.native-memory-samples/1"
+    assert type(row["logPresent"]) is bool
+    assert type(row["samples"]) is list and type(row["sampleCount"]) is int
+    assert row["sampleCount"] == len(row["samples"]) and 0 <= row["sampleCount"] <= 2048
+    for sample in row["samples"]:
+        assert type(sample) is dict and validate_native_memory_sample(sample)
+    assert row["finalSample"] is None or row["sampleCount"] >= 1
+    if row["sampleCount"]:
+        assert row["finalSample"] == row["samples"][-1]
+    else:
+        assert row["finalSample"] is None
+    for key in ("peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb"):
+        assert row[key] is None or (type(row[key]) is int and 0 <= row[key] < 2 ** 40)
+    assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
+
+
+
 IMAGE = "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23"
 SUCCESS = {
     "isolation.json", "socket.json", "socket-image.json", "socket-terminal.json", "resources.json",
@@ -29,6 +77,8 @@ SUCCESS = {
     "replay.json", "launcher-terminal.json", "notes-before.json", "binding-before.json",
     "notes-after.json", "binding-after.json",
 }
+SUCCESS_OPTIONAL = {"native-progress.json", "native-memory.json"}
+
 HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
@@ -502,50 +552,9 @@ def verify_worker_hold(held):
             assert value is None or (type(value) is int and 0 <= value <= 2 ** 63)
         assert row["parseError"] is None or row["parseError"] in MEMORY_PARSE_ERRORS
     if "native-progress.json" in held:
-        row = held["native-progress.json"]
-        assert set(row) == {"schema", "logPresent", "rows", "rowCount", "finalRow", "openOps", "parseError"}
-        assert row["schema"] == "pirate.native-launcher-progress/1"
-        assert type(row["logPresent"]) is bool
-        assert type(row["rows"]) is list and type(row["rowCount"]) is int
-        assert row["rowCount"] == len(row["rows"]) and 0 <= row["rowCount"] <= 4096
-        for entry in row["rows"]:
-            assert type(entry) is dict and isinstance(entry.get("at"), str) and UTC_STAMP.fullmatch(entry["at"])
-            if entry.get("kind") == "op":
-                assert set(entry) == {"at", "kind", "op", "event"}
-                assert entry["op"] in PROGRESS_OPS and entry["event"] in {"enter", "return"}
-            else:
-                assert entry.get("kind") == "role"
-                assert set(entry) == {"at", "kind", "role", "pid", "ppid", "startTicks", "comm"}
-                assert entry["role"] in PROGRESS_ROLES
-                assert type(entry["pid"]) is int and entry["pid"] > 0
-                assert type(entry["ppid"]) is int and entry["ppid"] > 0
-                assert isinstance(entry["startTicks"], str) and entry["startTicks"].isdigit()
-                assert isinstance(entry["comm"], str) and 0 < len(entry["comm"]) <= 64
-        assert row["finalRow"] is None or row["rowCount"] >= 1
-        if row["rowCount"]:
-            assert row["finalRow"] == row["rows"][-1]
-        else:
-            assert row["finalRow"] is None
-        assert type(row["openOps"]) is list and all(op in PROGRESS_OPS for op in row["openOps"])
-        assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
+        validate_native_progress_receipt(held["native-progress.json"])
     if "native-memory.json" in held:
-        row = held["native-memory.json"]
-        assert set(row) == {"schema", "logPresent", "samples", "sampleCount", "finalSample",
-                            "peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb", "parseError"}
-        assert row["schema"] == "pirate.native-memory-samples/1"
-        assert type(row["logPresent"]) is bool
-        assert type(row["samples"]) is list and type(row["sampleCount"]) is int
-        assert row["sampleCount"] == len(row["samples"]) and 0 <= row["sampleCount"] <= 2048
-        for sample in row["samples"]:
-            assert type(sample) is dict and validate_native_memory_sample(sample)
-        assert row["finalSample"] is None or row["sampleCount"] >= 1
-        if row["sampleCount"]:
-            assert row["finalSample"] == row["samples"][-1]
-        else:
-            assert row["finalSample"] is None
-        for key in ("peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb"):
-            assert row[key] is None or (type(row[key]) is int and 0 <= row[key] < 2 ** 40)
-        assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
+        validate_native_memory_receipt(held["native-memory.json"])
     if "install-server-refusal.json" in held:
         validate_install_server_refusal(held["install-server-refusal.json"])
         client = held.get("wizard-install-refusal.json")
@@ -678,7 +687,11 @@ def assess(run, result):
         return
     for unit in ("docker.socket", "docker.service", "containerd.service"):
         assert f"PIRATE_SMOKE_UNIT {unit} inactive" in serial
-    info, pins, manifest = receipt_set(returned, SUCCESS, SUCCESS)
+    info, pins, manifest = receipt_set(returned, SUCCESS | SUCCESS_OPTIONAL, SUCCESS)
+    if "native-progress.json" in info:
+        validate_native_progress_receipt(info["native-progress.json"])
+    if "native-memory.json" in info:
+        validate_native_memory_receipt(info["native-memory.json"])
     assert re.findall(r"^([0-9a-f]{64})  RUN-SHA256SUMS$", serial, re.M) == [manifest]
     assert re.findall(r"^PIRATE_SMOKE_SOCKET_SHA256 ([0-9a-f]{64})$", serial, re.M) == [pins["socket.json"]]
     assert re.findall(r"^PIRATE_SMOKE_ISOLATION ([0-9a-f]{64})$", serial, re.M) == [pins["isolation.json"]]

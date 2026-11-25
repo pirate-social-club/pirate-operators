@@ -646,6 +646,8 @@ def collect_success(session, image, cutoff):
         raw, values[output] = private_json(source_root / source)
         with (session / output).open("xb") as file:
             file.write(raw)
+    write_json(session / "native-progress.json", read_native_progress())
+    write_json(session / "native-memory.json", read_native_memory())
     before = values["restart-before.json"]
     stopped = values["restart-terminal.json"]
     after = values["restart-after.json"]
