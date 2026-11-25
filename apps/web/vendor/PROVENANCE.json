@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.9.tgz",
-      "sha512": "sha512-aAVYGAUeZZbJGfQa+7SCHhanGX+8i4WGcJ0TCfSfT2mHBnxkLchPjSdXRbBztMw2ReiVsflosHrLpka51RQWiA==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.10.tgz",
+      "sha512": "sha512-B0gysoOef08GGBj9sbiJyK/jAib1llr1PorZezSsjG+l3V6uRLdGgndFnNptfFZo7tMAAFOkEYq37H+bbtuwsw==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,7 +13,7 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.9 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.10 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
         "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
         "Apply vendor/patches/solid-ui-action-menu-open-accessibility.patch: add a catalog story that leaves ActionMenu open for the accessibility reporter and asserts focus inside the menu",
@@ -24,6 +24,7 @@
         "Suppress GNU patch backup output so implementation backups such as action-menu.stories.tsx.orig are not packaged",
         "Apply vendor/patches/solid-ui-dialog-initial-focus-wait.patch: Wait for initial Cancel focus in Dialog Default using the existing bounded wait while preserving the keyboard cycle and focus-return assertions.",
         "Apply vendor/patches/solid-ui-vertical-feed-like-count-name.patch: Expose the visible formatted like count in the Like and Unlike button names while preserving pressed state and verifying missing, zero and singular counts.",
+        "Apply vendor/patches/solid-ui-pill-count-accessible-names.patch: expose pill counts outside parentheses in CommentPill and RewardPill accessible names so the visible count is part of the name computed by assistive technology and axe",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "consumerRequirements": [
@@ -78,6 +79,11 @@
           "path": "vendor/patches/solid-ui-vertical-feed-like-count-name.patch",
           "sha512": "sha512-DQyad6G4BcEiR6KFO+03mNJ4COfrNyK1mP6MKhjq34MdehEKaV6Tt36kGAAUG4xhbe+DtI8tnrIbmCV2LQvuig==",
           "purpose": "Expose the visible formatted like count in the Like and Unlike button names while preserving pressed state and verifying missing, zero and singular counts."
+        },
+        {
+          "path": "vendor/patches/solid-ui-pill-count-accessible-names.patch",
+          "sha512": "sha512-fjw+aQthch4LNBMuvPBtWoXG0MvYuqy2jGHD4v91bQomW9D7GzvEuy7zSBHniu5twOTGx8HZlwNufZ1AZX/ReA==",
+          "purpose": "Expose CommentPill and RewardPill visible counts outside parentheses in accessible names while preserving singular activity copy."
         }
       ]
     },
