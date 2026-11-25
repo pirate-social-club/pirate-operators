@@ -84,6 +84,23 @@ ARTIFACT_NAMES = (
 )
 RUN_ID = re.compile(r"manual-[a-f0-9]{12}\Z")
 ARTIFACT_PARSE_ERRORS = {"artifacts-unreadable", "ambiguous-run-dir"}
+MILESTONE_FILES = {
+    "application-before": (
+        "application-browser-control.json",
+        "manual-application-http-observations.json",
+        "w6-native-notes-before.json",
+        "w6-native-notes-binding.json",
+    ),
+    "reopened": (
+        "w6-wizard-retained-repair.json",
+    ),
+    "reopened/application-after": (
+        "application-browser-control.json",
+        "manual-application-http-observations.json",
+        "w6-native-notes-after.json",
+        "w6-native-notes-binding.json",
+    ),
+}
 MEMINFO_KEYS = ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Committed_AS")
 VMSTAT_KEYS = ("pswpin", "pswpout", "oom_kill")
 MEMORY_PARSE_ERRORS = {"unreadable"}
@@ -415,11 +432,13 @@ def verify_worker_hold(held):
         assert row["parseError"] is None or row["parseError"] in CLOSE_PARSE_ERRORS
     if "artifact-progress.json" in held:
         row = held["artifact-progress.json"]
-        assert set(row) == {"schema", "runId", "entries", "parseError"}
+        assert set(row) in ({"schema", "runId", "entries", "parseError"},
+                            {"schema", "runId", "entries", "milestones", "parseError"})
         assert row["schema"] == "pirate.native-launcher-artifact-progress/1"
         assert row["runId"] is None or (isinstance(row["runId"], str) and RUN_ID.fullmatch(row["runId"]))
         assert set(row["entries"]) == set(ARTIFACT_NAMES)
-        for entry in row["entries"].values():
+
+        def validate_entry(entry):
             assert type(entry.get("present")) is bool
             if entry["present"]:
                 assert set(entry) == {"present", "size", "mtimeUtc"}
@@ -428,11 +447,22 @@ def verify_worker_hold(held):
                 assert entry["mtimeUtc"].endswith("Z")
             else:
                 assert set(entry) == {"present"}
+
+        for entry in row["entries"].values():
+            validate_entry(entry)
+        if "milestones" in row:
+            assert set(row["milestones"]) == set(MILESTONE_FILES)
+            for directory, names in MILESTONE_FILES.items():
+                assert set(row["milestones"][directory]) == set(names)
+                for entry in row["milestones"][directory].values():
+                    validate_entry(entry)
         assert row["parseError"] is None or row["parseError"] in ARTIFACT_PARSE_ERRORS
         if row["parseError"] == "ambiguous-run-dir":
             assert row["runId"] is None
         if row["runId"] is None:
             assert all(not entry["present"] for entry in row["entries"].values())
+            assert all(not entry["present"]
+                       for group in row.get("milestones", {}).values() for entry in group.values())
     if "guest-memory.json" in held:
         row = held["guest-memory.json"]
         assert set(row) == {"schema", "meminfoKb", "vmstat", "parseError"}

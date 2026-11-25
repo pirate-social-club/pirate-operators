@@ -290,6 +290,23 @@ ARTIFACT_NAMES = (
 RUN_DIR = re.compile(r"manual-[a-f0-9]{12}\Z")
 MEMORY_PARSE_ERRORS = {"unreadable"}
 ARTIFACT_PARSE_ERRORS = {"artifacts-unreadable", "ambiguous-run-dir"}
+MILESTONE_FILES = {
+    "application-before": (
+        "application-browser-control.json",
+        "manual-application-http-observations.json",
+        "w6-native-notes-before.json",
+        "w6-native-notes-binding.json",
+    ),
+    "reopened": (
+        "w6-wizard-retained-repair.json",
+    ),
+    "reopened/application-after": (
+        "application-browser-control.json",
+        "manual-application-http-observations.json",
+        "w6-native-notes-after.json",
+        "w6-native-notes-binding.json",
+    ),
+}
 
 
 def stamp_utc(epoch):
@@ -301,6 +318,10 @@ def read_artifact_progress(root=ROOT, owner=1000):
         "schema": "pirate.native-launcher-artifact-progress/1",
         "runId": None,
         "entries": {name: {"present": False} for name in ARTIFACT_NAMES},
+        "milestones": {
+            directory: {name: {"present": False} for name in names}
+            for directory, names in MILESTONE_FILES.items()
+        },
         "parseError": None,
     }
     try:
@@ -323,21 +344,31 @@ def read_artifact_progress(root=ROOT, owner=1000):
         return progress
     progress["runId"] = runs[0]
     directory = artifact_root / runs[0]
-    for name in ARTIFACT_NAMES:
+
+    def scan(file):
         try:
-            file = directory / name
             info = file.lstat()
             if not stat.S_ISREG(info.st_mode) or file.resolve(strict=True) != file:
-                continue
+                return None
             if info.st_uid != owner or info.st_nlink != 1 or info.st_mode & 0o077:
-                continue
-            progress["entries"][name] = {
+                return None
+            return {
                 "present": True,
                 "size": info.st_size,
                 "mtimeUtc": stamp_utc(info.st_mtime),
             }
         except OSError:
-            continue
+            return None
+
+    for name in ARTIFACT_NAMES:
+        row = scan(directory / name)
+        if row is not None:
+            progress["entries"][name] = row
+    for subdirectory, names in MILESTONE_FILES.items():
+        for name in names:
+            row = scan(directory / subdirectory / name)
+            if row is not None:
+                progress["milestones"][subdirectory][name] = row
     return progress
 
 

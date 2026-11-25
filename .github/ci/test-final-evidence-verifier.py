@@ -330,6 +330,10 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         root, directory = self.artifact_root()
         (directory / "rehearsal-reopened-original.json").write_text("{}")
         (directory / "rehearsal-reopened-original.json").chmod(0o600)
+        after = directory / "reopened" / "application-after"
+        after.mkdir(parents=True)
+        (after / "application-browser-control.json").write_text("{}")
+        (after / "application-browser-control.json").chmod(0o600)
         row = COLLECTOR.read_artifact_progress(root, owner=os.getuid())
         self.assertEqual(row["runId"], "manual-abcdef123456")
         self.assertIsNone(row["parseError"])
@@ -339,6 +343,12 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         self.assertTrue(reopened["mtimeUtc"].endswith("Z"))
         self.assertFalse(row["entries"]["rehearsal-notes-replay.json"]["present"])
         self.assertEqual(set(row["entries"]["rehearsal-notes-replay.json"]), {"present"})
+        milestones = row["milestones"]["reopened/application-after"]
+        self.assertTrue(milestones["application-browser-control.json"]["present"])
+        self.assertFalse(milestones["manual-application-http-observations.json"]["present"])
+        self.assertFalse(milestones["w6-native-notes-after.json"]["present"])
+        before = row["milestones"]["application-before"]
+        self.assertTrue(all(not entry["present"] for entry in before.values()))
         MODULE.verify_worker_hold({"artifact-progress.json": json.loads(json.dumps(row))})
 
     def test_collector_artifact_progress_missing_root_is_explicit(self):
