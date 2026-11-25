@@ -14,6 +14,7 @@ const supportPaths = [
   "src/karaoke/story-fixtures.ts",
   "src/shell/community-shell-story-client.ts",
   "src/wallet/wallet-story-fixtures.ts",
+  "src/wallet/reward-operator-story-fixtures.ts",
   "test/dance-story-fixtures.tsx",
   "test/dance-repair-story-fixtures.tsx",
   "test/dance-async-resize-story-fixtures.tsx",
