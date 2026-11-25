@@ -1,0 +1,126 @@
+--- a/src/patterns/navigation/app-header/app-header.tsx
++++ b/src/patterns/navigation/app-header/app-header.tsx
+@@ -130,7 +130,7 @@
+   const connectLabel = () => props.labels?.connectLabel ?? "Connect";
+   const chatAriaLabel = () => props.labels?.chatAriaLabel ?? "Messages";
+   const createLabel = () => props.labels?.createLabel ?? "Create";
+-  const homeAriaLabel = () => props.labels?.homeAriaLabel ?? "Go to home";
++  const homeAriaLabel = () => props.labels?.homeAriaLabel ?? "PIRATE home";
+   const notificationsAriaLabel = () =>
+     props.labels?.notificationsAriaLabel ?? "Notifications";
+   const openNavigationAriaLabel = () =>
+@@ -147,10 +147,10 @@
+   const unreadNotifications = () =>
+     normalizeUnreadCount(props.unreadNotificationsCount ?? 0);
+   const chatAccessibleLabel = () =>
+-    unreadChat() > 0 ? `${chatAriaLabel()}, ${unreadChat()}` : chatAriaLabel();
++    unreadChat() > 0 ? `${chatAriaLabel()}, ${formatUnreadCount(unreadChat())}` : chatAriaLabel();
+   const unreadNotificationsLabel = () =>
+     unreadNotifications() > 0
+-      ? `${notificationsAriaLabel()}, ${unreadNotifications()}`
++      ? `${notificationsAriaLabel()}, ${formatUnreadCount(unreadNotifications())}`
+       : notificationsAriaLabel();
+ 
+   const showCreateAction = () => props.showCreateAction ?? true;
+@@ -175,6 +175,7 @@
+   const notificationsAction = () =>
+     showNotificationsAction() ? (
+       <IconButton
++        aria-description={unreadNotifications() > 99 ? String(unreadNotifications()) : undefined}
+         aria-label={unreadNotificationsLabel()}
+         class="relative"
+         data-app-header-icon
+@@ -196,6 +197,7 @@
+   const chatAction = () =>
+     props.showChatAction ? (
+       <IconButton
++        aria-description={unreadChat() > 99 ? String(unreadChat()) : undefined}
+         aria-label={chatAccessibleLabel()}
+         class="relative"
+         data-app-header-icon
+--- a/src/patterns/navigation/app-header/app-header.stories.tsx
++++ b/src/patterns/navigation/app-header/app-header.stories.tsx
+@@ -30,12 +30,14 @@
+ 
+ type Story = StoryObj<typeof meta>;
+ 
+-function HeaderOnlyStory(props: { forceMobile?: boolean; unreadNotificationsCount?: number }) {
++function HeaderOnlyStory(props: { forceMobile?: boolean; unreadChatCount?: number; unreadNotificationsCount?: number }) {
+   return (
+     <div class="min-h-screen bg-background">
+       <AppHeader
+         forceMobile={props.forceMobile}
++        showChatAction={props.unreadChatCount !== undefined}
+         showWalletAction
++        unreadChatCount={props.unreadChatCount ?? 0}
+         unreadNotificationsCount={props.unreadNotificationsCount ?? 0}
+       />
+       <div
+@@ -61,6 +63,10 @@
+ 
+ export const DesktopHeader: Story = {
+   render: () => <HeaderOnlyStory />,
++  play: async ({ canvasElement }) => {
++    const canvas = within(canvasElement);
++    await expect(canvas.getByRole("button", { name: "PIRATE home" })).toBeVisible();
++  },
+ };
+ 
+ export const DesktopHeaderRtl: Story = {
+@@ -86,11 +92,19 @@
+   render: () => <HeaderOnlyStory unreadNotificationsCount={120} />,
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    await expect(
+-      canvas.getByRole("button", { name: "Notifications, 120" }).querySelector(
+-        ".notification-count-badge",
+-      ),
+-    ).toHaveTextContent("99+");
++    const bell = canvas.getByRole("button", { name: "Notifications, 99+" });
++    await expect(bell).toHaveAttribute("aria-description", "120");
++    await expect(bell.querySelector(".notification-count-badge")).toHaveTextContent("99+");
++  },
++};
++
++export const DesktopHeaderOverflowChat: Story = {
++  render: () => <HeaderOnlyStory unreadChatCount={120} />,
++  play: async ({ canvasElement }) => {
++    const canvas = within(canvasElement);
++    const chat = canvas.getByRole("button", { name: "Messages, 99+" });
++    await expect(chat).toHaveAttribute("aria-description", "120");
++    await expect(chat.querySelector(".notification-count-badge")).toHaveTextContent("99+");
+   },
+ };
+ 
+--- a/src/patterns/navigation/app-header/app-header.test.tsx
++++ b/src/patterns/navigation/app-header/app-header.test.tsx
+@@ -10,7 +10,7 @@
+   it("renders brand and default actions on the desktop branch", () => {
+     const container = render(() => <AppHeader forceMobile={false} />);
+ 
+-    expect(within(container).getByRole("button", { name: "Go to home" })).toBeVisible();
++    expect(within(container).getByRole("button", { name: "PIRATE home" })).toBeVisible();
+     expect(within(container).getByRole("button", { name: "Create" })).toBeVisible();
+     expect(
+       within(container).getByRole("button", { name: "Notifications" }),
+@@ -22,8 +22,19 @@
+       <AppHeader forceMobile={false} unreadNotificationsCount={120} />
+     ));
+ 
+-    const bell = within(container).getByRole("button", { name: "Notifications, 120" });
++    const bell = within(container).getByRole("button", { name: "Notifications, 99+" });
+     expect(bell.querySelector(".notification-count-badge")).toHaveTextContent("99+");
++    expect(bell).toHaveAttribute("aria-description", "120");
++  });
++
++  it("formats unread chat counts and keeps the exact capped total as a description", () => {
++    const container = render(() => (
++      <AppHeader forceMobile={false} showChatAction unreadChatCount={120} />
++    ));
++
++    const chat = within(container).getByRole("button", { name: "Messages, 99+" });
++    expect(chat.querySelector(".notification-count-badge")).toHaveTextContent("99+");
++    expect(chat).toHaveAttribute("aria-description", "120");
+   });
+ 
+   it("renders the mobile branch with a menu affordance and fires callbacks", async () => {
