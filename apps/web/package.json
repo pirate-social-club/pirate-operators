@@ -32,7 +32,7 @@
   "dependencies": {
     "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.5.tgz",
     "@megaeth-labs/wallet-sdk": "1.0.8",
-    "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.13.tgz",
+    "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.14.tgz",
     "@solidjs/web": "2.0.0-rc.21",
     "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
