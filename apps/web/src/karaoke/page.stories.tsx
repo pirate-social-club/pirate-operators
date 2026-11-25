@@ -190,7 +190,10 @@ export const StartUnknown: Story = {
     await expect(
       canvas.getByRole("button", { name: "Start karaoke" }),
     ).toBeEnabled();
-    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+    await expect(canvas.getByText("Meet me by the old harbor")).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: "Check status" }),
+    ).toBeNull();
   },
 };
 export const StartUnknownUnresolved: Story = {

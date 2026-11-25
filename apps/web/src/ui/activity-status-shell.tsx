@@ -61,9 +61,9 @@ export function ActivityStatusShell(props: ActivityStatusShellProps) {
             />
           }
         >
-          <div class="flex items-center gap-3" role="status">
-            <Spinner class="size-5" decorative />
+          <div class="flex flex-col items-center gap-3 text-center" role="status">
             <Type as="h2" variant="h3">{props.title}</Type>
+            <Spinner class="size-5" decorative />
           </div>
         </Show>
         <Show when={props.notice}>

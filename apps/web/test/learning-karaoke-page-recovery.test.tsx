@@ -226,6 +226,14 @@ test("an unknown Karaoke start checks itself and returns to the normal start scr
   expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
   expect(host.textContent).toContain("Karaoke didn't start. Try again.");
+  expect(host.querySelector('footer [role="alert"]')?.textContent).toContain(
+    "Karaoke didn't start. Try again.",
+  );
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (node) => node.textContent?.trim() === "Check status",
+    ),
+  ).toBe(false);
   expect(
     [...host.querySelectorAll("button")].some(
       (node) => node.textContent?.trim() === "Start karaoke",

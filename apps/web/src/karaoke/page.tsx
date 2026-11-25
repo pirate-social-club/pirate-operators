@@ -163,6 +163,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     [take, setTake] = createSignal<OpenTake | null>(null),
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
+    [startError, setStartError] = createSignal<string | null>(null),
     [startPhase, setStartPhase] = createSignal<"idle" | "checking" | "unknown">("idle"),
     [restoredRatingKey, setRestoredRatingKey] = createSignal<string | null>(
       null,
@@ -216,6 +217,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     scoringResponses.reset();
     setPlayingOutro(false);
     setStarting(false);
+    setStartError(null);
     capture.controls.abort("karaoke_authority_lost");
     playback?.pause();
     setTake(null);
@@ -257,12 +259,14 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     setFinished(null);
     setFeedback(null);
     setResume(null);
-    setNotice(message ?? null);
+    setNotice(null);
+    setStartError(message ?? null);
   }
   async function recoverUnknownStart() {
     if (!isCurrentOwner()) return;
     setStartPhase("checking");
     setNotice(null);
+    setStartError(null);
     const deadline = performance.now() + 10_000;
     let last: AttemptView | "error" = "error";
     while (isCurrentOwner() && performance.now() < deadline) {
@@ -333,6 +337,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     if (!isCurrentOwner()) return;
     setLoaded(false);
     setNotice(null);
+    setStartError(null);
     setStartPhase("idle");
     try {
       const loaded = await port.song();
@@ -583,6 +588,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   }
   async function start(fromMs: number) {
     if (!isCurrentOwner() || starting()) return;
+    setStartError(null);
     setPlayingOutro(false);
     finishing = undefined;
     cancelPlaybackPosition?.();
@@ -715,7 +721,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         void recoverUnknownStart();
       } else {
         setStartPhase("idle");
-        setNotice(message);
+        if (take() || finished()) setNotice(message);
+        else setStartError(message);
       }
     } finally {
       if (isCurrentOwner()) setStarting(false);
@@ -841,7 +848,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
     >
       <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
-        <Show when={notice() && song() && startPhase() === "idle"}>
+        <Show when={notice() && song() && startPhase() === "idle" && (take() || finished())}>
           <div
             role="alert"
             class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
@@ -864,7 +871,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
               exitLabel="Back"
               onExit={props.onExit}
               asMain
-              mainLabel={`Karaoke: ${props.title}`}
+              mainLabel="Loading karaoke"
             />
           }
         >
@@ -933,6 +940,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                   initialTimeMs={resume()?.elapsedMs ?? 0}
                   singingStatus={singingStatus()}
                   summary={finished()?.result.presentation ?? null}
+                  startError={startError() ?? undefined}
                   bestCombo={
                     finished()?.result.presentation?.bestCombo ??
                     currentFeedback().bestCombo
