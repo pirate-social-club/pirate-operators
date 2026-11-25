@@ -42,8 +42,8 @@ async function connectLearner(page: Page, learner: number) {
       .click();
   }
   await page
-    .locator("#app-content")
     .getByRole("button", { name: "Sign in", exact: true })
+    .first()
     .click();
   const response = await connected;
   expect(response.request().postDataJSON()).toEqual({
