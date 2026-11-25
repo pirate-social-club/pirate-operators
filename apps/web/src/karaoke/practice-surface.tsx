@@ -252,7 +252,7 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
         <footer class="border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl sm:px-6">
           <Show when={props.startError}>
             {(message) => (
-              <p role="alert" class="mb-3 text-center text-sm text-destructive">
+              <p role="alert" class="mb-3 text-center text-sm text-destructive-text">
                 {message()}
               </p>
             )}

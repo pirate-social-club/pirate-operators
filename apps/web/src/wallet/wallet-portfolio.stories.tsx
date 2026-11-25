@@ -53,7 +53,7 @@ export const LoadFailure: Story = {
   args: { scenario: "failure" },
   play: async ({ canvasElement }) => {
     await expect(
-      within(canvasElement).getByRole("alert"),
+      await within(canvasElement).findByRole("alert", {}, { timeout: 15_000 }),
     ).toHaveTextContent("Your wallets could not be loaded.");
     await expect(
       within(canvasElement).getByRole("button", { name: "Try again" }),

@@ -30,8 +30,11 @@ const initial = (unavailable: boolean): MembershipState => ({
   joinUncertain: false, nameUncertain: false, error: null,
 });
 
-function Preview(props: { unavailable: boolean }) {
-  const [state, setState] = createSignal(initial(props.unavailable));
+function Preview(props: { unavailable: boolean; startOpen: boolean }) {
+  const [state, setState] = createSignal({
+    ...initial(props.unavailable),
+    nameOpen: props.startOpen,
+  });
   let trigger: HTMLButtonElement | undefined;
   return <div class="min-h-screen bg-background p-6 text-foreground">
     <p role="note" class="mb-4">UI fixture only. Controls do not join a community or issue a name.</p>
@@ -45,16 +48,18 @@ function Preview(props: { unavailable: boolean }) {
 }
 
 export const ChooseName: Story = {
-  render: () => <Preview unavailable={false} />,
+  render: () => <Preview unavailable={false} startOpen={false} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
       canvas.getByRole("button", { name: "Open optional-name preview" }),
     );
-    const dialog = within(
-      canvas.getByRole("dialog", { name: "Choose your name" }),
+    const dialogElement = await within(canvasElement.ownerDocument.body).findByRole(
+      "dialog",
+      { name: "Choose your name" },
     );
-    await expect(canvas.getByRole("dialog", { name: "Choose your name" })).toBeVisible();
+    const dialog = within(dialogElement);
+    await expect(dialogElement).toBeVisible();
     const name = dialog.getByLabelText("Name", { exact: true });
     // The failure guard first: an invalid label keeps the submit disabled.
     await userEvent.type(name, "abc");
@@ -68,4 +73,6 @@ export const ChooseName: Story = {
     await userEvent.click(submit);
   },
 };
-export const NamingUnavailable: Story = { render: () => <Preview unavailable={true} /> };
+export const NamingUnavailable: Story = {
+  render: () => <Preview unavailable={true} startOpen={true} />,
+};
