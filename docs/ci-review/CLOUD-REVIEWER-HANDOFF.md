@@ -199,7 +199,7 @@ Check the CI/workflow delta after updating the branch:
 
 ```bash
 gh api repos/pirate-social-club/pirate-operators/compare/96e95edf38d6add084aea1ebcc4329f68af4e2b3...<new-head> \
-  --jq '[.files[] | select(.filename|startswith(".github/ci/") or .filename==".github/workflows/pirate-vm-final-acceptance.yml" or .filename==".github/workflows/pirate-vm-install-only.yml") | {filename,status}]'
+  --jq '[.files[] | select((.filename|startswith(".github/ci/")) or .filename==".github/workflows/pirate-vm-final-acceptance.yml" or .filename==".github/workflows/pirate-vm-install-only.yml") | {filename,status}]'
 ```
 
 Expected output is `[]`. Any entry requires review or a fresh acceptance run.
