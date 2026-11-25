@@ -108,8 +108,8 @@ def main():
     subprocess.run(['genisoimage', '-quiet', '-R', '-V', 'PRT_CLOSE', '-o', 'close-instrumentation.iso', '.'],
                    check=True, cwd=iso_root)
     rebuilt = iso_root / 'close-instrumentation.iso'
-    close_iso.write_bytes(rebuilt.read_bytes())
     close_iso.chmod(0o600)
+    close_iso.write_bytes(rebuilt.read_bytes())
     repinned['close-instrumentation.iso'] = hashlib.sha256(close_iso.read_bytes()).hexdigest()
 
     bootstrap = bundle / 'guest-notes-bootstrap.sh'
