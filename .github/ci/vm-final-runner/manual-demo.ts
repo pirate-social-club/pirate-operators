@@ -201,6 +201,29 @@ const roleMark = (role: "launcher" | "service", pid: number) => {
  const stat = procStat(pid);
  if (stat) ndjsonLine(progressLogPath, { at: new Date().toISOString(), kind: "role", role, pid: stat.pid, ppid: stat.ppid, startTicks: stat.startTicks, comm: stat.comm });
 };
+// /proc/self/smaps aggregation answers what the V8 counters cannot: which
+// resident mappings stay large after the JavaScript heap contracts. Anonymous
+// native zones, file-backed mappings and memfd or deleted-file shared memory
+// are separated so a single run attributes the unaccounted resident majority.
+const smapsBreakdown = () => {
+ try {
+  const lines = readFileSync("/proc/self/smaps", "utf8").split("\n");
+  let anonKb = 0, fileKb = 0, sharedKb = 0, name = "";
+  for (const line of lines) {
+   if (/^[0-9a-f]+-[0-9a-f]+ /.test(line)) {
+    const rest = line.replace(/^[0-9a-f]+-[0-9a-f]+ \S+ \S+ \S+ \S+\s*/, "").trim();
+    name = rest;
+   } else if (line.startsWith("Rss:")) {
+    const kb = Number(line.slice(4).trim().split(/\s+/)[0]);
+    if (!Number.isFinite(kb)) continue;
+    if (name.includes("memfd") || name.includes("/dev/shm") || name.includes("(deleted)")) sharedKb += kb;
+    else if (name === "" || name.startsWith("[")) anonKb += kb;
+    else fileKb += kb;
+   }
+  }
+  return { smapsAnonKb: anonKb, smapsFileKb: fileKb, smapsSharedKb: sharedKb };
+ } catch { return { smapsAnonKb: null, smapsFileKb: null, smapsSharedKb: null }; }
+};
 const memorySample = () => {
  try {
   const meminfo = readFileSync("/proc/meminfo", "utf8"), available = /^MemAvailable:\s+(\d+) kB/m.exec(meminfo);
@@ -222,6 +245,7 @@ const memorySample = () => {
    memAvailableKb: available ? Number(available[1]) : null, uidRssKb,
    heapUsedKb: kb(usage.heapUsed), heapTotalKb: kb(usage.heapTotal), externalKb: kb(usage.external), arrayBuffersKb: kb(usage.arrayBuffers),
    largeObjectKb: kb(getHeapSpaceStatistics().filter(space => space.space_name === "large_object_space").reduce((total, space) => total + space.space_used_size, 0)),
+   ...smapsBreakdown(),
    topRss });
  } catch { /* diagnostic capture never affects the rehearsal */ }
 };

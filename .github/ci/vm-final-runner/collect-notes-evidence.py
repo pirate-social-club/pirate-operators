@@ -526,7 +526,7 @@ def read_native_progress(path=ROOT / "logs" / "native-progress.ndjson", owner=10
 
 
 NATIVE_MEMORY_BASE_KEYS = {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
-NATIVE_MEMORY_HEAP_KEYS = {"heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "topRss"}
+NATIVE_MEMORY_HEAP_KEYS = {"heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb", "topRss"}
 
 
 def validate_native_memory_sample(row):
@@ -542,7 +542,7 @@ def validate_native_memory_sample(row):
         return False
     numeric_keys = ["launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"]
     if extended:
-        numeric_keys += ["heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb"]
+        numeric_keys += ["heapUsedKb", "heapTotalKb", "externalKb", "arrayBuffersKb", "largeObjectKb", "smapsAnonKb", "smapsFileKb", "smapsSharedKb"]
     for key in numeric_keys:
         if row[key] is not None and not (type(row[key]) is int and 0 <= row[key] < 2 ** 40):
             return False
