@@ -52,6 +52,7 @@ jobs:
           test -s "$run_dir/RESULT.json"
           test "$(cat "$run_dir/QEMU-PROCESS.txt")" = absent
           printf 'diagnosticRc=%s\nrunDir=%s\n' "$rc" "$run_dir" >> "$GITHUB_OUTPUT"
+          exit "$rc"
       - name: Upload diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4

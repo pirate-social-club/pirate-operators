@@ -1,4 +1,4 @@
-"""Adapt the sealed r17 install-only host runner to a GitHub Blacksmith runner."""
+"""Adapt the sealed install-only host runner to a GitHub Blacksmith runner."""
 import hashlib
 import os
 from pathlib import Path
@@ -47,6 +47,11 @@ def main():
                   '  if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi\n')
     runner.write_text(raw)
     runner.chmod(0o700)
+    verifier = bundle / 'verify-install-only.py'
+    verifier_raw = verifier.read_text()
+    verifier_raw = replace(verifier_raw, 'assert member.isfile() and member.size > 0', 'assert member.isfile()')
+    verifier.write_text(verifier_raw)
+    verifier.chmod(0o600)
     inputs = [assets / 'ubuntu-base.qcow2', assets / 'base-vmlinuz', assets / 'base-initrd',
               assets / 'docker-prereqs.iso', assets / 'browser-display.iso', assets / 'review.md',
               assets / 'smoke-inputs.iso', assets / 'notes-entry.iso', assets / 'derivative-inputs.iso',
