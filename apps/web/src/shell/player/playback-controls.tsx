@@ -35,7 +35,7 @@ export function SongPlaybackControls(props: {
         )
       : 0;
   return (
-    <div dir="ltr" class="col-span-full row-start-2 flex w-full min-w-0 items-center gap-3 sm:col-span-1 sm:col-start-2 sm:self-start">
+    <div dir="ltr" data-song-time class="col-span-full row-start-2 flex w-full min-w-0 items-center gap-3 sm:col-span-1 sm:col-start-2 sm:self-start">
       <div class="shrink-0">
         <MediaControlButton
           aria-label={`${props.playing ? "Pause" : "Play"} ${props.title}`}
@@ -57,7 +57,7 @@ export function SongPlaybackControls(props: {
           </Show>
         </MediaControlButton>
       </div>
-      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight" data-song-time>
+      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight">
         {timeLabel(props.position)}
       </span>
       <Scrubber
@@ -73,7 +73,7 @@ export function SongPlaybackControls(props: {
         value={progressMs()}
         valueLabel={timeLabel(props.position)}
       />
-      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight" data-song-time>
+      <span class="shrink-0 tabular-nums text-muted-foreground text-base leading-tight">
         {timeLabel(props.duration)}
       </span>
     </div>
