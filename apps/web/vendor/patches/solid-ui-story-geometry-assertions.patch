@@ -1,0 +1,56 @@
+--- a/src/components/overlays/sheet/sheet.stories.tsx
++++ b/src/components/overlays/sheet/sheet.stories.tsx
+@@ -105,10 +105,13 @@
+     const sheet = dialog.getBoundingClientRect();
+     const description = body.getByText("This is a sheet sliding in from the right.").getBoundingClientRect();
+     const content = body.getByText("Sheet body content goes here.").getBoundingClientRect();
+-    const footer = body.getByRole("button", { name: "Continue" }).getBoundingClientRect();
++    const footerElement = body.getByRole("button", { name: "Continue" }).parentElement;
++    if (!(footerElement instanceof HTMLElement)) throw new Error("Expected the sheet footer");
++    const footer = footerElement.getBoundingClientRect();
+     // Body follows the description (one 16px gap plus its 16px top padding), not the middle of the panel.
+     await expect(content.top - description.bottom).toBeLessThan(48);
+-    // Footer sits at the bottom edge, inside the 24px padding.
++    // The footer group sits at the bottom edge, inside the 24px padding. On
++    // phone its actions stack, so measuring Continue alone misses Cancel below it.
+     await expect(sheet.bottom - footer.bottom).toBeLessThanOrEqual(25);
+     await userEvent.keyboard("{Escape}");
+     await waitFor(() => expect(body.queryByRole("dialog")).not.toBeInTheDocument());
+--- a/src/components/overlays/tooltip/tooltip.stories.tsx
++++ b/src/components/overlays/tooltip/tooltip.stories.tsx
+@@ -70,6 +70,16 @@
+
+ /** Paper places the tooltip above its trigger, 6px away. */
+ export const AboveTrigger: Story = {
++  render: (args) => (
++    <div class="pt-20">
++      <Tooltip {...args}>
++        <TooltipTrigger as={IconButton} aria-label="Close dialog">
++          <IconX class="size-5" />
++        </TooltipTrigger>
++        <TooltipContent>Close dialog</TooltipContent>
++      </Tooltip>
++    </div>
++  ),
+   play: async ({ canvasElement }) => {
+     const trigger = within(canvasElement).getByRole("button", { name: "Close dialog" });
+     await userEvent.hover(trigger);
+--- a/src/patterns/forms/form-layout/form-layout.stories.tsx
++++ b/src/patterns/forms/form-layout/form-layout.stories.tsx
+@@ -91,9 +91,13 @@
+     // Required adds the hidden asterisk; the counter sits at the row's end.
+     await expect(rows[1].querySelector("[aria-hidden=true]")).toHaveTextContent("*");
+     const counter = canvas.getByText("12 / 140");
+-    await expect(Math.round(counter.getBoundingClientRect().right)).toBe(
+-      Math.round(rows[2].getBoundingClientRect().right),
+-    );
++    const counterRect = counter.getBoundingClientRect();
++    const rowRect = rows[2].getBoundingClientRect();
++    if (getComputedStyle(rows[2]).direction === "rtl") {
++      await expect(Math.round(counterRect.left)).toBe(Math.round(rowRect.left));
++    } else {
++      await expect(Math.round(counterRect.right)).toBe(Math.round(rowRect.right));
++    }
+     await expect(canvas.getByText("Optional")).toHaveClass("text-muted-foreground");
+   },
+ };

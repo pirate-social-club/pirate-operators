@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.6.tgz",
-      "sha512": "sha512-oeBN2hIpTWX34HoX3SG3om19ga3kUTuahjgA+2NgjsL4OTc53wEgVBytBwcIaUpUclEFJ042WvMsMSz8RI9Oqg==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.7.tgz",
+      "sha512": "sha512-lP5MZb93cGT/OoaoUPB9wyB27KEaUOz/Rn8+UBCXEfDOudSRcpw92sFIj+tpBl00S/Gx94BBBin8g1pxjBVacw==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,13 +13,14 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.6 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.7 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
         "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
         "Apply vendor/patches/solid-ui-action-menu-open-accessibility.patch: add a catalog story that leaves ActionMenu open for the accessibility reporter and asserts focus inside the menu",
         "Apply vendor/patches/solid-ui-action-menu-focus-restore.patch: assert Escape returns focus to the trigger and removes modal hiding from its ancestors",
         "Apply vendor/patches/solid-ui-select-accessible-name.patch: label the select through Kobalte so the accessible name combines the field label with the visible selected value or placeholder",
         "Apply vendor/patches/solid-ui-responsive-option-select-naming-viewports.patch: label mobile triggers from their visible content and exercise the desktop listbox and mobile sheet in their respective responsive paths",
+        "Apply vendor/patches/solid-ui-story-geometry-assertions.patch: measure the Sheet footer group, give the Tooltip placement fixture room to flip above, and compare the FormLayout counter at the logical end edge",
         "Suppress GNU patch backup output so implementation backups such as action-menu.stories.tsx.orig are not packaged",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
@@ -60,6 +61,11 @@
           "path": "vendor/patches/solid-ui-responsive-option-select-naming-viewports.patch",
           "sha512": "sha512-JoSJOuvbsZ5aFQcO+Uy/c4+/ytpb8B0KvA/HrsRTqZTi/48950qhWKJgqDKQrrTlUVFJjMHeZn5m/ZW3uDGPkw==",
           "purpose": "Name mobile option-select triggers from their visible content and align interaction assertions with the responsive control that is actually visible."
+        },
+        {
+          "path": "vendor/patches/solid-ui-story-geometry-assertions.patch",
+          "sha512": "sha512-N1m/FT6B6Y2V6NIxxL9LXZ7Q50/cLVkMf8QG3oSD1/ET6FsuXr9aCHwZ4g+wj5uUFcV6iSOiFgaYWKHScULThQ==",
+          "purpose": "Correct story-only geometry and direction assertions for Sheet, Tooltip and FormLayout."
         }
       ]
     },
