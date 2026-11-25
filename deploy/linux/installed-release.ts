@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {readFile,lstat,readdir,realpath} from "node:fs/promises";
+import {createReadStream} from "node:fs";
 import {join,dirname} from "node:path";
 import {createHash} from "node:crypto";
 import {canonicalDigest,readPrivateJSON,verifyRecord,type SignedRecord,type TrustAnchor} from "./installed-records.ts";
@@ -20,6 +21,11 @@ export interface Web2BootstrapRelease extends Omit<FullRelease,"schema"|"graph"|
   schema:"pirate.linux-web2-bootstrap-release/1";
 }
 const digest=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("hex");
+const digestFile=async(path:string)=>{
+  const hash=createHash("sha256");
+  for await(const chunk of createReadStream(path))hash.update(chunk as Uint8Array);
+  return hash.digest("hex");
+};
 export function installedExecutionPaths(release:FullRelease|Web2BootstrapRelease) {
   assert(release.root.startsWith("/") && release.sourceRoot===join(release.root,"source"),"single_installed_source_root_required");
   if("graph" in release)assert(release.graph.releaseRoot===release.root,"single_installed_release_root_required");
@@ -80,7 +86,7 @@ async function verifyInstalledArtifacts(release:FullRelease|Web2BootstrapRelease
     const file=join(release.root,path),s=await lstat(file);assert(s.isFile() && !s.isSymbolicLink());
     assert.equal(await realpath(file),file,"installed_symlink_ancestor_refused");
     assert(!(s.mode&0o222),"immutable_installed_file_required");
-    assert.equal(digest(await readFile(file)),sha,"complete_release_bytes_changed");
+    assert.equal(await digestFile(file),sha,"complete_release_bytes_changed");
     filesVerified++;
    }
   }));
