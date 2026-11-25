@@ -112,3 +112,22 @@ test("ordinary boot allocates new scratch and preserves installation bytes, pend
 test("scratch refuses a persistent path rather than deleting or repairing it",async()=>{
   await assert.rejects(createBootDirectory("/var/lib/fixture"),/private_run_parent_required/);
 });
+test("empty and multi-chunk inventory files verify through the streaming digest",async()=>{
+  const f=await releaseFixture();try{
+    const directory=join(f.root,"wizard");await chmod(directory,0o700);
+    await writeFile(join(directory,"empty.bin"),"",{mode:0o444});
+    const large=Buffer.alloc(200*1024);for(let index=0;index<large.length;index++)large[index]=(index*31)%251;
+    await writeFile(join(directory,"multi-chunk.bin"),large,{mode:0o444});
+    await chmod(directory,0o555);
+    const files={...f.release.files,"wizard/empty.bin":sha(""),"wizard/multi-chunk.bin":sha(large)};
+    const release={...f.release,files,artifactDigest:"0x"+canonicalDigest(files)};
+    const keys=generateKeyPairSync("ed25519"),trust={keyId:"public-test-issuer",spki:keys.publicKey.export({format:"der",type:"spki"}).toString("base64")};
+    assert.deepEqual(await verifyInstalledRelease(signRecord(release,trust,keys.privateKey.export({format:"der",type:"pkcs8"})),trust),release);
+  }finally{await f.close();}
+});
+test("a missing inventory file refuses verification rather than skipping it",async()=>{
+  const f=await releaseFixture();try{
+    const directory=join(f.root,"wizard");await chmod(directory,0o700);await unlink(join(directory,"index.html"));await chmod(directory,0o555);
+    await assert.rejects(verifyInstalledRelease(f.record,f.trust));
+  }finally{await f.close();}
+});
