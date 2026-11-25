@@ -21,11 +21,6 @@ import type {
 import { useKaraokeCapture } from "./use-karaoke-capture.ts";
 import { Button } from "../design-system.ts";
 import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
-import {
-  KaraokeAuthRequiredState,
-  KaraokeRouteLoadingState,
-  KaraokeRouteLoadFailureState,
-} from "./route-states.tsx";
 import { deriveKaraokeFeedback } from "./scoring-feedback.ts";
 import { ScoringResponseWatch } from "./scoring-response-watch.ts";
 import { positionPlaybackWhenReady } from "./playback-position.ts";
@@ -110,11 +105,17 @@ export function KaraokePage(props: KaraokePageProps) {
       }
       keyed
       fallback={
-        <KaraokeAuthRequiredState
+        <ActivityStatusShell
           title="Sign in to sing"
           description="This song is available to everyone, but recording a scored take requires an account."
-          onConnect={props.onConnect}
+          exitIcon="back"
+          exitLabel="Back"
           onExit={props.onExit}
+          asMain
+          mainLabel={`Karaoke: ${props.title}`}
+          primaryAction={
+            props.onConnect ? { label: "Sign in", onClick: props.onConnect } : undefined
+          }
         />
       }
     >
@@ -825,11 +826,17 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     <Show
       when={!authRequired()}
       fallback={
-        <KaraokeAuthRequiredState
+        <ActivityStatusShell
           title="Sign in to sing"
           description={authMessage()}
-          onConnect={props.onConnect}
+          exitIcon="back"
+          exitLabel="Back"
           onExit={props.onExit}
+          asMain
+          mainLabel={`Karaoke: ${props.title}`}
+          primaryAction={
+            props.onConnect ? { label: "Sign in", onClick: props.onConnect } : undefined
+          }
         />
       }
     >
@@ -849,18 +856,33 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         </Show>
         <Show
           when={loaded()}
-          fallback={<KaraokeRouteLoadingState label="Loading karaoke" />}
+          fallback={
+            <ActivityStatusShell
+              title="Loading karaoke…"
+              loading
+              exitIcon="back"
+              exitLabel="Back"
+              onExit={props.onExit}
+              asMain
+              mainLabel={`Karaoke: ${props.title}`}
+            />
+          }
         >
           <Show
             when={song()}
             fallback={
-              <KaraokeRouteLoadFailureState
+              <ActivityStatusShell
                 title="Karaoke unavailable"
                 description={
                   notice() ?? "Karaoke couldn't be loaded for this song."
                 }
-                onRetry={() => void loadSong()}
-                onGoHome={props.onExit}
+                tone="retryable"
+                exitIcon="back"
+                exitLabel="Back"
+                onExit={props.onExit}
+                asMain
+                mainLabel={`Karaoke: ${props.title}`}
+                primaryAction={{ label: "Try again", onClick: () => void loadSong() }}
               />
             }
           >
@@ -886,7 +908,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                     >
                       <ActivityStatusShell
                         title="Starting karaoke…"
-                        description="This can take a few seconds."
+                        loading
                         exitIcon="back"
                         exitLabel="Exit karaoke"
                         onExit={props.onExit}

@@ -12,7 +12,7 @@ export interface ErrorStateAction {
 
 export interface ErrorStateProps {
   title: string;
-  description: string;
+  description?: string;
   tone?: ErrorStateTone;
   /** Resumable states may explain what is paused; blocked/retryable states omit it. */
   status?: string;
@@ -28,7 +28,9 @@ export function ErrorState(props: ErrorStateProps) {
   return (
     <div class="flex flex-col items-start gap-4">
       <Type as="h2" variant="h3">{props.title}</Type>
-      <Type role="alert">{props.description}</Type>
+      <Show when={props.description}>
+        {(description) => <Type role="alert">{description()}</Type>}
+      </Show>
       <Show when={props.tone === "resumable" && props.status}>
         <Type role="status" variant="caption">{props.status}</Type>
       </Show>

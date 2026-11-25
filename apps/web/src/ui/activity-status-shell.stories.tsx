@@ -35,6 +35,16 @@ export const StudyEnded: Story = {
   },
 };
 
+export const Loading: Story = {
+  args: {
+    title: "Starting karaoke…",
+    loading: true,
+    exitIcon: "back",
+    exitLabel: "Exit karaoke",
+    onExit: fn(),
+  },
+};
+
 export const KaraokeUnknown: Story = {
   args: {
     title: "Couldn't start karaoke",

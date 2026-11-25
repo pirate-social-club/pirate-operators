@@ -219,8 +219,11 @@ test("an unknown Karaoke start checks itself and returns to the normal start scr
   button!.click();
   await vi.advanceTimersByTimeAsync(0);
   expect(host.textContent).toContain("Starting karaoke…");
-  expect(host.textContent).toContain("This can take a few seconds.");
+  expect(host.querySelector('[role="status"]')?.textContent).toContain(
+    "Starting karaoke…",
+  );
   expect(host.textContent).not.toContain("Checking whether this take opened.");
+  expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
   expect(host.textContent).toContain("Karaoke didn't start. Try again.");
   expect(
@@ -254,8 +257,11 @@ test("an unresolved Karaoke start offers Back after automatic checking and has n
   button!.click();
   await vi.advanceTimersByTimeAsync(0);
   expect(host.textContent).toContain("Starting karaoke…");
-  expect(host.textContent).toContain("This can take a few seconds.");
+  expect(host.querySelector('[role="status"]')?.textContent).toContain(
+    "Starting karaoke…",
+  );
   expect(host.textContent).not.toContain("Checking whether this take opened.");
+  expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
   expect(host.textContent).toContain("Couldn't start karaoke");
   expect(host.textContent).toContain("Go back and try again in a minute.");
