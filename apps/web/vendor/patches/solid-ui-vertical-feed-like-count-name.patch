@@ -1,0 +1,52 @@
+--- a/src/patterns/engagement/vertical-feed/media-actions.tsx
++++ b/src/patterns/engagement/vertical-feed/media-actions.tsx
+@@ -78 +77,0 @@
+-          aria-label={props.isLiked ? "Unlike video" : "Like video"}
+@@ -86,0 +86 @@
++          <span class="sr-only">{props.isLiked ? "Unlike video" : "Like video"}</span>
+@@ -87,0 +88 @@
++            aria-hidden="true"
+@@ -102 +103,2 @@
+-              {formatCount(props.likeCount!)}
++              {formatCount(props.likeCount!)}{" "}
++              <span class="sr-only">{props.likeCount === 1 ? "like" : "likes"}</span>
+--- a/src/patterns/engagement/vertical-feed/vertical-feed.stories.tsx
++++ b/src/patterns/engagement/vertical-feed/vertical-feed.stories.tsx
+@@ -134 +134,2 @@
+-    const likeButton = canvas.getAllByRole("button", { name: "Like video" })[0];
++    const likeButton = canvas.getByRole("button", { name: "Like video 1.2K likes" });
++    await expect(likeButton).toHaveAttribute("aria-pressed", "false");
+@@ -139 +140 @@
+-        canvas.getAllByRole("button", { name: "Unlike video" })[0],
++        canvas.getByRole("button", { name: "Unlike video 1.2K likes" }),
+--- a/src/patterns/engagement/vertical-feed/vertical-feed.test.tsx
++++ b/src/patterns/engagement/vertical-feed/vertical-feed.test.tsx
+@@ -101 +101,21 @@
+-    expect(view.getAllByRole("button", { name: "Like video" })).toHaveLength(4);
++    const likeButtons = view.getAllByRole("button", { name: "Like video 1.2K likes" });
++    expect(likeButtons).toHaveLength(2);
++    expect(likeButtons[0]).toHaveAttribute("aria-pressed", "false");
++    expect(view.getAllByRole("button", { name: "Unlike video 5.7K likes" })[0]).toHaveAttribute("aria-pressed", "true");
++  });
++
++  it("names likes when counts are zero, singular, or unavailable", () => {
++    const posts = [
++      { ...testPosts[0], likeCount: 0 },
++      { ...testPosts[1], likeCount: 1 },
++      { ...testPosts[2], likeCount: undefined },
++    ];
++    const container = render(() => (
++      <VerticalFeed posts={posts} onLikeClick={vi.fn()} />
++    ));
++    flush();
++
++    const view = within(container);
++    expect(view.getAllByRole("button", { name: "Like video 0 likes" })).toHaveLength(2);
++    expect(view.getAllByRole("button", { name: "Unlike video 1 like" })).toHaveLength(2);
++    expect(view.getAllByRole("button", { name: "Like video" })).toHaveLength(2);
+@@ -112 +132 @@
+-    expect(view.getAllByRole("button", { name: "Like video" })).toHaveLength(4);
++    expect(view.getAllByRole("button", { name: /^Like video\b/ })).toHaveLength(4);
+@@ -201 +221 @@
+-    await user.click(view.getAllByRole("button", { name: "Like video" })[0]);
++    await user.click(view.getAllByRole("button", { name: "Like video 1.2K likes" })[0]);
