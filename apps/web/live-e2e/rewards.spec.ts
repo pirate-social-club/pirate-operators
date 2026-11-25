@@ -290,10 +290,9 @@ async function expectZeroBalance(page: Page) {
     page.getByRole("paragraph").filter({ hasText: /^\$0\.00$/ }),
   ).toBeVisible();
   await expect(
-    page
-      .getByRole("region", { name: "MegaETH testnet", exact: true })
-      .getByText("$0.00", { exact: true }),
-  ).toBeVisible();
+    page.getByRole("region", { name: "MegaETH testnet", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Your wallets", { exact: true })).toHaveCount(0);
 }
 
 test("claim survives reload, credits stay separate from balance, and the learner page stays simple", async ({
@@ -303,10 +302,8 @@ test("claim survives reload, credits stay separate from balance, and the learner
   const f = await fixture(page);
   await page.goto(origin + "/wallet");
   await expectZeroBalance(page);
+  await expect(page.getByText("Total balance", { exact: true })).toBeVisible();
   await expect(page.getByText("0.18 test USDm", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "MegaETH testnet", exact: true }),
-  ).toBeVisible();
   await expect(page.getByText(/This drawing had no prize\./)).toBeVisible();
   await expect(
     page.getByText(/You did not qualify for this drawing\./),
@@ -341,7 +338,7 @@ test("claim survives reload, credits stay separate from balance, and the learner
   await expect(
     page.getByText("Sent to your wallet", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("$0.18", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("$0.18", { exact: true })).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
   ).toBeVisible();

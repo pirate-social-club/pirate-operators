@@ -12,7 +12,7 @@ for (const [name, width, height] of [
   ["desktop", 1440, 1000],
   ["phone", 390, 844],
 ] as const) {
-  test(`accepted WalletPortfolio/WalletHub and ReceiveSheet on ${name}`, async ({
+  test(`accepted pilot wallet and ReceiveSheet on ${name}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -20,9 +20,10 @@ for (const [name, width, height] of [
     await expect(
       page.getByRole("heading", { name: "Wallet", exact: true }),
     ).toBeVisible();
+    await expect(page.getByText("Total balance", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Assets", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     if (width < 600) {
       // Pinned PortfolioStory uses p-5 around the actual composition.
       await expect
@@ -37,7 +38,7 @@ for (const [name, width, height] of [
     }
     await expect(
       page.getByRole("heading", { name: "Your wallets", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Refresh balances" }),
     ).toBeVisible();
@@ -51,9 +52,7 @@ for (const [name, width, height] of [
     });
     await page.getByRole("button", { name: "Receive", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Receive", exact: true });
-    await expect(
-      dialog.getByText("0x" + "11".repeat(20), { exact: true }),
-    ).toBeVisible();
+    await expect(dialog.locator(".font-mono")).toHaveText("0x111111…111111");
     await expect(
       dialog.getByText("MegaETH testnet address", { exact: true }),
     ).toBeVisible();
