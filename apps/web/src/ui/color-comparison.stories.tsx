@@ -14,8 +14,8 @@ function ColorComparison() {
           <div class="rounded-lg bg-success/14 p-4 font-semibold text-success">
             Current success token
           </div>
-          <div class="rounded-lg bg-green-800/14 p-4 font-semibold text-green-800">
-            Tailwind green-800
+          <div class="rounded-lg bg-green-50 p-4 font-semibold text-green-800">
+            Tailwind green-800 (light surface)
           </div>
         </section>
         <section class="space-y-3 rounded-xl border border-border-soft p-4">
@@ -23,8 +23,8 @@ function ColorComparison() {
           <div class="rounded-lg bg-destructive/15 p-4 font-semibold text-destructive-text">
             Current destructive token
           </div>
-          <div class="rounded-lg bg-red-700/15 p-4 font-semibold text-red-700">
-            Tailwind red-700
+          <div class="rounded-lg bg-red-50 p-4 font-semibold text-red-700">
+            Tailwind red-700 (light surface)
           </div>
         </section>
       </div>

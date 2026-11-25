@@ -8,13 +8,13 @@ import {
 
 function WalletRouteFixture(props: { scenario: WalletStoryScenario }) {
   return (
-    <main class="min-h-screen bg-background p-6 text-foreground">
+    <div class="min-h-screen bg-background p-6 text-foreground">
       <LiveRewardWallet
         csrf="catalog-session"
         onExit={fn()}
         data={createWalletStoryData(props.scenario)}
       />
-    </main>
+    </div>
   );
 }
 
