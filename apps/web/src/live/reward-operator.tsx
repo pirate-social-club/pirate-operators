@@ -85,11 +85,13 @@ export function LiveRewardOperator(props: {
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
+    const initialLoad = !view();
     setBusy(true);
-    setNotice("");
+    if (!initialLoad) setNotice("");
     try {
       await action();
       await refresh();
+      if (initialLoad) setNotice("");
     } catch (error) {
       setNotice(
         error instanceof Error

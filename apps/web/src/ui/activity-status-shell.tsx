@@ -58,11 +58,12 @@ export function ActivityStatusShell(props: ActivityStatusShellProps) {
               status={props.status}
               title={props.title}
               tone={props.tone}
+              headingLevel={props.asMain ? "h1" : "h2"}
             />
           }
         >
           <div class="flex flex-col items-center gap-3 text-center" role="status">
-            <Type as="h2" variant="h3">{props.title}</Type>
+            <Type as={props.asMain ? "h1" : "h2"} variant="h3">{props.title}</Type>
             <Spinner class="size-5" decorative />
           </div>
         </Show>

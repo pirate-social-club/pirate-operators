@@ -196,17 +196,19 @@ export function CommunityAppShell(props: {
               : "anonymous"
         }
       >
-        <a
-          class="app-skip"
-          href="#app-content"
-          inert={props.practiceOpen}
-          onClick={(event) => {
-            event.preventDefault();
-            document.getElementById("app-content")?.focus();
-          }}
-        >
-          Skip to content
-        </a>
+        <nav aria-label="Skip links">
+          <a
+            class="app-skip"
+            href="#app-content"
+            inert={props.practiceOpen}
+            onClick={(event) => {
+              event.preventDefault();
+              document.getElementById("app-content")?.focus();
+            }}
+          >
+            Skip to content
+          </a>
+        </nav>
         <div class="flex min-h-screen">
           <div class="hidden md:block" inert={props.practiceOpen}>
             {sidebar(false)}

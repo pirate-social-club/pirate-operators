@@ -18,6 +18,7 @@ export interface ErrorStateProps {
   status?: string;
   primaryAction?: ErrorStateAction;
   secondaryAction?: ErrorStateAction;
+  headingLevel?: "h1" | "h2";
 }
 
 /**
@@ -27,7 +28,7 @@ export interface ErrorStateProps {
 export function ErrorState(props: ErrorStateProps) {
   return (
     <div class="flex flex-col items-start gap-4">
-      <Type as="h2" variant="h3">{props.title}</Type>
+      <Type as={props.headingLevel ?? "h2"} variant="h3">{props.title}</Type>
       <Show when={props.description}>
         {(description) => <Type role="alert">{description()}</Type>}
       </Show>

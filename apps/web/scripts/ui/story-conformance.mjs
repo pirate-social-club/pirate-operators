@@ -19,70 +19,43 @@ function propertyKey(name) {
   return null;
 }
 
-function stripCommentsAndStrings(source) {
-  let output = "";
-  let state = "code";
-  let quote = null;
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (state === "line") {
-      if (char === "\n") {
-        state = "code";
-        output += char;
-      } else output += " ";
-      continue;
-    }
-    if (state === "block") {
-      if (char === "*" && next === "/") {
-        output += "  ";
-        index += 1;
-        state = "code";
-      } else output += char === "\n" ? "\n" : " ";
-      continue;
-    }
-    if (state === "string") {
-      if (char === "\\") {
-        output += " ";
-        if (next !== undefined) {
-          output += next === "\n" ? "\n" : " ";
-          index += 1;
-        }
-      } else if (char === quote) {
-        output += " ";
-        state = "code";
-      } else output += char === "\n" ? "\n" : " ";
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      output += "  ";
-      index += 1;
-      state = "line";
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      output += "  ";
-      index += 1;
-      state = "block";
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-      output += " ";
-      state = "string";
-      continue;
-    }
-    output += char;
-  }
-  return output;
+function functionValue(node, callableNames) {
+  if (!node) return false;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return true;
+  return ts.isIdentifier(node) && callableNames.has(node.text);
+}
+
+function exportedStoryPlay(node, callableNames) {
+  if (!ts.isVariableStatement(node)) return false;
+  const exported = ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  if (!exported) return false;
+  return node.declarationList.declarations.some((declaration) => {
+    if (!declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer)) return false;
+    return declaration.initializer.properties.some((property) => {
+      if (ts.isMethodDeclaration(property) && propertyKey(property.name) === "play") return true;
+      return ts.isPropertyAssignment(property) &&
+        propertyKey(property.name) === "play" &&
+        functionValue(property.initializer, callableNames);
+    });
+  });
 }
 
 function parseEvidence(source) {
   const ast = ts.createSourceFile("story.stories.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let hasPlay = /\bplay\s*:/.test(stripCommentsAndStrings(source));
+  const callableNames = new Set();
   const disabledPageRules = new Set();
+  const collectCallables = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) callableNames.add(node.name.text);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && functionValue(node.initializer, callableNames)) {
+      callableNames.add(node.name.text);
+    }
+    ts.forEachChild(node, collectCallables);
+  };
+  collectCallables(ast);
+  let hasPlay = false;
   const visit = (node) => {
-    if (ts.isPropertyAssignment(node) && propertyKey(node.name) === "play") hasPlay = true;
+    if (exportedStoryPlay(node, callableNames)) hasPlay = true;
     if (ts.isObjectLiteralExpression(node)) {
       let id = null;
       let enabled = true;

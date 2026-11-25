@@ -36,6 +36,9 @@ const withDocumentA11yScope = createDecorator((Story, context) => {
   const currentRules = Array.isArray(config.rules) ? config.rules : [];
   context.parameters.a11y = {
     ...current,
+    // axe's document rules select from html. Scope Screens to the document;
+    // fragments keep Storybook's body scope because their host page owns them.
+    ...(isScreen ? { context: document.documentElement } : {}),
     config: {
       ...config,
       rules: [
