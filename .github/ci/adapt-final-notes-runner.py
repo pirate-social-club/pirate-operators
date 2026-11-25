@@ -63,6 +63,11 @@ def main():
                   '[[ -r /dev/kvm && -w /dev/kvm ]]')
     raw = replace(raw, '  cat /proc/pressure/memory\n',
                   '  if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi\n')
+    memory_mb = os.environ.get('PIRATE_VM_MEMORY_MB', '4096')
+    assert memory_mb in {'4096', '8192'}, f'unaccepted diagnostic memory request {memory_mb}'
+    if memory_mb != '4096':
+        raw = replace(raw, '-m 4096', f'-m {memory_mb}')
+        print(f'NON-QUALIFYING DIAGNOSTIC: guest memory {memory_mb} MiB replaces the qualifying 4096 MiB')
     runner.write_text(raw)
     runner.chmod(0o700)
 

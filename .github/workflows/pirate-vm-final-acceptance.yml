@@ -1,6 +1,15 @@
 name: Pirate VM final acceptance
 on:
   workflow_dispatch:
+    inputs:
+      memory_mb:
+        description: Guest memory in MiB. Any value other than 4096 is a non-qualifying diagnostic.
+        required: false
+        default: "4096"
+        type: choice
+        options:
+          - "4096"
+          - "8192"
   pull_request:
 permissions:
   contents: read
@@ -43,6 +52,8 @@ jobs:
           cd "$RUNNER_TEMP/pirate-vm-assets"
           sha256sum -c --strict ASSET-SHA256SUMS
       - name: Adapt sealed final runner
+        env:
+          PIRATE_VM_MEMORY_MB: ${{ github.event.inputs.memory_mb || '4096' }}
         run: |
           set -euo pipefail
           tar -xf "$RUNNER_TEMP/pirate-vm-assets/final-media-host.tar" -C "$RUNNER_TEMP/pirate-final-ci/selected"
