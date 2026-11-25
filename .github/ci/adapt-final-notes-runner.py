@@ -6,6 +6,15 @@ import shlex
 import sys
 
 
+# Git-vendored harness source overlaid onto the sealed bundle. The sealed
+# member hashes pin the exact r19 base each vendored file diverges from; bump
+# them only in the commit that moves the fixture pin to a newer release.
+VENDORED_SEALED_R19 = {
+    'collect-notes-evidence.py': '332958b8e3877d5fe9671125a1e24958ecb8ea7662b3b720d8e0197699829913',
+    'verify-notes-run.py': '8a0e4b947f017a51d99dd7bced97de736829b26478551c3f70a90b74c45f483b',
+}
+
+
 def replace(raw, old, new):
     assert raw.count(old) == 1, (old, raw.count(old))
     return raw.replace(old, new)
@@ -33,18 +42,29 @@ def main():
                   '  if [[ -r /proc/pressure/memory ]]; then cat /proc/pressure/memory; fi\n')
     runner.write_text(raw)
     runner.chmod(0o700)
+
+    vendored_root = Path(__file__).resolve().parent / 'vm-final-runner'
+    repinned = {}
+    for name, sealed_pin in VENDORED_SEALED_R19.items():
+        member = bundle / name
+        actual = hashlib.sha256(member.read_bytes()).hexdigest()
+        assert actual == sealed_pin, f'{name}: sealed member {actual} diverges from pinned r19 base {sealed_pin}'
+        member.write_bytes((vendored_root / name).read_bytes())
+        member.chmod(0o600)
+        repinned[name] = hashlib.sha256(member.read_bytes()).hexdigest()
+
     manifest = bundle / 'NOTES-EXECUTION-SHA256SUMS'
     lines = []
     replaced = 0
-    runner_pin = hashlib.sha256(runner.read_bytes()).hexdigest()
+    repinned['run-notes.sh'] = hashlib.sha256(runner.read_bytes()).hexdigest()
     for line in manifest.read_text().splitlines():
         pin, separator, name = line.partition('  ')
         assert separator
-        if name == 'run-notes.sh':
-            line = f'{runner_pin}  {name}'
+        if name in repinned:
+            line = f'{repinned[name]}  {name}'
             replaced += 1
         lines.append(line)
-    assert replaced == 1
+    assert replaced == len(repinned)
     manifest.write_text('\n'.join(lines) + '\n')
     manifest.chmod(0o600)
     print('Final CI runner adapted')
