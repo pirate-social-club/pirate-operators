@@ -61,6 +61,7 @@ jobs:
           cp "$RUNNER_TEMP/pirate-vm-assets/final-notes-entry.iso" "$RUNNER_TEMP/pirate-final-ci/selected/notes-entry.iso"
           python3 .github/ci/adapt-final-notes-runner.py "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-final-ci/selected"
           python3 .github/ci/test-final-evidence-verifier.py "$RUNNER_TEMP/pirate-final-ci/selected/verify-notes-run.py"
+          python3 .github/ci/test-native-terminal-ownership.py
           bash -n "$RUNNER_TEMP/pirate-final-ci/selected/run-notes.sh"
           bash -n "$RUNNER_TEMP/pirate-final-ci/selected/guest-notes-bootstrap.sh"
       - name: Preflight

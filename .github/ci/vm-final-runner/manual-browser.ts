@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { createHash, X509Certificate } from "node:crypto";
 import { appendFileSync, createReadStream } from "node:fs";
-import { createInterface } from "node:readline/promises";
+import type { Interface as ReadlineInterface } from "node:readline/promises";
 import { verifyTypedData } from "viem";
 import type { Browser, Page } from "../../apps/community-wizard/node_modules/playwright-core/types/types.d.ts";
 import { web2Owner } from "../../test/fixtures/web2-first-song-chain.ts";
@@ -123,9 +123,13 @@ function capture(page: Page, origin: string, artifacts: string, label: string) {
 export async function manualWizard(input: Inputs & { wizardOrigin: string; pairingCode: string;
   helperOrigin: string; helperCertificate: Buffer; stateRoot: string; origin: string; invitation?: string;
   approveRegistration?(): Promise<void>;
-  retireHostedKeys?(): Promise<void> }) {
+  retireHostedKeys?(): Promise<void>;
+  terminal: ReadlineInterface }) {
+  // The launcher owns the sole readline interface on the shared stdin stream; this session
+  // borrows it for prompts and must never close it. Closing an interface here pauses stdin
+  // under the launcher's interface, and later launcher prompts are never answered.
+  const terminal = input.terminal;
   const owned = await openBrowser(input, [certificatePin(input.helperCertificate)], "wizard");
-  const terminal = createInterface({ input: process.stdin, output: process.stdout });
   const observer = new OriginalObserver();
   let saveCapture: (() => Promise<void>) | undefined, servicesPrepared = false, observation = 0;
   try {
@@ -205,7 +209,7 @@ export async function manualWizard(input: Inputs & { wizardOrigin: string; pairi
       await page.screenshot({ path: join(input.artifacts, "manual-installed-wizard.png"), fullPage: true });
       return status;
     }
-  } finally { terminal.close(); browserMark("capture-save", "enter"); try { await saveCapture?.(); } finally { browserMark("capture-save", "return"); browserMark("browser-close", "enter"); try { await owned.close(); } finally { browserMark("browser-close", "return"); } } }
+  } finally { browserMark("capture-save", "enter"); try { await saveCapture?.(); } finally { browserMark("capture-save", "return"); browserMark("browser-close", "enter"); try { await owned.close(); } finally { browserMark("browser-close", "return"); } } }
 }
 
 export async function manualApplication(input: Inputs & {

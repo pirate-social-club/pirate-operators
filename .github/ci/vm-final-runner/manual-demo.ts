@@ -541,8 +541,12 @@ fixtureRun: try {
  const pairingCode = serviceBoot.code;
  const { manualApplication, manualWizard } = await import("./manual-browser.ts");
  const browserInput = { executable: browserExecutable!, executableSha256: browserSha256!, artifacts, signal: cancel.signal, onBrowser: (browser: Browser) => { currentBrowser = browser; } };
+ // The launcher owns the single readline interface on process.stdin for the whole rehearsal.
+ // A second interface closed inside a Wizard session pauses the shared stream under this one,
+ // leaving later prompts displayed but never answered; sessions receive this interface instead.
+ const terminal = createInterface({ input: process.stdin, output: process.stdout });
  await startupMark("initial-wizard-browser-enter");
- await manualWizard({ ...browserInput, wizardOrigin, pairingCode, helperOrigin, helperCertificate: await readFile(helperCert), stateRoot: state, origin, invitation: inviteToken,
+ await manualWizard({ ...browserInput, terminal, wizardOrigin, pairingCode, helperOrigin, helperCertificate: await readFile(helperCert), stateRoot: state, origin, invitation: inviteToken,
  async approveRegistration() {
   cancel.signal.throwIfAborted();
   await lease.assertHeld();
@@ -578,7 +582,6 @@ fixtureRun: try {
   scope: "manual Wizard and actual local installer with disposable providers",
   realMoss: "UNRUN", publicDeployment: "UNRUN",
  });
- const terminal = createInterface({ input: process.stdin, output: process.stdout });
  const certificateFile = join(state, "caddy-data/certificates/local/localhost/localhost.crt");
  const configurationDirectory = stateRoots.configuration;
  const originalFile = join(configurationDirectory, "web2-original.json");
@@ -733,7 +736,7 @@ fixtureRun: try {
    const reopenedArtifacts = join(artifacts, "reopened");
    await mkdir(reopenedArtifacts, { mode: 0o700 });
    await manualWizard({
-    ...browserInput, artifacts: reopenedArtifacts, wizardOrigin, pairingCode: serviceBoot.code,
+    ...browserInput, terminal, artifacts: reopenedArtifacts, wizardOrigin, pairingCode: serviceBoot.code,
     helperOrigin, helperCertificate: await readFile(helperCert), stateRoot: state, origin,
    });
    const reopened = await readPrivateJSON<Journal>(join(state, "wizard/web2-wizard-original.json"));
