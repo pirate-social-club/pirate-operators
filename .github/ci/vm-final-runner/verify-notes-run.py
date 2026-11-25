@@ -21,6 +21,7 @@ HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
     "close-progress.json", "artifact-progress.json", "guest-memory.json",
+    "native-progress.json", "native-memory.json",
 }
 STARTUP_PHASES = (
     "fixture-refresh-enter",
@@ -104,6 +105,18 @@ MILESTONE_FILES = {
 MEMINFO_KEYS = ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Committed_AS")
 VMSTAT_KEYS = ("pswpin", "pswpout", "oom_kill")
 MEMORY_PARSE_ERRORS = {"unreadable"}
+PROGRESS_OPS = {
+    "service-pair-wait",
+    "terminal-question-before", "terminal-question-after",
+    "application-before", "application-after",
+    "notes-receipt-before", "notes-receipt-after",
+    "restart-service-stop", "restart-container-stop", "restart-service-launch",
+    "restart-snapshot-after", "restart-authority-after", "restart-boot-verify",
+    "replay-final-checks", "replay-record",
+    "capture-save", "browser-close",
+}
+PROGRESS_ROLES = {"launcher", "service"}
+NDJSON_PARSE_ERRORS = {"unreadable", "oversized", "malformed-line"}
 CHAIN_INIT_CLASSES = {
     "WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError", "TransactionNotFoundError",
     "HttpRequestError", "TimeoutError", "AssertionError", "AbortError", "Other",
@@ -476,6 +489,57 @@ def verify_worker_hold(held):
         for key, value in row["vmstat"].items():
             assert value is None or (type(value) is int and 0 <= value <= 2 ** 63)
         assert row["parseError"] is None or row["parseError"] in MEMORY_PARSE_ERRORS
+    if "native-progress.json" in held:
+        row = held["native-progress.json"]
+        assert set(row) == {"schema", "logPresent", "rows", "rowCount", "finalRow", "openOps", "parseError"}
+        assert row["schema"] == "pirate.native-launcher-progress/1"
+        assert type(row["logPresent"]) is bool
+        assert type(row["rows"]) is list and type(row["rowCount"]) is int
+        assert row["rowCount"] == len(row["rows"]) and 0 <= row["rowCount"] <= 4096
+        for entry in row["rows"]:
+            assert type(entry) is dict and isinstance(entry.get("at"), str) and UTC_STAMP.fullmatch(entry["at"])
+            if entry.get("kind") == "op":
+                assert set(entry) == {"at", "kind", "op", "event"}
+                assert entry["op"] in PROGRESS_OPS and entry["event"] in {"enter", "return"}
+            else:
+                assert entry.get("kind") == "role"
+                assert set(entry) == {"at", "kind", "role", "pid", "ppid", "startTicks", "comm"}
+                assert entry["role"] in PROGRESS_ROLES
+                assert type(entry["pid"]) is int and entry["pid"] > 0
+                assert type(entry["ppid"]) is int and entry["ppid"] > 0
+                assert isinstance(entry["startTicks"], str) and entry["startTicks"].isdigit()
+                assert isinstance(entry["comm"], str) and 0 < len(entry["comm"]) <= 64
+        assert row["finalRow"] is None or row["rowCount"] >= 1
+        if row["rowCount"]:
+            assert row["finalRow"] == row["rows"][-1]
+        else:
+            assert row["finalRow"] is None
+        assert type(row["openOps"]) is list and all(op in PROGRESS_OPS for op in row["openOps"])
+        assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
+    if "native-memory.json" in held:
+        row = held["native-memory.json"]
+        assert set(row) == {"schema", "logPresent", "samples", "sampleCount", "finalSample",
+                            "peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb", "parseError"}
+        assert row["schema"] == "pirate.native-memory-samples/1"
+        assert type(row["logPresent"]) is bool
+        assert type(row["samples"]) is list and type(row["sampleCount"]) is int
+        assert row["sampleCount"] == len(row["samples"]) and 0 <= row["sampleCount"] <= 2048
+        for sample in row["samples"]:
+            assert type(sample) is dict
+            assert set(sample) == {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
+            assert sample["kind"] == "sample"
+            assert isinstance(sample["at"], str) and UTC_STAMP.fullmatch(sample["at"])
+            for key in ("launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"):
+                assert sample[key] is None or (type(sample[key]) is int and 0 <= sample[key] < 2 ** 40)
+            assert sample["servicePid"] is None or (type(sample["servicePid"]) is int and sample["servicePid"] > 0)
+        assert row["finalSample"] is None or row["sampleCount"] >= 1
+        if row["sampleCount"]:
+            assert row["finalSample"] == row["samples"][-1]
+        else:
+            assert row["finalSample"] is None
+        for key in ("peakLauncherRssKb", "peakServiceRssKb", "peakUidRssKb", "minMemAvailableKb"):
+            assert row[key] is None or (type(row[key]) is int and 0 <= row[key] < 2 ** 40)
+        assert row["parseError"] is None or row["parseError"] in NDJSON_PARSE_ERRORS
     if "install-server-refusal.json" in held:
         validate_install_server_refusal(held["install-server-refusal.json"])
         client = held.get("wizard-install-refusal.json")
@@ -597,6 +661,8 @@ def assess(run, result):
             result["closeProgress"] = held.get("close-progress.json")
             result["artifactProgress"] = held.get("artifact-progress.json")
             result["guestMemory"] = held.get("guest-memory.json")
+            result["nativeProgress"] = held.get("native-progress.json")
+            result["nativeMemory"] = held.get("native-memory.json")
             if "chain-init-refusal.json" in held:
                 result["chainInitRefusal"] = held["chain-init-refusal.json"]
             if "wizard-install-refusal.json" in held:

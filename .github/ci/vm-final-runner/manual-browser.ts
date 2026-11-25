@@ -5,7 +5,7 @@ import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { createHash, X509Certificate } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { appendFileSync, createReadStream } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { verifyTypedData } from "viem";
 import type { Browser, Page } from "../../apps/community-wizard/node_modules/playwright-core/types/types.d.ts";
@@ -25,6 +25,14 @@ export const certificatePin = (pem: Buffer) => createHash("sha256")
   .update(new X509Certificate(pem).publicKey.export({ type: "spki", format: "der" })).digest("base64");
 interface Inputs { executable: string; executableSha256: string; artifacts: string;
   signal: AbortSignal; onBrowser(browser: Browser): void }
+// Append-only rehearsal-progress rows shared with the launcher; failure-tolerant diagnostic capture.
+const browserMark = (op: string, event: "enter" | "return") => {
+ try {
+  const root = process.env.PIRATE_MANUAL_RUN_ROOT;
+  if (root && root.startsWith("/"))
+   appendFileSync(join(root, "logs", "native-progress.ndjson"), JSON.stringify({ at: new Date().toISOString(), kind: "op", op, event }) + "\n");
+ } catch { /* diagnostic capture never affects the rehearsal */ }
+};
 async function virtualCapture(artifacts: string): Promise<string[]> {
   const root = process.env.PIRATE_MANUAL_RUN_ROOT;
   assert(root && root.startsWith("/"), "original_virtual_media_root_required");
@@ -197,7 +205,7 @@ export async function manualWizard(input: Inputs & { wizardOrigin: string; pairi
       await page.screenshot({ path: join(input.artifacts, "manual-installed-wizard.png"), fullPage: true });
       return status;
     }
-  } finally { terminal.close(); try { await saveCapture?.(); } finally { await owned.close(); } }
+  } finally { terminal.close(); browserMark("capture-save", "enter"); try { await saveCapture?.(); } finally { browserMark("capture-save", "return"); browserMark("browser-close", "enter"); try { await owned.close(); } finally { browserMark("browser-close", "return"); } } }
 }
 
 export async function manualApplication(input: Inputs & {
@@ -227,5 +235,5 @@ export async function manualApplication(input: Inputs & {
     await page.goto(input.origin);
     console.log("Installed app opened. Use the ordinary screens to publish and practice. Login uses the explicit local SDK fixture.");
     await input.control(page);
-  } finally { try { await saveCapture?.(); } finally { await owned.close(); } }
+  } finally { browserMark("capture-save", "enter"); try { await saveCapture?.(); } finally { browserMark("capture-save", "return"); browserMark("browser-close", "enter"); try { await owned.close(); } finally { browserMark("browser-close", "return"); } } }
 }

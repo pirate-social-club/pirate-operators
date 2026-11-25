@@ -446,6 +446,148 @@ def read_close_progress(path=ROOT / "logs" / "close.stderr.log", owner=1000):
     return progress
 
 
+PROGRESS_OPS = {
+    "service-pair-wait",
+    "terminal-question-before", "terminal-question-after",
+    "application-before", "application-after",
+    "notes-receipt-before", "notes-receipt-after",
+    "restart-service-stop", "restart-container-stop", "restart-service-launch",
+    "restart-snapshot-after", "restart-authority-after", "restart-boot-verify",
+    "replay-final-checks", "replay-record",
+    "capture-save", "browser-close",
+}
+PROGRESS_ROLES = {"launcher", "service"}
+
+
+def read_native_progress(path=ROOT / "logs" / "native-progress.ndjson", owner=1000):
+    receipt = {
+        "schema": "pirate.native-launcher-progress/1",
+        "logPresent": False,
+        "rows": [],
+        "rowCount": 0,
+        "finalRow": None,
+        "openOps": [],
+        "parseError": None,
+    }
+    try:
+        info = path.lstat()
+    except OSError:
+        return receipt
+    try:
+        assert stat.S_ISREG(info.st_mode) and path.resolve(strict=True) == path
+        assert info.st_uid == owner and info.st_nlink == 1 and info.st_mode & 0o077 == 0
+        receipt["logPresent"] = True
+        if info.st_size > 256 * 1024:
+            receipt["parseError"] = "oversized"
+            return receipt
+        data = path.read_bytes()
+    except (AssertionError, OSError):
+        receipt["parseError"] = "unreadable"
+        return receipt
+    rows = []
+    malformed = False
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            row = json.loads(line)
+            assert type(row) is dict and type(row.get("at")) is str and UTC_STAMP.fullmatch(row["at"])
+            if row.get("kind") == "op":
+                assert set(row) == {"at", "kind", "op", "event"}
+                assert row["op"] in PROGRESS_OPS and row["event"] in {"enter", "return"}
+            elif row.get("kind") == "role":
+                assert set(row) == {"at", "kind", "role", "pid", "ppid", "startTicks", "comm"}
+                assert row["role"] in PROGRESS_ROLES
+                assert type(row["pid"]) is int and type(row["ppid"]) is int and row["pid"] > 0 and row["ppid"] > 0
+                assert type(row["startTicks"]) is str and re.fullmatch(r"[0-9]+", row["startTicks"])
+                assert type(row["comm"]) is str and 0 < len(row["comm"]) <= 64 and row["comm"].isprintable()
+            else:
+                raise AssertionError
+        except (AssertionError, ValueError, TypeError):
+            malformed = True
+            break
+        rows.append(row)
+        if len(rows) > 4096:
+            malformed = True
+            break
+    if malformed:
+        receipt["parseError"] = "malformed-line"
+    receipt["rows"] = rows
+    receipt["rowCount"] = len(rows)
+    if rows:
+        receipt["finalRow"] = rows[-1]
+    open_ops = []
+    counts = {}
+    for row in rows:
+        if row["kind"] != "op":
+            continue
+        counts[row["op"]] = counts.get(row["op"], 0) + (1 if row["event"] == "enter" else -1)
+    open_ops = sorted(op for op, count in counts.items() if count > 0)
+    receipt["openOps"] = open_ops
+    return receipt
+
+
+def read_native_memory(path=ROOT / "logs" / "native-memory.ndjson", owner=1000):
+    receipt = {
+        "schema": "pirate.native-memory-samples/1",
+        "logPresent": False,
+        "samples": [],
+        "sampleCount": 0,
+        "finalSample": None,
+        "peakLauncherRssKb": None,
+        "peakServiceRssKb": None,
+        "peakUidRssKb": None,
+        "minMemAvailableKb": None,
+        "parseError": None,
+    }
+    try:
+        info = path.lstat()
+    except OSError:
+        return receipt
+    try:
+        assert stat.S_ISREG(info.st_mode) and path.resolve(strict=True) == path
+        assert info.st_uid == owner and info.st_nlink == 1 and info.st_mode & 0o077 == 0
+        receipt["logPresent"] = True
+        if info.st_size > 1024 * 1024:
+            receipt["parseError"] = "oversized"
+            return receipt
+        data = path.read_bytes()
+    except (AssertionError, OSError):
+        receipt["parseError"] = "unreadable"
+        return receipt
+    samples = []
+    malformed = False
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            row = json.loads(line)
+            assert type(row) is dict and row.get("kind") == "sample"
+            assert set(row) == {"at", "kind", "launcherRssKb", "servicePid", "serviceRssKb", "memAvailableKb", "uidRssKb"}
+            assert type(row["at"]) is str and UTC_STAMP.fullmatch(row["at"])
+            for key in ("launcherRssKb", "serviceRssKb", "memAvailableKb", "uidRssKb"):
+                assert row[key] is None or (type(row[key]) is int and 0 <= row[key] < 2 ** 40)
+            assert row["servicePid"] is None or (type(row["servicePid"]) is int and row["servicePid"] > 0)
+        except (AssertionError, ValueError, TypeError):
+            malformed = True
+            break
+        samples.append(row)
+        if len(samples) > 2048:
+            malformed = True
+            break
+    if malformed:
+        receipt["parseError"] = "malformed-line"
+    receipt["samples"] = samples
+    receipt["sampleCount"] = len(samples)
+    if samples:
+        receipt["finalSample"] = samples[-1]
+        def peak(key):
+            values = [row[key] for row in samples if row[key] is not None]
+            return max(values) if values else None
+        receipt["peakLauncherRssKb"] = peak("launcherRssKb")
+        receipt["peakServiceRssKb"] = peak("serviceRssKb")
+        receipt["peakUidRssKb"] = peak("uidRssKb")
+        available = [row["memAvailableKb"] for row in samples if row["memAvailableKb"] is not None]
+        receipt["minMemAvailableKb"] = min(available) if available else None
+    return receipt
+
+
 def inspect_resource(config, resource):
     raw = subprocess.check_output(
         ["/usr/bin/docker", "--host", "unix:///run/docker.sock", "--config", str(config), "inspect", resource],
@@ -515,6 +657,8 @@ def collect_hold(session):
     write_json(session / "close-progress.json", read_close_progress())
     write_json(session / "artifact-progress.json", read_artifact_progress())
     write_json(session / "guest-memory.json", read_guest_memory())
+    write_json(session / "native-progress.json", read_native_progress())
+    write_json(session / "native-memory.json", read_native_memory())
     phases = []
     for name in STARTUP_PHASES:
         file = ROOT / f"notes-startup-{name}.json"

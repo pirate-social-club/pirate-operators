@@ -437,6 +437,98 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             MODULE.verify_worker_hold({"guest-memory.json": row})
 
+    def ndjson_log(self, name, lines):
+        path = self.root / name
+        path.write_text("".join(lines))
+        path.chmod(0o600)
+        return path
+
+    def test_collector_native_progress_round_trips_through_verifier(self):
+        lines = [
+            json.dumps({"at": "2026-11-25T08:05:01.001Z", "kind": "role", "role": "launcher",
+                        "pid": 3400, "ppid": 3399, "startTicks": "102030", "comm": "MainThread"}) + "\n",
+            json.dumps({"at": "2026-11-25T08:05:02.001Z", "kind": "op", "op": "application-before", "event": "enter"}) + "\n",
+            json.dumps({"at": "2026-11-25T08:06:02.001Z", "kind": "op", "op": "capture-save", "event": "enter"}) + "\n",
+            json.dumps({"at": "2026-11-25T08:06:02.101Z", "kind": "op", "op": "capture-save", "event": "return"}) + "\n",
+            json.dumps({"at": "2026-11-25T08:06:03.001Z", "kind": "op", "op": "browser-close", "event": "enter"}) + "\n",
+        ]
+        row = COLLECTOR.read_native_progress(self.ndjson_log("native-progress.ndjson", lines), owner=os.getuid())
+        self.assertIsNone(row["parseError"])
+        self.assertEqual(row["rowCount"], 5)
+        self.assertEqual(row["finalRow"]["op"], "browser-close")
+        self.assertEqual(sorted(row["openOps"]), ["application-before", "browser-close"])
+        MODULE.verify_worker_hold({"native-progress.json": json.loads(json.dumps(row))})
+
+    def test_collector_native_progress_missing_log_is_explicit(self):
+        row = COLLECTOR.read_native_progress(self.root / "absent.ndjson", owner=os.getuid())
+        self.assertFalse(row["logPresent"])
+        self.assertEqual(row["rows"], [])
+        self.assertIsNone(row["parseError"])
+        MODULE.verify_worker_hold({"native-progress.json": row})
+
+    def test_collector_native_progress_malformed_line_preserves_valid_prefix(self):
+        lines = [
+            json.dumps({"at": "2026-11-25T08:05:01.001Z", "kind": "op", "op": "capture-save", "event": "enter"}) + "\n",
+            json.dumps({"at": "2026-11-25T08:05:01.001Z", "kind": "op", "op": "not-a-real-op", "event": "enter"}) + "\n",
+        ]
+        row = COLLECTOR.read_native_progress(self.ndjson_log("native-progress.ndjson", lines), owner=os.getuid())
+        self.assertEqual(row["parseError"], "malformed-line")
+        self.assertEqual(row["rowCount"], 1)
+        MODULE.verify_worker_hold({"native-progress.json": row})
+
+    def test_verifier_rejects_unknown_progress_op(self):
+        row = {
+            "schema": "pirate.native-launcher-progress/1",
+            "logPresent": True,
+            "rows": [{"at": "2026-11-25T08:05:01.001Z", "kind": "op", "op": "invented-op", "event": "enter"}],
+            "rowCount": 1,
+            "finalRow": {"at": "2026-11-25T08:05:01.001Z", "kind": "op", "op": "invented-op", "event": "enter"},
+            "openOps": ["invented-op"],
+            "parseError": None,
+        }
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"native-progress.json": row})
+
+    def test_collector_native_memory_round_trips_through_verifier(self):
+        samples = [
+            {"at": "2026-11-25T08:05:01.001Z", "kind": "sample", "launcherRssKb": 200000,
+             "servicePid": 3500, "serviceRssKb": 100000, "memAvailableKb": 3500000, "uidRssKb": 600000},
+            {"at": "2026-11-25T08:05:03.001Z", "kind": "sample", "launcherRssKb": 220000,
+             "servicePid": 3500, "serviceRssKb": 140000, "memAvailableKb": 3400000, "uidRssKb": 700000},
+            {"at": "2026-11-25T08:05:05.001Z", "kind": "sample", "launcherRssKb": 260000,
+             "servicePid": None, "serviceRssKb": None, "memAvailableKb": 3300000, "uidRssKb": 650000},
+        ]
+        lines = [json.dumps(sample) + "\n" for sample in samples]
+        row = COLLECTOR.read_native_memory(self.ndjson_log("native-memory.ndjson", lines), owner=os.getuid())
+        self.assertIsNone(row["parseError"])
+        self.assertEqual(row["sampleCount"], 3)
+        self.assertEqual(row["finalSample"], samples[-1])
+        self.assertEqual(row["peakLauncherRssKb"], 260000)
+        self.assertEqual(row["peakServiceRssKb"], 140000)
+        self.assertEqual(row["peakUidRssKb"], 700000)
+        self.assertEqual(row["minMemAvailableKb"], 3300000)
+        MODULE.verify_worker_hold({"native-memory.json": json.loads(json.dumps(row))})
+
+    def test_collector_native_memory_missing_log_is_explicit(self):
+        row = COLLECTOR.read_native_memory(self.root / "absent.ndjson", owner=os.getuid())
+        self.assertFalse(row["logPresent"])
+        self.assertEqual(row["samples"], [])
+        self.assertIsNone(row["parseError"])
+        self.assertIsNone(row["peakLauncherRssKb"])
+        MODULE.verify_worker_hold({"native-memory.json": row})
+
+    def test_collector_native_memory_malformed_line_preserves_valid_prefix(self):
+        lines = [
+            json.dumps({"at": "2026-11-25T08:05:01.001Z", "kind": "sample", "launcherRssKb": 200000,
+                        "servicePid": None, "serviceRssKb": None, "memAvailableKb": 3500000, "uidRssKb": 600000}) + "\n",
+            json.dumps({"at": "2026-11-25T08:05:03.001Z", "kind": "sample", "launcherRssKb": -5,
+                        "servicePid": None, "serviceRssKb": None, "memAvailableKb": 3500000, "uidRssKb": 600000}) + "\n",
+        ]
+        row = COLLECTOR.read_native_memory(self.ndjson_log("native-memory.ndjson", lines), owner=os.getuid())
+        self.assertEqual(row["parseError"], "malformed-line")
+        self.assertEqual(row["sampleCount"], 1)
+        MODULE.verify_worker_hold({"native-memory.json": row})
+
     def test_success_receipts_remain_nonempty_and_hash_checked(self):
         path = self.root / "success.tar"
         archive(path, {name: receipt(name, {}) for name in MODULE.SUCCESS})

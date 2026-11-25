@@ -2,7 +2,7 @@
 // Actual installed app and bundled services; provider/account SDK transports explicitly simulated.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync, lstatSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as tlsServer, request as tlsRequest } from "node:https";
@@ -180,6 +180,47 @@ async function container(id: string) { const rows: unknown = JSON.parse((await d
 async function stopContainer(id: string, label: "io.pirate.fixture" | "io.pirate.installation") { const row = await container(id); assert(row.Id === id && row.Image === imageId && object(object(row.Config).Labels)[label] === installationId); if (object(row.State).Running) await docker(["stop", "--time", "5", id]); }
 async function stopChild(child: ChildProcess) { if (child.exitCode !== null || child.signalCode !== null) return; const terminal = once(child, "exit"); child.kill("SIGTERM"); await Promise.race([terminal, new Promise<never>((_, reject) => setTimeout(() => reject(Error("owned_service_shutdown_uncertain")), 30000).unref())]); }
 const closeMark = (step: string) => appendFileSync(join(ROOT, "logs", "close.stderr.log"), new Date().toISOString() + " " + step + "\n");
+// Bounded rehearsal-progress instrumentation: append-only, synchronous, crash-durable.
+// Operation entry/return rows and role bindings go to native-progress.ndjson; periodic
+// resident-memory samples go to native-memory.ndjson. Both are diagnostic captures and
+// must never affect the rehearsal, so every row write is failure-tolerant.
+const progressLogPath = join(ROOT, "logs", "native-progress.ndjson"), memoryLogPath = join(ROOT, "logs", "native-memory.ndjson");
+const ndjsonLine = (path: string, row: Record<string, unknown>) => { try { appendFileSync(path, JSON.stringify(row) + "\n"); } catch { /* diagnostic capture never affects the rehearsal */ } };
+const progressMark = (op: string, event: "enter" | "return") => ndjsonLine(progressLogPath, { at: new Date().toISOString(), kind: "op", op, event });
+const procStat = (pid: number) => {
+ try {
+  const raw = readFileSync("/proc/" + pid + "/stat", "utf8"), open = raw.indexOf("("), close = raw.lastIndexOf(")");
+  if (open < 0 || close <= open) return null;
+  const fields = raw.slice(close + 2).split(/\s+/), rssKb = Number(fields[21]) * 4, ppid = Number(fields[1]);
+  if (!Number.isFinite(rssKb) || !Number.isFinite(ppid)) return null;
+  return { pid, ppid, startTicks: fields[19], comm: raw.slice(open + 1, close), rssKb };
+ } catch { return null; }
+};
+const roleMark = (role: "launcher" | "service", pid: number) => {
+ const stat = procStat(pid);
+ if (stat) ndjsonLine(progressLogPath, { at: new Date().toISOString(), kind: "role", role, pid: stat.pid, ppid: stat.ppid, startTicks: stat.startTicks, comm: stat.comm });
+};
+const memorySample = () => {
+ try {
+  const meminfo = readFileSync("/proc/meminfo", "utf8"), available = /^MemAvailable:\s+(\d+) kB/m.exec(meminfo);
+  let uidRssKb: number | null = 0;
+  for (const entry of readdirSync("/proc")) {
+   if (!/^[0-9]+$/.test(entry)) continue;
+   try {
+    if (lstatSync("/proc/" + entry).uid !== process.getuid!()) continue;
+    const stat = procStat(Number(entry));
+    if (stat) uidRssKb += stat.rssKb;
+   } catch { /* process exited during the sweep */ }
+  }
+  const self = procStat(process.pid), servicePid = service?.pid, serviceStat = typeof servicePid === "number" ? procStat(servicePid) : null;
+  ndjsonLine(memoryLogPath, { at: new Date().toISOString(), kind: "sample", launcherRssKb: self?.rssKb ?? null,
+   servicePid: serviceStat ? servicePid ?? null : null, serviceRssKb: serviceStat?.rssKb ?? null,
+   memAvailableKb: available ? Number(available[1]) : null, uidRssKb });
+ } catch { /* diagnostic capture never affects the rehearsal */ }
+};
+roleMark("launcher", process.pid);
+memorySample();
+const memorySampler = setInterval(memorySample, 2000); memorySampler.unref();
 async function close() { return closing ??= (async () => { closeMark("enter"); clearTimeout(deadline); if (tickTimer) clearInterval(tickTimer); const errors: unknown[] = [];
  const settle = async (f: () => Promise<unknown>) => { try { await f(); } catch (e) { errors.push(e); } };
  closeMark("browser-before"); await settle(async () => currentBrowser?.close()); closeMark("browser-after");
@@ -431,6 +472,7 @@ fixtureRun: try {
    cwd: release, env: { ...target.environment, TMPDIR: roots.tmp }, stdio: ["ignore", "pipe", "pipe"],
   });
   service = child;
+  if (child.pid !== undefined) roleMark("service", child.pid);
   let stdout = "", code: string | undefined;
   child.stdout!.on("data", b => {
    if (serviceStdout.length + b.length > 4 * 1024 ** 2) { cancel.abort(Error("owned_service_log_bound")); return; }
@@ -448,10 +490,12 @@ fixtureRun: try {
    await startupMark("service-pid-observed");
    await startupMark("pair-code-wait-enter");
   }
+  progressMark("service-pair-wait", "enter");
   await wait(async () => {
    assert(child.exitCode === null && child.signalCode === null, "owned installed service exited before pairing");
    return Boolean(code);
   }, 120);
+  progressMark("service-pair-wait", "return");
   assert(child.pid && code);
   if (observeInitialStartup) await startupMark("pair-code-observed");
   const identity = await processIdentity(child.pid);
@@ -609,14 +653,20 @@ fixtureRun: try {
   const authority = await readCurrentAuthority();
   const effectsAtNotesEntry = { ...chain.effects };
   let decision: string | undefined;
+  progressMark("application-before", "enter");
   await manualApplication({
    ...browserInput, artifacts: beforeApplication, origin, certificateFile, release,
    async control() {
+    progressMark("terminal-question-before", "enter");
     decision = await terminal.question("Notes application before restart> ", { signal: cancel.signal });
+    progressMark("terminal-question-before", "return");
    },
   });
+  progressMark("application-before", "return");
   if (decision === "restart") {
+   progressMark("notes-receipt-before", "enter");
    const notesBefore = await checkNotesReceipt(beforeApplication, "before", authority);
+   progressMark("notes-receipt-before", "return");
    assert(notesBefore.effects.broadcasts === effectsAtNotesEntry.broadcasts + 1 &&
     notesBefore.effects.pinAdds > effectsAtNotesEntry.pinAdds, "rehearsal_notes_original_effects_changed");
    assert.deepEqual(await readCurrentAuthority(), authority, "rehearsal_original_publishing_authority_changed");
@@ -642,10 +692,13 @@ fixtureRun: try {
    await record("rehearsal-restart-original.json", {
     before, authority, notesBefore, effectsAtNotesEntry, process: serviceBoot.identity,
    });
+   progressMark("restart-service-stop", "enter");
    await stopChild(serviceBoot.child);
    assert(serviceBoot.child.exitCode === 0 && serviceBoot.child.signalCode === null &&
     !await processIdentity(serviceBoot.identity.hostPid), "installation_restart_service_terminal_uncertain");
+   progressMark("restart-service-stop", "return");
    assert.deepEqual(await snapshot(), before, "installation_changed_before_restart");
+   progressMark("restart-container-stop", "enter");
    await docker(["container", "stop", "--time", "30", appId]);
    const stopped = await container(appId), stoppedState = object(stopped.State);
    assert(stopped.Id === before.fixed.appId && stopped.Image === before.fixed.imageId &&
@@ -657,16 +710,25 @@ fixtureRun: try {
     serviceProcessAbsent: true, application: { id: appId, imageId, running: stoppedState.Running,
      exitCode: stoppedState.ExitCode, oomKilled: stoppedState.OOMKilled, finishedAt: stoppedState.FinishedAt },
    });
+   progressMark("restart-container-stop", "return");
+   progressMark("restart-service-launch", "enter");
    serviceBoot = await launchService();
+   progressMark("restart-service-launch", "return");
+   progressMark("restart-snapshot-after", "enter");
    const after = await snapshot();
+   progressMark("restart-snapshot-after", "return");
    assert.deepEqual(after.fixed, before.fixed, "installation_restart_changed_original");
    assert.deepEqual(after.transport, before.transport, "installation_restart_changed_fixture_peer");
+   progressMark("restart-authority-after", "enter");
    assert.deepEqual(await readCurrentAuthority(), authority, "rehearsal_reopened_publishing_authority_changed");
+   progressMark("restart-authority-after", "return");
+   progressMark("restart-boot-verify", "enter");
    const freshBoots = after.boots.filter(row => !before.boots.some(previous => previous.bootId === row.bootId));
    assert(after.startedAt !== before.startedAt && freshBoots.length === 1 &&
     before.boots.every(previous => after.boots.some(row => canonical(row) === canonical(previous))) &&
     before.boots.every(row => row.planDigest === freshBoots[0]!.planDigest && row.artifactDigest === freshBoots[0]!.artifactDigest),
     "retained_application_boot_not_proved");
+   progressMark("restart-boot-verify", "return");
    await record("rehearsal-restart-new-boot.json", { after, authority, process: serviceBoot.identity });
    const reopenedArtifacts = join(artifacts, "reopened");
    await mkdir(reopenedArtifacts, { mode: 0o700 });
@@ -684,18 +746,28 @@ fixtureRun: try {
    });
    const afterApplication = join(reopenedArtifacts, "application-after");
    await mkdir(afterApplication, { mode: 0o700 });
+   progressMark("application-after", "enter");
    await manualApplication({
     ...browserInput, artifacts: afterApplication, origin, certificateFile, release,
     async control() {
+     progressMark("terminal-question-after", "enter");
      const final = await terminal.question("Notes application after restart> ", { signal: cancel.signal });
+     progressMark("terminal-question-after", "return");
      assert.equal(final, "stop", "unknown_rehearsal_terminal_choice");
     },
    });
+   progressMark("application-after", "return");
+   progressMark("notes-receipt-after", "enter");
    const notesAfter = await checkNotesReceipt(afterApplication, "after", authority);
+   progressMark("notes-receipt-after", "return");
+   progressMark("replay-final-checks", "enter");
    assert.deepEqual(await readCurrentAuthority(), authority, "rehearsal_notes_replay_authority_changed");
    assert.deepEqual(await snapshot(), after, "rehearsal_notes_replay_changed_installation");
    assert.deepEqual(notesAfter, notesBefore, "rehearsal_notes_replay_changed_original");
+   progressMark("replay-final-checks", "return");
+   progressMark("replay-record", "enter");
    await record("rehearsal-notes-replay.json", { observedAt: new Date().toISOString(), authority, notesAfter });
+   progressMark("replay-record", "return");
   } else assert(decision === "stop", "unknown_rehearsal_terminal_choice");
  } finally { terminal.close(); }
  await record("manual-demo-ended.json", { at: new Date().toISOString(),

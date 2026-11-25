@@ -90,12 +90,15 @@ def main():
 
     iso_root = scratch / 'close-iso-rebuild'
     demo_target = iso_root / '.local/web2-native-private-practice-reviewed/manual-demo.ts'
+    browser_target = iso_root / '.local/web2-native-private-practice-reviewed/manual-browser.ts'
     controller_target = iso_root / 'controller/guest-notes-controller.py'
     demo_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     controller_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     demo_target.write_bytes((vendored_root / 'manual-demo.ts').read_bytes())
+    browser_target.write_bytes((vendored_root / 'manual-browser.ts').read_bytes())
     controller_target.write_bytes((vendored_root / 'guest-notes-controller.py').read_bytes())
     demo_target.chmod(0o600)
+    browser_target.chmod(0o600)
     controller_target.chmod(0o600)
     subprocess.run(['genisoimage', '-quiet', '-R', '-V', 'PRT_CLOSE', '-o', 'close-instrumentation.iso', '.'],
                    check=True, cwd=iso_root)
@@ -103,6 +106,15 @@ def main():
     close_iso.write_bytes(rebuilt.read_bytes())
     close_iso.chmod(0o600)
     repinned['close-instrumentation.iso'] = hashlib.sha256(close_iso.read_bytes()).hexdigest()
+
+    bootstrap = bundle / 'guest-notes-bootstrap.sh'
+    raw = bootstrap.read_text()
+    demo_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-demo.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-demo.ts"'
+    browser_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-browser.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-browser.ts"'
+    raw = replace(raw, demo_install, demo_install + '\n' + browser_install)
+    bootstrap.write_text(raw)
+    bootstrap.chmod(0o700)
+    repinned['guest-notes-bootstrap.sh'] = hashlib.sha256(bootstrap.read_bytes()).hexdigest()
 
     manifest = bundle / 'NOTES-EXECUTION-SHA256SUMS'
     lines = []
