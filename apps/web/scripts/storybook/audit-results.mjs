@@ -211,6 +211,11 @@ export function summarizeAccessibilityRules(results) {
   return groups;
 }
 
+export function auditReceipt(run) {
+  const { results, ...metadata } = run;
+  return { ...metadata, summary: run.summary };
+}
+
 export function summarize(run) {
   const expected = run.expected ?? [];
   const results = run.results ?? [];
