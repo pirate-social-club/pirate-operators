@@ -126,61 +126,11 @@ const record = (name: string, value: unknown) => privateJSON(join(artifacts, nam
 const issuer = generateKeyPairSync("ed25519"), trust = { keyId: installationId, spki: issuer.publicKey.export({ format: "der", type: "spki" }).toString("base64") };
 const issuerFile = join(state, "service-secrets/issuer.pk8"); await writeFile(issuerFile, issuer.privateKey.export({ format: "der", type: "pkcs8" }), { flag: "wx", mode: 0o600 });
 const sign = <T>(body: T) => signRecord(body, trust, issuer.privateKey.export({ format: "der", type: "pkcs8" }));
-const bootstrapBody: Web2BootstrapRelease = { schema: "pirate.linux-web2-bootstrap-release/1", sourceHead: SOURCE, sourceTree: TREE, root: release, sourceRoot: release + "/source", execution: built.execution, files: built.files, sourceHashes: built.sourceHashes, imageId, artifactDigest: "0x" + canonicalDigest(built.files), sourceDigest: "0x" + canonicalDigest(built.sourceHashes) }, bootstrap = sign(bootstrapBody);
-const validatedRelease = await verifyWeb2BootstrapRelease(bootstrap, trust);
- assert(validatedRelease.imageId === imageId && validatedRelease.files["source/backend.ts"] === backendSha256,
-  "rehearsal_signed_bootstrap_changed");
-const holder = await processIdentity(process.pid); assert(holder);
-const lease = await acquireOperation(control, "native25-" + runId, installationId, { source: SOURCE, tree: TREE, state, scratch, artifacts }, holder.pidNamespace);
-const dockerConfig = join(state, "docker");
-const roleNames = ["registrar", "funder", "publisher", "moderator", "recognizer"] as const;
-const roles = new Map<string, { address: `0x${string}`; file: string }>();
-for (const name of roleNames) { const key = generatePrivateKey(), account = privateKeyToAccount(key), file = join(state, "service-secrets", name + ".key");
- await writeFile(file, Buffer.from(key.slice(2), "hex"), { flag: "wx", mode: 0o600 }); roles.set(name, { address: address(account.address.toLowerCase()), file });
- if (name === "publisher") await writeFile(join(state, "authority/publisher.key"), key, { flag: "wx", mode: 0o600 }); }
-const auth = randomBytes(32), roleSocket = join(control, "roles.sock");
-const { roleAgent, roleClient, role, recognition, chain } = await (async () => {
- const roleAgent = await startManagedKeyAgent({ directory: control, socket: roleSocket, installationId, lease, authenticationKey: auth,
- keys: ["registrar", "funder", "moderator", "recognizer"].map(ref => ({ ref, generation: 1, path: roles.get(ref)!.file, bytes: 32 })), signingKeyFile: issuerFile, trust, permittedProfileDigests: new Set(), capturedRoots: [join(state, "database"), join(state, "objects")] });
- let roleClient: Awaited<ReturnType<typeof createManagedKeyClient>> | undefined;
- try {
-  roleClient = await createManagedKeyClient({ socket: roleSocket, installationId, authenticationKey: auth, lease });
-  const client = roleClient, role = (ref: string) => client.withKey(ref, 1, async bytes => bytesToHex(bytes));
-  const recognition = recognitionInputs(await role("recognizer"), runId);
-  const chainStarted = performance.now();
-  const chain = await web2SongChain(recognition.profile, { evidenceDirectory: join(artifacts, "chain"), historyLimit: 20000 })
-   .catch(async (error: unknown) => {
-    try {
-     if (!machineOnly && process.env.PIRATE_MANUAL_BROWSER_CONTROL === "disposable-loopback") {
-      const name = error instanceof Error ? error.name : "";
-      const classes = ["WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError",
-       "TransactionNotFoundError", "HttpRequestError", "TimeoutError", "AssertionError", "AbortError"];
-      const errorClass = classes.includes(name) ? name : "Other";
-      const elapsedMs = Math.round(performance.now() - chainStarted);
-      await writeFile(join(ROOT, "notes-chain-init-refusal.json"),
-       JSON.stringify({ phase: "fixture-chain-init", errorClass, elapsedMs }) + "\n",
-       { flag: "wx", mode: 0o600, flush: true });
-     }
-    } catch { /* Preserve the original chain failure even if the diagnostic write fails. */ }
-    throw error;
-   });
-  return { roleAgent, roleClient, role, recognition, chain };
- } catch (error) { roleClient?.dispose(); await roleAgent.close(); throw error; }
- finally { auth.fill(0); }
-})();
 let external: Awaited<ReturnType<typeof actualExternalServices>> | undefined, hosted: Awaited<ReturnType<typeof hostedProducer>> | undefined;
 let router: ReturnType<typeof createServer> | undefined, socketRouter: ReturnType<typeof createServer> | undefined, helperServer: ReturnType<typeof tlsServer> | undefined;
 let sidecarId: string | undefined, appId: string | undefined, service: ChildProcess | undefined, currentBrowser: Browser | undefined, imageNetwork: string | undefined;
 let tickTimer: ReturnType<typeof setInterval> | undefined, tickWork = Promise.resolve(), miningWork = Promise.resolve(), closing: Promise<void> | undefined;
 let serviceStdout = "", serviceStderr = "";
-const cancel = new AbortController(), tickFacts: unknown[] = [];
-
-const deadline = setTimeout(() => cancel.abort(Error(rehearsalDeadline)), Math.max(0, demoDeadlineMs - Date.now()));
-const nativeName = "pw2-" + runId + "-app";
-async function container(id: string) { const rows: unknown = JSON.parse((await docker(["inspect", id])).stdout); assert(Array.isArray(rows) && rows.length === 1); return object(rows[0]); }
-async function stopContainer(id: string, label: "io.pirate.fixture" | "io.pirate.installation") { const row = await container(id); assert(row.Id === id && row.Image === imageId && object(object(row.Config).Labels)[label] === installationId); if (object(row.State).Running) await docker(["stop", "--time", "5", id]); }
-async function stopChild(child: ChildProcess) { if (child.exitCode !== null || child.signalCode !== null) return; const terminal = once(child, "exit"); child.kill("SIGTERM"); await Promise.race([terminal, new Promise<never>((_, reject) => setTimeout(() => reject(Error("owned_service_shutdown_uncertain")), 30000).unref())]); }
-const closeMark = (step: string) => appendFileSync(join(ROOT, "logs", "close.stderr.log"), new Date().toISOString() + " " + step + "\n");
 // Bounded rehearsal-progress instrumentation: append-only, synchronous, crash-durable.
 // Operation entry/return rows and role bindings go to native-progress.ndjson; periodic
 // resident-memory samples go to native-memory.ndjson. Both are diagnostic captures and
@@ -261,6 +211,56 @@ const memorySample = () => {
 roleMark("launcher", process.pid);
 memorySample();
 const memorySampler = setInterval(memorySample, 2000); memorySampler.unref();
+const bootstrapBody: Web2BootstrapRelease = { schema: "pirate.linux-web2-bootstrap-release/1", sourceHead: SOURCE, sourceTree: TREE, root: release, sourceRoot: release + "/source", execution: built.execution, files: built.files, sourceHashes: built.sourceHashes, imageId, artifactDigest: "0x" + canonicalDigest(built.files), sourceDigest: "0x" + canonicalDigest(built.sourceHashes) }, bootstrap = sign(bootstrapBody);
+const validatedRelease = await verifyWeb2BootstrapRelease(bootstrap, trust);
+ assert(validatedRelease.imageId === imageId && validatedRelease.files["source/backend.ts"] === backendSha256,
+  "rehearsal_signed_bootstrap_changed");
+const holder = await processIdentity(process.pid); assert(holder);
+const lease = await acquireOperation(control, "native25-" + runId, installationId, { source: SOURCE, tree: TREE, state, scratch, artifacts }, holder.pidNamespace);
+const dockerConfig = join(state, "docker");
+const roleNames = ["registrar", "funder", "publisher", "moderator", "recognizer"] as const;
+const roles = new Map<string, { address: `0x${string}`; file: string }>();
+for (const name of roleNames) { const key = generatePrivateKey(), account = privateKeyToAccount(key), file = join(state, "service-secrets", name + ".key");
+ await writeFile(file, Buffer.from(key.slice(2), "hex"), { flag: "wx", mode: 0o600 }); roles.set(name, { address: address(account.address.toLowerCase()), file });
+ if (name === "publisher") await writeFile(join(state, "authority/publisher.key"), key, { flag: "wx", mode: 0o600 }); }
+const auth = randomBytes(32), roleSocket = join(control, "roles.sock");
+const { roleAgent, roleClient, role, recognition, chain } = await (async () => {
+ const roleAgent = await startManagedKeyAgent({ directory: control, socket: roleSocket, installationId, lease, authenticationKey: auth,
+ keys: ["registrar", "funder", "moderator", "recognizer"].map(ref => ({ ref, generation: 1, path: roles.get(ref)!.file, bytes: 32 })), signingKeyFile: issuerFile, trust, permittedProfileDigests: new Set(), capturedRoots: [join(state, "database"), join(state, "objects")] });
+ let roleClient: Awaited<ReturnType<typeof createManagedKeyClient>> | undefined;
+ try {
+  roleClient = await createManagedKeyClient({ socket: roleSocket, installationId, authenticationKey: auth, lease });
+  const client = roleClient, role = (ref: string) => client.withKey(ref, 1, async bytes => bytesToHex(bytes));
+  const recognition = recognitionInputs(await role("recognizer"), runId);
+  const chainStarted = performance.now();
+  const chain = await web2SongChain(recognition.profile, { evidenceDirectory: join(artifacts, "chain"), historyLimit: 20000 })
+   .catch(async (error: unknown) => {
+    try {
+     if (!machineOnly && process.env.PIRATE_MANUAL_BROWSER_CONTROL === "disposable-loopback") {
+      const name = error instanceof Error ? error.name : "";
+      const classes = ["WaitForTransactionReceiptTimeoutError", "TransactionReceiptNotFoundError",
+       "TransactionNotFoundError", "HttpRequestError", "TimeoutError", "AssertionError", "AbortError"];
+      const errorClass = classes.includes(name) ? name : "Other";
+      const elapsedMs = Math.round(performance.now() - chainStarted);
+      await writeFile(join(ROOT, "notes-chain-init-refusal.json"),
+       JSON.stringify({ phase: "fixture-chain-init", errorClass, elapsedMs }) + "\n",
+       { flag: "wx", mode: 0o600, flush: true });
+     }
+    } catch { /* Preserve the original chain failure even if the diagnostic write fails. */ }
+    throw error;
+   });
+  return { roleAgent, roleClient, role, recognition, chain };
+ } catch (error) { roleClient?.dispose(); await roleAgent.close(); throw error; }
+ finally { auth.fill(0); }
+})();
+const cancel = new AbortController(), tickFacts: unknown[] = [];
+
+const deadline = setTimeout(() => cancel.abort(Error(rehearsalDeadline)), Math.max(0, demoDeadlineMs - Date.now()));
+const nativeName = "pw2-" + runId + "-app";
+async function container(id: string) { const rows: unknown = JSON.parse((await docker(["inspect", id])).stdout); assert(Array.isArray(rows) && rows.length === 1); return object(rows[0]); }
+async function stopContainer(id: string, label: "io.pirate.fixture" | "io.pirate.installation") { const row = await container(id); assert(row.Id === id && row.Image === imageId && object(object(row.Config).Labels)[label] === installationId); if (object(row.State).Running) await docker(["stop", "--time", "5", id]); }
+async function stopChild(child: ChildProcess) { if (child.exitCode !== null || child.signalCode !== null) return; const terminal = once(child, "exit"); child.kill("SIGTERM"); await Promise.race([terminal, new Promise<never>((_, reject) => setTimeout(() => reject(Error("owned_service_shutdown_uncertain")), 30000).unref())]); }
+const closeMark = (step: string) => appendFileSync(join(ROOT, "logs", "close.stderr.log"), new Date().toISOString() + " " + step + "\n");
 async function close() { return closing ??= (async () => { closeMark("enter"); clearTimeout(deadline); if (tickTimer) clearInterval(tickTimer); const errors: unknown[] = [];
  const settle = async (f: () => Promise<unknown>) => { try { await f(); } catch (e) { errors.push(e); } };
  closeMark("browser-before"); await settle(async () => currentBrowser?.close()); closeMark("browser-after");
