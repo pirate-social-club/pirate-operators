@@ -198,17 +198,12 @@ export const Loading: Story = {
 
 export const MountedLoading: Story = {
   name: "Mounted loading",
-  render: () => <StudyLoading onExit={noop} />,
-  parameters: {
-    a11y: {
-      config: {
-        rules: [
-          { id: "landmark-one-main", enabled: false },
-          { id: "page-has-heading-one", enabled: false },
-        ],
-      },
-    },
-  },
+  render: () => (
+    <main aria-label="Study loading">
+      <h1 class="sr-only">Study loading</h1>
+      <StudyLoading onExit={noop} />
+    </main>
+  ),
   play: async ({ canvasElement }) => {
     await expectLearningActivityFrameGeometry(canvasElement, { footer: false });
   },
