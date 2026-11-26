@@ -17,8 +17,8 @@ This amendment takes precedence over draft 3's per-line transaction/storage
 shape and version 1's mandatory per-line payment mechanism for the next
 implementation. It retains draft 3's public terminal coverage, corrections,
 prospective policies, fixed learning clock and independent reconstruction.
-The frozen [draft 3](contracts/learning-records.md), its source digest and
-[payment specification](operator-payments.md) remain historical references.
+The frozen [draft 3](../contracts/learning-records.md), its source digest and
+[payment specification](../operator-payments.md) remain historical references.
 [Encoding version 1](learning-records-contract.md) still describes existing
 code. Neither old readers nor old contracts implement this amendment.
 

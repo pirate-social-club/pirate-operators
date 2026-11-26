@@ -39,6 +39,6 @@ Primary controlled-TLD import remains separate from the application's hosting or
 
 ## Existing supporting evidence
 
-The [storage boundary](../storage-provider-boundary.md) validates role profiles and a Node Files SDK transport against real SDK protocol fixtures. It does not replace the application's R2 bindings or complete L01 through L10. Native component diagnostics are supporting qualification inputs; complete runtime and recovery evidence must be bound to the actual selected deployment.
+The [storage boundary](../deferred/storage-provider-boundary.md) validates role profiles and a Node Files SDK transport against real SDK protocol fixtures. It does not replace the application's R2 bindings or complete L01 through L10. Native component diagnostics are supporting qualification inputs; complete runtime and recovery evidence must be bound to the actual selected deployment.
 
 This independently owned community application contains its Solid frontend, decentralized API, MOSS and local cookie-session issuer. Earlier centralized implementations supply behavior and pure-source provenance, not required runtime containers. Keep the actual owning entrypoints and session boundary explicit in the deployment contract.

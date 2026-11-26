@@ -42,7 +42,7 @@ with no qualifying day. Twelve tests cover that real input and explicitly
 synthetic correction, policy, clock, eligibility, reorg and malformed-coverage
 cases. The separate five-song SQL unit verifies one community day and five song
 days. Synthetic traces are not live honest performances. The scoped independent
-[review](evidence/reference-results-v2-20261106/review.md) and frozen file manifest
+[review](../../evidence/reference-results-v2-20261106/review.md) and frozen file manifest
 are retained alongside the qualification evidence.
 
 This implementation understands V2 Karaoke only. It refuses an unconfigured or

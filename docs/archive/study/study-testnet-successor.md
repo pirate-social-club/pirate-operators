@@ -4,7 +4,7 @@ This lane follows the merged Karaoke implementation at
 3a5d4d18917bb4c5ebf96843132c4f4c1517c7a9 and imports the private Study component
 from PR 27 at 3feafd444d16d3c3eb5c92fc4c7662774c48cd43. The import is a source
 baseline, not live Study acceptance. Its original provenance and component
-limitations remain in [the handoff](study-slice-handoff.md).
+limitations remain in [the handoff](../handoffs/study-slice-handoff.md).
 
 ## Fixed product behavior
 
@@ -34,7 +34,7 @@ by importing the component.
 ## Protocol work required before release
 
 The local contract format is now frozen in
-[LearningResultsV3](contracts/learning-results-v3.md), with a new contract,
+[LearningResultsV3](../../contracts/learning-results-v3.md), with a new contract,
 typed Study codec, terminal-lesson adapter and independent source/result reader.
 These components are not connected to the deployed application yet. The
 local lesson service closes abandoned and expired lessons durably. Application

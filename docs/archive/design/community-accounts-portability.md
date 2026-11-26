@@ -3,14 +3,14 @@
 Launch applicability, November 8: the workspace owner is the only song
 publisher and publishes through the ordinary account, with no creator
 activation or posting-time Palm; see
-[owner-only MegaETH song publication](megaeth-song-publication.md). Learner
+[owner-only MegaETH song publication](../../megaeth-song-publication.md). Learner
 participation and cash-out verification rules are unchanged. The wallets,
 royalties and costs section describes deferred creator revenue routes.
 
-The 2026-11-06 [learner-held history specification](learner-history.md) owns
+The 2026-11-06 [learner-held history specification](../../deferred/learner-history.md) owns
 private language-history portability, optional encrypted backup and tutor access.
 Local community account IDs do not give communities ownership of that history.
-The [compact results amendment](learning-results-v2.md) supersedes the next
+The [compact results amendment](../../deferred/learning-results-v2.md) supersedes the next
 implementation's per-line payment/publication shape; the existing runtime
 observations below remain dated evidence.
 
@@ -46,10 +46,10 @@ No implementation estimate has been established. The MOSS consent lane owns
 verification of actual MOSS signatures and contract compatibility; adding an
 account ID cannot establish either.
 
-The [browser contract](community-web-client.md),
-[operator payments](operator-payments.md),
-[reward pool](reward-pool.md) and
-[Very reward scope](very-reward-scope.md) keep their existing security rules.
+The [browser contract](../../community-web-client.md),
+[operator payments](../../operator-payments.md),
+[reward pool](../../deferred/reward-pool.md) and
+[Very reward scope](../../deferred/very-reward-scope.md) keep their existing security rules.
 This document replaces the browser contract's wallet-as-account assumption,
 not its cookie, origin, CSRF, nonce or attempt-key requirements.
 

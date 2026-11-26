@@ -38,7 +38,7 @@ no deployment, signing, funding or credential operation.
 | 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Source merged and CI-qualified in [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58) at `9374f4c`. The combined first-song runtime is source-qualified in PR61; installed-host acceptance remains separate.                                                |
 | 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Host journey unqualified. PR60/61 qualify service/application source; the real Wizard/bootstrap/install/services join remains. HNS, names, learning-results and Dance remain disabled.                                                                                         |
 | 4a. Activities and shared feed   | V5 Study/Karaoke with private practice independent of publication grants; V2 Dance capture/review and separately consented public videos; canonical song references; aggregate indexing/playback; delisting, retention and deletion.                           | Requires the consent/Dance foundation, actual normal-route/media/source/profile and HTTP/queue/scheduler/Linux joins, and a green baseline. First-song acceptance remains separately useful.                                                                                   |
-| 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
+| 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../deferred/manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
 | 5. Release and handback          | Qualify the expanded Web2 scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                                  | Requires checkpoints 3, 4a and 4b. An invited first-song staging milestone may precede them; it is not completion of the expanded release. HNS remains independent.                                                                                                            |
 
 Checkpoint 2 fixes known failures without waiting for final contracts. Integrate
@@ -268,7 +268,7 @@ submission receipt. Identical retries preserve that deadline. Sources are
 [retention constants](../../packages/community-media/validation.ts),
 [reservation](../../services/community-media.ts),
 [submission](../../packages/community-media/submission.ts) and the
-[producer specification](../v1-video-dance-producer.md).
+[producer specification](../archive/lanes/v1/v1-video-dance-producer.md).
 
 Expiration or withdrawal denies subsequent private access. The
 [maintenance service](../../services/community-media-maintenance.ts) erases
@@ -441,7 +441,7 @@ source is [Posts V1](../../contracts/community/CommunityPostsV1.sol),
 
 The [earlier delivery graph](linux-compose-delivery-contract-v1.json) describes
 its pinned historical source and broader acceptance; this checkpoint governs
-pilot scope where they conflict. The [ordered onboarding contract](../v1-onboarding-linux-wizard.md)
+pilot scope where they conflict. The [ordered onboarding contract](../web2-onboarding-linux-wizard.md)
 still describes unimplemented joins. The [application review note](../review-checkpoint-20261114/README.md)
 retains actual prior qualification and limitations. Publishing this document
 adds no runtime capability and converts no failed or unrun check into a pass.

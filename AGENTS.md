@@ -49,12 +49,10 @@ Refuse mainnet chain IDs and public local fixture keys. Public-chain scripts
 are manual opt-in, use test tokens only and never run in default CI. Mainnet
 activity and managed production-key exports remain excluded.
 
-Spaces support is deferred beyond the decentralized community MVP. Wizard v1
-starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.
-The wizard may show Spaces only as disabled Coming soon
-information; do not implement or provision Spaces or generalize the directory
-for it as an MVP gate. Cloudflare Containers are a later candidate to qualify,
-not an accepted deployment target for the current Spaces stack.
+Spaces and Nostr are not product scope. Do not implement, provision or
+generalize the directory or wizard for either one. Treat historical references
+as archived exploration; any remaining legacy UI mention is cleanup debt, not a
+capability commitment.
 
 Keep provider simulations explicit and run the actual handlers, cryptography,
 WebSockets, storage and pool locally. The local protocol subset must be named;

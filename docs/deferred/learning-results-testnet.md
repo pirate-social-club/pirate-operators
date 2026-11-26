@@ -97,8 +97,8 @@ on MegaETH testnet 6343. Directory configuration revision 3 selects it. The
 application remains at the existing first-song origin and the operator is
 `pirate-learning-testnet-v2`. Alchemy retains the existing application resource
 identities and its authenticated dependency preservation copy. The exact
-[contract receipts](deployments/learning-results-testnet-20261106.contract.json)
-and [configuration and policy](deployments/learning-results-testnet-20261106.configuration.json)
+[contract receipts](../deployments/learning-results-testnet-20261106.contract.json)
+and [configuration and policy](../deployments/learning-results-testnet-20261106.configuration.json)
 are retained with this source. This section does not claim completed learner acceptance.
 
 The pilot qualification policy starts at learning period 5, on 2026-11-06 at
@@ -154,7 +154,7 @@ the wizard remain later work. Adding Study requires a result adapter and a
 contract successor; this deployed contract authorizes Karaoke only. Mainnet work starts only after deployed testnet
 learner acceptance, correction/recovery qualification and complete cost measurement.
 
-The workspace_owner completed the full song after the address-casing startup repair. One confirmed terminal publication contains all 23 ordered outcomes: 22 assessed and one silent. The public-only reader authenticated the complete source and result at a confirmed canonical head. This run precedes the prospective qualification policy and earns no qualifying day. The [actual run receipt](deployments/learning-results-testnet-20261106.real-run.json) records the transaction and reconstruction evidence without private word data.
+The workspace_owner completed the full song after the address-casing startup repair. One confirmed terminal publication contains all 23 ordered outcomes: 22 assessed and one silent. The public-only reader authenticated the complete source and result at a confirmed canonical head. This run precedes the prospective qualification policy and earns no qualifying day. The [actual run receipt](../deployments/learning-results-testnet-20261106.real-run.json) records the transaction and reconstruction evidence without private word data.
 
 The later workspace_owner instruction requires one-to-one centralized Karaoke presentation. It supersedes the earlier request merely to record the visual issues. Practice, lyric stage, progress header, rating feedback, loading/error scenes and completion use the centralized components pinned at c7cb87835a1858a1955c820b03d566365e6d42db, with import and type adapters only. A source parity check freezes eight presentation files and their CSS independently of the service adapter. The exact design-system dependency was already pinned to that revision.
 
@@ -166,7 +166,7 @@ Actual sponsored MOSS activation and ERC-1271 enrollment succeeded on testnet.
 The retained enrollment signature was 737 bytes. Activation used 327442 gas and
 enrollment used 340557 gas at 1000000 wei per gas. These are separate from
 recurring terminal-publication costs. The
-[MOSS receipts](deployments/learning-results-testnet-20261106.moss.json)
+[MOSS receipts](../deployments/learning-results-testnet-20261106.moss.json)
 record the one-time account path separately from the terminal publication receipt.
 
-The parity update is live on the existing first-song testnet origin with application profile d718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c. Public HTTP retrieval matched the tested HTML, JavaScript, CSS and error artwork. The [parity receipt](deployments/learning-results-testnet-20261106.ui-parity.json) records this verification. A later client-only type boundary repair passes a standalone web check without root service dependencies and emits identical bytes for all seven deployed assets; it needs no runtime reapply. The operator also includes the published capture repair that classifies audio abandoned by a dead provider stream as unmeasured. Earlier authenticated publications are not automatically rewritten.
+The parity update is live on the existing first-song testnet origin with application profile d718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c. Public HTTP retrieval matched the tested HTML, JavaScript, CSS and error artwork. The [parity receipt](../deployments/learning-results-testnet-20261106.ui-parity.json) records this verification. A later client-only type boundary repair passes a standalone web check without root service dependencies and emits identical bytes for all seven deployed assets; it needs no runtime reapply. The operator also includes the published capture repair that classifies audio abandoned by a dead provider stream as unmeasured. Earlier authenticated publications are not automatically rewritten.

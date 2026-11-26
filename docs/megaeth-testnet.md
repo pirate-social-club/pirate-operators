@@ -139,6 +139,6 @@ The real MOSS signature capture and fork rehearsal are preserved in
 `evidence/moss-consent-probe-2026-11-04.json` and
 `evidence/moss-activation-rehearsal-2026-11-04.json`. The account activation
 and attempt opening on the real network are still pending. The prepared
-[activation command](moss-activation.md) resumes its private journal after
+[activation command](deferred/moss-activation.md) resumes its private journal after
 interruption and enforces a total ceiling of 0.000001 test ETH. Its network
 checks are read-only unless the owner-approved `--send` flag is supplied.

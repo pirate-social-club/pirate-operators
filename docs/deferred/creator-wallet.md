@@ -2,7 +2,7 @@
 
 Launch applicability, November 8: deferred integration material. Under the
 adopted launch ruling the workspace owner is the only song publisher and
-publishes through [owner-only MegaETH song publication](megaeth-song-publication.md)
+publishes through [owner-only MegaETH song publication](../megaeth-song-publication.md)
 with no creator wallet, funding, registration or Royalties step. This document
 keeps the registered first-song journey and the preserved wallet and connection
 code accurate; it is not a launch requirement and implies no further wallet,
@@ -106,7 +106,7 @@ Direct creator SUI/IKA self-funding is deferred, not a v1 option.
 
 The owner-selected wizard requires Infisical for service/operator secrets;
 creator plaintext secrets never enter it. Alchemy remains the provisioning
-owner. Use ordinary HTTPS first, with HNS optional later and Spaces deferred.
+owner. Use ordinary HTTPS first, with HNS optional later; Spaces and Nostr are outside product scope.
 An incomplete release capability does not block site provisioning or ordinary
 MOSS participation. Show activation and song-registration readiness separately,
 and require the relevant acceptance evidence before enabling either live path.

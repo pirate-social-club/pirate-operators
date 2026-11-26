@@ -7,7 +7,7 @@ M3 remains incomplete.
 
 ## Observed live result
 
-The [redacted observation](evidence/very-probe-2026-11-03.json) records a run of
+The [redacted observation](../evidence/very-probe-2026-11-03.json) records a run of
 source `7b8a4eb702ab21fe125f34702385d1fac3033d7c` with one existing enrollment.
 All four proofs matched the requested fields and received `valid` from Very's
 hosted verifier. The candidate nullifier stayed the same across the first three

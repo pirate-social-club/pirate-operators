@@ -13,8 +13,8 @@ learning-results target. Baseline [PR58](https://github.com/pirate-social-club/p
 at `9374f4c`, Directory [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56)
 at `aef30d0`, and consent [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59)
 at `c6c98cb` are merged and CI-qualified source. V5/Dance V2 remain inactive
-pending application and policy qualification. First-song application/runtime
-and selected-host acceptance remain unqualified; optional HNS adoption and
+pending application and policy qualification. First-song application/runtime source is merged and CI-qualified;
+selected-host acceptance remains unqualified; optional HNS adoption and
 retaining historical source do not change that boundary.
 
 ## Source inventory and deployment boundaries
@@ -40,8 +40,8 @@ registry's factory/TLD interface. Pointing it at V3 is not a supported migration
 The bundled protocol-2 naming manifest is retained until an explicit accepted
 source selection replaces it.
 
-The [V4 sign-in](../learning-results-v4-sign-in.md) and
-[V4 rollout](../learning-v4-rollout.md) documents describe retained source. V4 uses
+The [V4 sign-in](../deferred/learning-results-v4-sign-in.md) and
+[V4 rollout](../deferred/learning-v4-rollout.md) documents describe retained source. V4 uses
 explicit `/2` deployment and activation profiles in the maintained Study tools.
 Their `/1` profiles describe the historical V3 rollout. A configured community's
 pinned source and unresolved journals remain authoritative until an explicit

@@ -7,9 +7,9 @@ protocol or real-provider checks have run.
 The [setup-to-first-song plan](decentralized-setup.md) is the current priority.
 This document restores the non-obsolete requirements accidentally removed from
 the staging protocol. Obsolete payment transport and public-chain deployment
-instructions are deleted. The [payment specification](operator-payments.md) owns
+instructions are deleted. The [payment specification](../../operator-payments.md) owns
 purchase accounting and current karaoke result fields. Its exact copy is published here so the protocol
-has a readable dependency. [Source provenance](payment-specification-source.json)
+has a readable dependency. [Source provenance](../../payment-specification-source.json)
 pins the payment document to the merged main baseline. The merged payment and
 learning-record runtime is present; its dated implementation notes do not prove
 managed-service or first-song acceptance.
@@ -275,7 +275,7 @@ not evidence that the wallet-keyed skeleton already satisfies this model.
 MOSS is the selected ordinary wallet. The implemented adapter must verify its
 actual signature/account format independently on MegaETH; the local ECDSA
 fixture is not that proof. The approved browser contract in
-[community-web-client.md](community-web-client.md) owns host-only cookies,
+[community-web-client.md](../../community-web-client.md) owns host-only cookies,
 Origin/CSRF handling, nonce expiry and renewal. Test actual wallet origin
 binding; a matching domain field alone does not establish which site requested
 the signature. Operator sign-in is needed for first-song posting, while
@@ -349,7 +349,7 @@ back through admission.
   key resumes it.
 - A different session key, an expired ticket, a different operator, or a
   manifest the operator cannot serve is refused.
-The [payment specification](operator-payments.md) owns attempt timing, the
+The [payment specification](../../operator-payments.md) owns attempt timing, the
 reconnect window, closure/reconciliation and the signed per-line result. It replaces the old
 metered fields and ceiling status. In the published specification, the
 terminal states are completed, abandoned, expired and payment_missing.
@@ -391,7 +391,7 @@ SponsorshipPolicy {
 Contract-purchase accounting reserves the quoted maximum at ticket issuance
 and reconciles against confirmed redemptions after the terminal payment window.
 An uncertain transaction stays reserved. The
-[payment specification](operator-payments.md) owns that accounting; no old
+[payment specification](../../operator-payments.md) owns that accounting; no old
 channel or voucher rules apply.
 These application quotas are not on-chain containment of a stolen purchase
 signer. See the credential exposure in [decentralized-setup.md](decentralized-setup.md).
@@ -434,7 +434,7 @@ The verifier accepts an entry only when:
    recomputes their hashes and fixed-denominator reward score. The denominator
    is positive, rewardScoreBps meets minRewardScoreBps, and
    unmeasuredCount * 10000 <= maxUnmeasuredBps * linesTotal. Playback meets
-   eligiblePlayback. [Payment specification section 6](operator-payments.md#6-qualification)
+   eligiblePlayback. [Payment specification section 6](../../operator-payments.md#6-qualification)
    owns the detailed score/status and hash checks.
 5. `endedAt` and the acceptance time both fall within the entry window,
    before `cutoff`.
@@ -460,7 +460,7 @@ selects a prize source nor makes reward deployment part of first-song setup.
 
 ## 11. Reward settlement boundary
 
-The existing [reward-pool contract](reward-pool.md) owns local settlement,
+The existing [reward-pool contract](../../deferred/reward-pool.md) owns local settlement,
 registration and withdrawal semantics. External Megapot research is separate;
 no Pirate contract deployment on its network follows. Reward funding remains
 undecided and is not a first-song prerequisite.
@@ -499,8 +499,8 @@ scope mapping alone is not an implemented membership adapter.
 ### 12.2 Credential adapter
 
 The versioned scope mapping and verified signal interpretation in
-[very-reward-scope.md](very-reward-scope.md) own the adapter. Its
-[assurance limits](very-assurance.md) remain explicit. A local fake credential
+[very-reward-scope.md](../../deferred/very-reward-scope.md) own the adapter. Its
+[assurance limits](../../deferred/very-assurance.md) remain explicit. A local fake credential
 is not provider acceptance. No provider proof is needed merely to authenticate
 the operator or publish an admitted song; extra sponsorship has its own limits.
 

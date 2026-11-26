@@ -1,8 +1,8 @@
 # Assessment, qualification and reward boundaries
 
-For the next implementation, the [compact public results amendment](../learning-results-v2.md)
+For the next implementation, the [compact public results amendment](../deferred/learning-results-v2.md)
 owns publication granularity, service payment modes and the unresolved MOSS
-consent route. [Private learner history](../learner-history.md) owns portable
+consent route. [Private learner history](../deferred/learner-history.md) owns portable
 tutor data. Existing grading, learning-clock and reward-authority distinctions
 below remain unless that amendment explicitly supersedes them.
 
@@ -109,7 +109,7 @@ must not introduce a competing activation history.
 
 ## Daily qualification
 
-The [existing policy](../operator-protocol.md) already has drawingId,
+The archived [operator protocol](../archive/design/operator-protocol.md) already has drawingId,
 entryOpensAt/cutoff, score and measurement thresholds, one entry per pool/drawing/
 wallet, and repeated qualifying attempts collapsing into that entry. Extend it
 with explicit task IDs/objectives, source revisions, accepted assessor policies

@@ -11,7 +11,7 @@ This inventory describes the community implementation at commit `3d21abf6bc2b0e3
 
 This community owns its Solid frontend in `apps/web/src/live`, HTTP API in `services/community-application.ts`, and cookie-session issuer in `packages/community/accounts.ts`. The existing packager builds `apps/web/dist/live` and bundles that application entrypoint. It retains the decentralized backend and MOSS account model.
 
-The community [web-client contract](../community-web-client.md), [account portability contract](../community-accounts-portability.md) and [application shell](../v1-shell-interface-v1.md) describe this boundary. Earlier centralized applications supply behavior and pure-source provenance; they are not required runtime services for this deployment.
+The community [web-client contract](../community-web-client.md), [archived account portability design](../archive/design/community-accounts-portability.md) and [application shell](../archive/lanes/v1/v1-shell-interface-v1.md) describe this boundary. Earlier centralized applications supply behavior and pure-source provenance; they are not required runtime services for this deployment.
 
 ## Complete service graph
 

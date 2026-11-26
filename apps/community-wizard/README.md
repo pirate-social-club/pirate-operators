@@ -15,13 +15,12 @@ separately while the Web2 community is usable. No manual Pirate approval step
 belongs in this flow.
 
 This README specifies that target; it is not a deployment or readiness report.
-The current create-only profile is a proof-qualified source milestone and cannot
-yet represent the required pending-HNS community. That gap must be implemented
-through the explicit versioned joins below, not by removing authority checks.
-No fresh genuine host target/readiness or runtime acceptance is established here.
+The hosted Wizard source can represent the pending ordinary-HTTPS community in
+its qualified fixture boundary, but no fresh genuine host target, public ingress,
+external-provider journey or installed runtime acceptance is established here.
 
 The ordered requirements, state meanings, pending profile proposal and exact
-ownership are in [the onboarding specification](../../docs/v1-onboarding-linux-wizard.md).
+ownership are in [the onboarding specification](../../docs/web2-onboarding-linux-wizard.md).
 It takes precedence over the older setup-page, per-TLD registry, operator-funded
 and provider-account onboarding instructions in this file's history.
 
@@ -107,17 +106,17 @@ Only genuine fresh proof and the actual admission/receipt/source checks enable
 verified namespace attachment and short grants. Verification lapse or namespace
 loss pauses relevant issuance/verified listing without NFT burn, seizure, loss
 of locked renewal terms or automatic reassociation. Native HNS-browser access
-is not a v1 gate. Spaces remains deferred.
+is not a v1 gate. Spaces and Nostr are outside product scope.
 
-## Source gaps and explicit version selection
+## Source boundaries and remaining joins
 
-Current V2 and create-only profile/3 still require a verified namespace proof
-before prepare/apply. Directory/configuration and signed profile/current-authority
-readbacks cannot yet represent the required pending HTTPS community. Core/W6/
-Storage must accept and implement a new explicit pending profile and scoped
-automatic registration, plus a later verified attachment operation. The public
-pending record contains no requested TLD or fabricated proof. Keep the original
-community key, installation mapping/resources, signed history and source pins.
+The Web2 Wizard consumer is merged source with scoped local qualification. It
+can represent a pending ordinary-HTTPS community, prepare hosted enrollment,
+retain the original installation draft, and reconcile interrupted operations in
+its fixture environment. The complete fresh-host journey is still unqualified:
+the real Wizard/bootstrap/install/services join, public DNS and ACME, external
+providers, member authentication, first-song playback, and ordinary restart must
+be proven on the selected host.
 
 The operational origin is currently immutable. Namespace attachment cannot
 silently add an origin, change cookie/CSRF/MOSS audiences or alter Learning
