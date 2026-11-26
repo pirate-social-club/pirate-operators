@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { types } from "node:util";
 import { join } from "node:path";
 import type { Web2DanceLiveProof } from "../../packages/community/web2-dance-live-proof.ts";
 import type { Web2PublicDanceServeCustody } from "./web2-public-dance-custody.ts";
@@ -87,6 +88,68 @@ import {
 } from "./web2-dance-retained-activation.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 import { validateProtectedPostsTarget, type ProtectedFirstSongInstallationInputs } from "./web2-protected-posts-mount.ts";
+
+// Disposable apply-substep diagnostic. Emits bounded single-line JSON records on
+// stderr in the established verification-event shape; no private content, and the
+// driver-side extractor revalidates every field before any export.
+function applyObservationErrorClass(error: unknown): string {
+  if (!types.isNativeError(error)) return "Other";
+  const code = Object.getOwnPropertyDescriptor(error, "code")?.value;
+  switch (code) {
+    case "ERR_ASSERTION": return "AssertionError";
+    case "ENOENT": return "NotFound";
+    case "EACCES":
+    case "EPERM": return "AccessDenied";
+    case "ENOSPC": return "NoSpace";
+    case "ETIMEDOUT": return "Timeout";
+    case "ECONNREFUSED": return "ConnectionRefused";
+  }
+  const name = Object.getOwnPropertyDescriptor(error, "name")?.value;
+  switch (name) {
+    case "TransactionNotFoundError":
+    case "TransactionReceiptNotFoundError":
+    case "HttpRequestError":
+    case "RpcRequestError":
+    case "TimeoutError":
+    case "InvalidSerializableTransactionError":
+    case "InvalidLegacyVError":
+      return name as string;
+  }
+  if (error instanceof TypeError) return "TypeError";
+  if (error instanceof SyntaxError) return "SyntaxError";
+  if (error instanceof RangeError) return "RangeError";
+  if (error instanceof assert.AssertionError) return "AssertionError";
+  return "Error";
+}
+
+function applyObservationEmit(operation: string, phase: string, extra?: Record<string, unknown>) {
+  console.error(JSON.stringify({ event: "web2-install-apply-observation", operation, phase, at: Date.now(), ...extra }));
+}
+
+async function applyObserved<T>(operation: string, work: () => Promise<T>, startSignal?: AbortSignal): Promise<T> {
+  const started = performance.now();
+  // Reauthorization runs inside polling loops. Retain its first failure without filling the receipt with successful checks.
+  const traceProgress = operation !== "reauthorize";
+  if (traceProgress) applyObservationEmit(operation, "enter");
+  try {
+    const result = await work();
+    if (traceProgress) applyObservationEmit(operation, "complete", {
+      elapsedMs: Math.round(performance.now() - started),
+      ...(startSignal ? { signalAborted: startSignal.aborted } : {}),
+    });
+    return result;
+  } catch (error) {
+    const message = error instanceof assert.AssertionError
+      ? Object.getOwnPropertyDescriptor(error, "message")?.value : undefined;
+    applyObservationEmit(operation, "throw", {
+      elapsedMs: Math.round(performance.now() - started),
+      errorClass: startSignal?.aborted && error === startSignal.reason ? "TimeoutError" : applyObservationErrorClass(error),
+      ...(typeof message === "string" && ["original_start_effect_uncertain", "original_start_intent_changed", "native_expanded_publication_selection_changed"].includes(message) ? { message } : {}),
+      ...(startSignal ? { signalAborted: startSignal.aborted } : {}),
+    });
+    throw error;
+  }
+}
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
 export interface Web2InstallationHostInputs {
@@ -645,7 +708,7 @@ export async function createWeb2Installation(
       exclusive(async () => {
         assert(!retainedOwner, "web2_dance_owner_setup_refused");
         const owned = structuredClone(selection),
-          { body, record } = await load(owned);
+          { body, record } = await applyObserved("load-original", () => load(owned));
         assert(!ingressFailure, "original_ingress_custody_unresolved");
         const original = nativeOriginal(record);
         if (prepareExpansion) {
@@ -688,24 +751,23 @@ export async function createWeb2Installation(
           });
         }
         const retained = { record, starting: true };
-        const admitted = await authorize(body.draft, body.planId, body.generation, retained);
-        const current = async () => {
+        const admitted = await applyObserved("authorize", () => authorize(body.draft, body.planId, body.generation, retained));
+        const current = () => applyObserved("reauthorize", async () => {
           const observed = await authorize(body.draft, body.planId, body.generation, retained);
           assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256 &&
             (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256) &&
             observed.trustedPublication?.raw === admitted.trustedPublication?.raw &&
             sameTrustedDance(observed.trustedDance, admitted.trustedDance),
             "native_expanded_publication_selection_changed");
-        };
+        });
         const intent = web2OriginalStartIntent(body);
-        const prior = await optionalRecord(
-          join(selected.planDirectory, "web2-start-intent.json"),
-        );
-        if (trusted && admitted.expanded)
-          assert(prior, "trusted_revision_two_original_start_required");
-        if (prior) {
-          assert(canonicalDigest(prior) === canonicalDigest(intent), "original_start_intent_changed");
-        }
+        const prior = await applyObserved("read-start-intent", async () => {
+          const priorIntent = await optionalRecord(join(selected.planDirectory, "web2-start-intent.json"));
+          if (trusted && admitted.expanded)
+            assert(priorIntent, "trusted_revision_two_original_start_required");
+          if (priorIntent) assert(canonicalDigest(priorIntent) === canonicalDigest(intent), "original_start_intent_changed");
+          return priorIntent;
+        });
         if (trusted && admitted.expanded) await current();
         if (posts) {
           await stagePostsSelector({original, graph: release.graph, target: selected.target,
@@ -758,7 +820,7 @@ export async function createWeb2Installation(
             await current();
           }
         }
-        await retain(selected.planDirectory, "web2-launch", {
+        await applyObserved("retain-launch", () => retain(selected.planDirectory, "web2-launch", {
           schema: "pirate.linux-web2-launch/1",
           release: selected.release,
           applicationRelease: selected.applicationRelease,
@@ -767,27 +829,30 @@ export async function createWeb2Installation(
           minimumGeneration: body.generation,
           privateRuntimeDirectory: selected.nativeRuntimeDirectory,
           maintenanceDirectory: selected.target.maintenanceDirectory,
-        });
+        }));
         if (prior) {
           // A lost create reply does not authorize creating/adopting missing resources.
-          const state = await controller.inspect(AbortSignal.timeout(45000));
-          assert(
-            state.resources.every((r) => r.actual !== null),
-            "original_start_effect_uncertain",
-          );
+          await applyObserved("inspect", async () => {
+            const state = await controller.inspect(AbortSignal.timeout(45000));
+            assert(
+              state.resources.every((r) => r.actual !== null),
+              "original_start_effect_uncertain",
+            );
+          });
         } else {
-          await retain(selected.planDirectory, "web2-start-intent", intent);
+          await applyObserved("retain-start-intent", () => retain(selected.planDirectory, "web2-start-intent", intent));
           await current();
-          await controller.create(AbortSignal.timeout(180000), current);
+          await applyObserved("create", () => controller.create(AbortSignal.timeout(180000), current));
         }
-        await retainPublicIngress(ingress, lease);
+        await applyObserved("retain-ingress", () => retainPublicIngress(ingress, lease));
         await current();
-        await controller.start(AbortSignal.timeout(120000), current);
-        await waitForCommunityIngress(
+        const startSignal = AbortSignal.timeout(120000);
+        await applyObserved("start", () => controller.start(startSignal, current), startSignal);
+        await applyObserved("ingress-wait", () => waitForCommunityIngress(
           ingress,
           body.draft.enrollment.communityId,
           current,
-        );
+        ));
         await current();
         if (admitted.trustedPublication) {
           await inspectTrustedSelection(admitted.trustedPublication, expectedDanceBoot(admitted.trustedDance));
@@ -804,7 +869,7 @@ export async function createWeb2Installation(
         }
         if (!edge) {
           try {
-            edge = await startPublicIngress(ingress, lease, current);
+            edge = await applyObserved("public-ingress-start", () => startPublicIngress(ingress, lease, current));
           } catch (error) {
             if (error instanceof IngressStartupFailure) ingressFailure = error;
             throw error;
