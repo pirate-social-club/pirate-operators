@@ -330,9 +330,7 @@ attribute every minute or establish that required testing should be removed.
 
 Advance checkpoints on concrete outputs and evidence, with no invented dates.
 The contract foundations, repaired baseline, first-song runtime and invited
-hosted enrollment service are merged and CI-qualified source. Current work joins
-the hosted Wizard consumer to fresh Linux bootstrap and its real installation
-producer. Selected-host acceptance remains open. Defer further plan-review loops unless a concrete
+hosted enrollment service are merged and CI-qualified source. The hosted Wizard-to-Linux join has a pinned 4 GiB VM acceptance pass at successor `299ebfe`: installation, publication, HTTPS playback, restart on the same store, replay with zero duplicates, and clean shutdown. Live Fluence staging acceptance remains open. Defer further plan-review loops unless a concrete
 implementation finding changes an accepted boundary.
 
 ## Additional addresses (deferred, after the Web2 pilot)

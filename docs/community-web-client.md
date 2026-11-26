@@ -61,7 +61,7 @@ Mirror authentication is a future extension. This is a deliberate origin and
 session boundary, not a limitation of IPFS hosting: static JavaScript can call
 live APIs, but this version does not authorize cross-origin browser sessions.
 
-Spaces and Nostr are outside product scope. Wizard v1 starts on ordinary
+Spaces are deferred beyond the MVP; Nostr is outside product scope. Wizard v1 starts on ordinary
 HTTPS, with HNS as optional later attachment work. The client and wizard must
 not present Spaces or Nostr setup, request keys or funds for them, or block
 supported setup on them.

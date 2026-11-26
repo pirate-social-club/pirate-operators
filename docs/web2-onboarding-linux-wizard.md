@@ -167,7 +167,22 @@ This ownership check precedes provisioning approval. It is distinct from the
 later routing, certificate and application checks. Failed or expired control
 requires a new valid challenge or supported reconciliation, not an override.
 
-### 3. Review and provision one complete installation
+### 3. Register and enroll automatically
+
+Before installation preparation begins, the scoped automatic registrar registers or reconciles the same community and configuration, then hosted enrollment produces its required evidence.
+Use the original idempotency key and retain the canonical receipt/checkpoint.
+There is no manual Pirate approval queue. A missing registrar implementation is
+an implementation gap, not a new operator instruction to contact staff.
+
+The registrar may create only the admitted neutral HTTPS community binding for
+the exact authorized installation/source/profile. Its credentials cannot grant
+namespace issuance, registry administration or HNS attester authority. Directory
+registration is not verified namespace discovery. Read back the actual accepted
+community/configuration through the selected reader before reporting its success.
+
+The Wizard must retain the registration receipt/readback and enrollment evidence required by the selected profile before it prepares installation. Do not fabricate a receipt or infer registration from a running website. HNS verification is not an appReady condition. Show distinct website, registration and naming statuses.
+
+### 4. Review and provision one complete installation
 
 Set a neutral human community title and the chosen canonical HTTPS origin.
 Generate technical identifiers and keep their details under Advanced. Preserve
@@ -209,7 +224,7 @@ before effects. One approving operation wins concurrent submissions. Dirty
 settings invalidate unstarted approval. Provision through the genuine owning
 backend; a setup page, empty callback or a capability declaration is insufficient.
 
-### 4. Configure routing and TLS, then verify the installation
+### 5. Configure routing and TLS, verify the installation, and open the actual site
 
 After provisioning yields the real ingress, show the actual routing records
 needed for the selected host. Ownership and routing records have separate check
@@ -236,27 +251,8 @@ authentication, media/publication and jobs under the selected profile. Private
 checks must use their real authentication; public checks must reach the public
 origin. Neither provider control nor an HNS ceremony result supplies this proof.
 
-### 5. Register automatically and open the actual site
 
-When the required hosting, control and installation checks pass, the scoped
-automatic registrar registers or reconciles the same community and configuration.
-Use the original idempotency key and retain the canonical receipt/checkpoint.
-There is no manual Pirate approval queue. A missing registrar implementation is
-an implementation gap, not a new operator instruction to contact staff.
-
-The registrar may create only the admitted neutral HTTPS community binding for
-the exact authorized installation/source/profile. Its credentials cannot grant
-namespace issuance, registry administration or HNS attester authority. Directory
-registration is not verified namespace discovery. Read back the actual accepted
-community/configuration through the selected reader before reporting its success.
-
-Report appReady only from actual HTTPS/full-app checks and any registration
-receipt/readback required by the selected profile. HNS verification is not an
-appReady condition. If registration is pending or uncertain, label it separately;
-do not fabricate a receipt or infer overall completion from a running website.
-Expose Open actual site only for the verified provisioned origin, never the setup
-listener. Show distinct website, registration and naming statuses.
-
+Report appReady only from actual HTTPS/full-app checks plus the already retained registration and enrollment evidence. Expose Open actual site only for the verified provisioned origin, never the setup listener.
 ### 6. Use the community and survive an ordinary restart
 
 Prove real member authentication and a different operator-published first song

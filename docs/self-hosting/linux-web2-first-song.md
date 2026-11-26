@@ -144,8 +144,7 @@ safe-state checks and mutation during a read; paired HTTP setup; and immutable
 D1 initialization with actual login/session binding. The paired close case also
 passed after adding recovery from an interrupted cleanup phase. Root TypeScript
 passed. These are component and integration checks on the current host. Later
-source changes require appropriate requalification. The installed
-service/application/browser and full restart journey remain UNRUN. The W1 Web2
+source changes require appropriate requalification. The installed service/application/browser and full restart journey have a pinned 4 GiB VM pass at successor `299ebfe`, including publication, HTTPS playback, restart on the same store, replay with zero duplicate effects, and clean shutdown. Live Fluence staging acceptance remains open and this paragraph does not qualify it. The W1 Web2
 application profile and consumer are explicit source dependencies; validators
 are imported from their owner, never copied into this installer.
 

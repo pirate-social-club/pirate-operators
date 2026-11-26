@@ -2,7 +2,7 @@
 
 This index is the reading entry point. Documents in the active surface are either current contracts or current implementation/runbook references. Documents under `deferred/` are approved or retained future work and must not be read as pilot scope. Documents under `archive/` are point-in-time evidence, lane handoffs, superseded designs, repair notes, and review records; they are preserved for provenance and are not maintained as current documentation.
 
-Spaces and Nostr are not product scope. Historical documents in the archive may mention them because they record earlier exploration; those mentions do not describe the current product.
+Spaces are deferred beyond the MVP; Nostr is not product scope. Historical documents in the archive may mention them because they record earlier exploration; those mentions do not describe the current product.
 
 ## Release authority and pilot path
 

@@ -106,7 +106,7 @@ Only genuine fresh proof and the actual admission/receipt/source checks enable
 verified namespace attachment and short grants. Verification lapse or namespace
 loss pauses relevant issuance/verified listing without NFT burn, seizure, loss
 of locked renewal terms or automatic reassociation. Native HNS-browser access
-is not a v1 gate. Spaces and Nostr are outside product scope.
+is not a v1 gate. Spaces are deferred beyond the MVP; Nostr is outside product scope.
 
 ## Source boundaries and remaining joins
 

@@ -2,7 +2,7 @@
 
 Pirate operators is the standalone, pre-launch implementation of independently operated Pirate communities. It contains the Solid community client, Linux/Web2 installation path, Worker services, MegaETH testnet contracts, publication pipeline, and local acceptance harness.
 
-The current product authority is the [Web2 release and optional HNS delivery plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md). The first invited pilot is deliberately narrow: a fresh Linux host, ordinary HTTPS, automatic community enrollment, plain member sign-in, one owner-published song, playback, and persistence through an ordinary restart. HNS is optional later attachment work, not a registration or gas prerequisite. Study, Karaoke, Dance, the shared feed, and rewards are expanded Web2 scope. Spaces and Nostr are not product scope.
+The current product authority is the [Web2 release and optional HNS delivery plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md). The first invited pilot is deliberately narrow: a fresh Linux host, ordinary HTTPS, automatic community enrollment, plain member sign-in, one owner-published song, playback, and persistence through an ordinary restart. HNS is optional later attachment work, not a registration or gas prerequisite. Study, Karaoke, Dance, the shared feed, and rewards are expanded Web2 scope. Spaces are deferred beyond the MVP; Nostr is not product scope.
 
 This is testnet software for disposable data. Nothing here is production qualified, backup/restore is unavailable in the pilot profile, and selected-host acceptance remains open even where source and hosted CI are green. Do not use real funds, production credentials, mainnet chain IDs, or irreplaceable content.
 

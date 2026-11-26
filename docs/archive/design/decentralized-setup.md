@@ -68,7 +68,7 @@ wizard must show the reviewed amounts and verify balances before the relevant
 transactions. Existing balances may suffice; any transfer still needs approval.
 
 The operator journey has six steps. The
-[wizard acceptance matrix](../../../apps/community-wizard/README.md#next-community-packaged-wizard-acceptance)
+[wizard acceptance matrix](../../../apps/community-wizard/README.md)
 and web-client D3/D8-D10 checks define its evidence, alongside creator-wallet
 C1-C13 and the [funding checks](../../deferred/creator-wallet-payments.md#first-song-acceptance).
 
