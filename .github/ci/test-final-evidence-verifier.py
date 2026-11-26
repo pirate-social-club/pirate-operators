@@ -258,6 +258,53 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     module.validate_launcher_interruption(broken)
 
+    def test_apply_observation_shape_accepted(self):
+        enter = {"event": "web2-install-apply-observation", "operation": "authorize", "phase": "enter",
+                 "at": 1764150400000}
+        complete = {"event": "web2-install-apply-observation", "operation": "authorize", "phase": "complete",
+                    "at": 1764150401000, "elapsedMs": 1000}
+        start_throw = {"event": "web2-install-apply-observation", "operation": "start", "phase": "throw",
+                       "at": 1764150521000, "elapsedMs": 120000, "errorClass": "TimeoutError",
+                       "signalAborted": True}
+        create_throw = {"event": "web2-install-apply-observation", "operation": "create", "phase": "throw",
+                        "at": 1764150521000, "elapsedMs": 300, "errorClass": "AssertionError",
+                        "message": "original_start_effect_uncertain"}
+        for module in (MODULE, COLLECTOR):
+            module.validate_apply_observation({"observations": [enter, complete]})
+            module.validate_apply_observation({"observations": [enter, start_throw]})
+            module.validate_apply_observation({"observations": [enter, create_throw]})
+            module.validate_apply_observation({"observations": [
+                dict(enter, operation="inspect"),
+                {"event": "web2-install-apply-observation", "operation": "start", "phase": "complete",
+                 "at": 1764150521000, "elapsedMs": 115000, "signalAborted": False},
+            ]})
+
+    def test_apply_observation_rejects_malformed_shape(self):
+        enter = {"event": "web2-install-apply-observation", "operation": "authorize", "phase": "enter",
+                 "at": 1764150400000}
+        complete = {"event": "web2-install-apply-observation", "operation": "authorize", "phase": "complete",
+                    "at": 1764150401000, "elapsedMs": 1000}
+        for module in (MODULE, COLLECTOR):
+            for broken in (
+                {"observations": []},
+                {"observations": [dict(enter, operation="verify")]},
+                {"observations": [dict(enter, phase="exit")]},
+                {"observations": [dict(enter, elapsedMs=5)]},
+                {"observations": [dict(complete, at="soon")]},
+                {"observations": [dict(complete, elapsedMs=-1)]},
+                {"observations": [dict(complete, elapsedMs=1800001)]},
+                {"observations": [dict(complete, signalAborted=False)]},
+                {"observations": [{k: v for k, v in complete.items() if k != "elapsedMs"}]},
+                {"observations": [dict(complete, phase="throw", errorClass="ArbitraryText")]},
+                {"observations": [dict(complete, phase="throw", errorClass="TimeoutError", message="Has Uppercase")]},
+                {"observations": [dict(complete, extra="field")]},
+                {"observations": [{"event": "web2-install-apply-observation", "operation": "start",
+                                   "phase": "complete", "at": 1764150521000, "elapsedMs": 115000}]},
+                {"unexpected": [enter]},
+            ):
+                with self.assertRaises(AssertionError):
+                    module.validate_apply_observation(broken)
+
     def test_empty_allowlisted_receipt_is_rejected_by_name(self):
         path = self.root / "empty.tar"
         archive(path, {"controller-terminal.json": b""})

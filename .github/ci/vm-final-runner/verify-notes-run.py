@@ -83,6 +83,7 @@ HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
     "service-child-exit-initial.json", "service-child-exit-restart.json", "launcher-interruption.json",
+    "apply-observation.json",
     "close-progress.json", "artifact-progress.json", "guest-memory.json",
     "native-progress.json", "native-memory.json",
 }
@@ -385,6 +386,43 @@ def validate_launcher_interruption(row):
     assert type(row["reason"]) is str and row["reason"] in LAUNCHER_INTERRUPTION_REASONS
 
 
+APPLY_OBSERVATION_OPERATIONS = {
+    "authorize", "create", "inspect", "retain-ingress", "start", "ingress-wait", "public-ingress-start",
+}
+
+
+def validate_apply_observation(row):
+    assert isinstance(row, dict) and set(row) == {"observations"}
+    entries = row["observations"]
+    assert isinstance(entries, list) and 1 <= len(entries) <= 128
+    for entry in entries:
+        assert isinstance(entry, dict)
+        base = {"event", "operation", "phase", "at"}
+        assert base <= set(entry)
+        assert entry["event"] == "web2-install-apply-observation"
+        assert entry["operation"] in APPLY_OBSERVATION_OPERATIONS
+        assert entry["phase"] in {"enter", "complete", "throw"}
+        assert type(entry["at"]) is int and 0 <= entry["at"] <= 2 ** 53
+        if entry["phase"] == "enter":
+            assert set(entry) == base
+            continue
+        elapsed = entry.get("elapsedMs")
+        assert type(elapsed) is int and 0 <= elapsed <= 1800000
+        extras = {"elapsedMs"}
+        if entry["operation"] == "start":
+            assert type(entry.get("signalAborted")) is bool
+            extras.add("signalAborted")
+        else:
+            assert "signalAborted" not in entry
+        if entry["phase"] == "throw":
+            assert entry.get("errorClass") in INSTALL_SERVER_CLASSES
+            extras.add("errorClass")
+            if "message" in entry:
+                assert type(entry["message"]) is str and re.fullmatch(r"[a-z0-9_]{1,80}", entry["message"])
+                extras.add("message")
+        assert set(entry) == base | extras
+
+
 def validate_install_server_refusal(row):
     base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
     assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
@@ -683,6 +721,8 @@ def verify_worker_hold(held):
         assert held[name]["phase"] == child_phase
     if "launcher-interruption.json" in held:
         validate_launcher_interruption(held["launcher-interruption.json"])
+    if "apply-observation.json" in held:
+        validate_apply_observation(held["apply-observation.json"])
 
 
 def assess(run, result):
@@ -755,6 +795,8 @@ def assess(run, result):
                     result.setdefault("serviceChildExit", {})[child_phase] = held[name]
             if "launcher-interruption.json" in held:
                 result["launcherInterruption"] = held["launcher-interruption.json"]
+            if "apply-observation.json" in held:
+                result["applyObservation"] = held["apply-observation.json"]
         return
     for unit in ("docker.socket", "docker.service", "containerd.service"):
         assert f"PIRATE_SMOKE_UNIT {unit} inactive" in serial

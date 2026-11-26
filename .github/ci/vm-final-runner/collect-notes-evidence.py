@@ -266,6 +266,43 @@ def validate_launcher_interruption(row):
     assert type(row["reason"]) is str and row["reason"] in LAUNCHER_INTERRUPTION_REASONS
 
 
+APPLY_OBSERVATION_OPERATIONS = {
+    "authorize", "create", "inspect", "retain-ingress", "start", "ingress-wait", "public-ingress-start",
+}
+
+
+def validate_apply_observation(row):
+    assert isinstance(row, dict) and set(row) == {"observations"}
+    entries = row["observations"]
+    assert isinstance(entries, list) and 1 <= len(entries) <= 128
+    for entry in entries:
+        assert isinstance(entry, dict)
+        base = {"event", "operation", "phase", "at"}
+        assert base <= set(entry)
+        assert entry["event"] == "web2-install-apply-observation"
+        assert entry["operation"] in APPLY_OBSERVATION_OPERATIONS
+        assert entry["phase"] in {"enter", "complete", "throw"}
+        assert type(entry["at"]) is int and 0 <= entry["at"] <= 2 ** 53
+        if entry["phase"] == "enter":
+            assert set(entry) == base
+            continue
+        elapsed = entry.get("elapsedMs")
+        assert type(elapsed) is int and 0 <= elapsed <= 1800000
+        extras = {"elapsedMs"}
+        if entry["operation"] == "start":
+            assert type(entry.get("signalAborted")) is bool
+            extras.add("signalAborted")
+        else:
+            assert "signalAborted" not in entry
+        if entry["phase"] == "throw":
+            assert entry.get("errorClass") in INSTALL_SERVER_CLASSES
+            extras.add("errorClass")
+            if "message" in entry:
+                assert type(entry["message"]) is str and re.fullmatch(r"[a-z0-9_]{1,80}", entry["message"])
+                extras.add("message")
+        assert set(entry) == base | extras
+
+
 def validate_install_server_refusal(row):
     base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
     assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
@@ -843,6 +880,16 @@ def collect_hold(session):
             pass
         else:
             write_json(session / "launcher-interruption.json", row)
+
+    apply_observation = ROOT / "notes-apply-observation.json"
+    if apply_observation.is_file():
+        try:
+            _raw, row = private_json(apply_observation)
+            validate_apply_observation(row)
+        except (AssertionError, OSError, TypeError, ValueError):
+            pass
+        else:
+            write_json(session / "apply-observation.json", row)
 
     for output, source in STATIC_RECEIPTS.items():
         file = ROOT / source

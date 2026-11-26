@@ -502,6 +502,9 @@ fixtureRun: try {
  const serviceExecutable = join(release, built.execution.node);
  const serviceArgv = ["--import", join(release, built.execution.loader), join(release, "source/deploy/linux/web2-service.ts"), serviceConfiguration];
  async function wait(test: () => Promise<boolean>, seconds: number) { const end = Date.now() + seconds * 1000; while (!(await test())) { cancel.signal.throwIfAborted(); assert(Date.now() < end, "bounded_native25_wait_expired"); await new Promise(r => setTimeout(r, 500)); } }
+ const applyOperations = new Set(["authorize", "create", "inspect", "retain-ingress", "start", "ingress-wait", "public-ingress-start"]);
+ const applyObservations: unknown[] = [];
+ let applyLinePending = "";
  async function launchService(observeInitialStartup = false, pairWaitSeconds = 120) {
   cancel.signal.throwIfAborted();
   await lease.assertHeld();
@@ -521,10 +524,43 @@ fixtureRun: try {
    appendFileSync(join(ROOT, "logs", "installed-service.stdout.log"), b);
    code ??= /Private pairing code: ([A-Za-z0-9_-]{43})/.exec(stdout)?.[1];
   });
+  const applyObservationScan = (chunk: string) => {
+   applyLinePending += chunk;
+   const lines = applyLinePending.split("\n");
+   applyLinePending = lines.pop()!;
+   for (const line of lines) {
+    if (!line.startsWith('{"event":"web2-install-apply-observation"') || line.length > 1024) continue;
+    let row: any;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (!row || row.event !== "web2-install-apply-observation" || !applyOperations.has(row.operation) ||
+     !["enter", "complete", "throw"].includes(row.phase) || !Number.isSafeInteger(row.at) || row.at < 0) continue;
+    if (row.phase !== "enter" && (!Number.isSafeInteger(row.elapsedMs) || row.elapsedMs < 0 || row.elapsedMs > 1800000)) continue;
+    if (row.phase === "throw" && typeof row.errorClass !== "string") continue;
+    if ("message" in row && (typeof row.message !== "string" || !/^[a-z0-9_]{1,80}$/.test(row.message))) continue;
+    if (row.operation === "start" && row.phase !== "enter" && typeof row.signalAborted !== "boolean") continue;
+    if (applyObservations.length >= 128) continue;
+    // Project only the validated fields so the collector's strict shape cannot be poisoned.
+    const projected: Record<string, unknown> = row.phase === "enter"
+     ? { event: row.event, operation: row.operation, phase: row.phase, at: row.at }
+     : { event: row.event, operation: row.operation, phase: row.phase, at: row.at, elapsedMs: row.elapsedMs };
+    if (row.phase === "throw") {
+     projected.errorClass = typeof row.errorClass === "string" && /^[A-Za-z]{1,40}$/.test(row.errorClass) ? row.errorClass : "Other";
+     if ("message" in row) projected.message = row.message;
+    }
+    if (row.operation === "start" && row.phase !== "enter") projected.signalAborted = row.signalAborted;
+    applyObservations.push(projected);
+    try {
+     writeFileSync(join(ROOT, "notes-apply-observation.json"),
+      JSON.stringify({ observations: applyObservations }) + "\n",
+      { mode: 0o600, flush: true });
+    } catch {} // Evidence capture cannot change the rehearsal outcome.
+   }
+  };
   child.stderr!.on("data", b => {
    if (serviceStderr.length + b.length > 4 * 1024 ** 2) { cancel.abort(Error("owned_service_log_bound")); return; }
    serviceStderr += String(b);
    appendFileSync(join(ROOT, "logs", "installed-service.stderr.log"), b);
+   applyObservationScan(String(b));
   });
   const launchPhase = observeInitialStartup ? "initial" : "restart";
   const spawnedAtMs = Date.now();
