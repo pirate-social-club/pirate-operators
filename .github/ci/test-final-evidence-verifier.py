@@ -172,6 +172,73 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     module.validate_install_server_refusal(broken)
 
+    def test_service_child_exit_shape_accepted(self):
+        base = {
+            "phase": "restart", "spawnedUtc": "2026-11-26T10:32:11.819Z",
+            "exitUtc": "2026-11-26T10:34:15.767Z", "elapsedMs": 123948,
+            "exitCode": 1, "signalCode": None, "pairCodeObserved": False,
+        }
+        for module in (MODULE, COLLECTOR):
+            module.validate_service_child_exit(dict(base))
+            module.validate_service_child_exit(dict(
+                base, phase="initial", exitCode=None, signalCode="SIGTERM", pairCodeObserved=True))
+            module.validate_service_child_exit(dict(base, exitCode=0, elapsedMs=0))
+
+    def test_service_child_exit_rejects_malformed_shape(self):
+        base = {
+            "phase": "restart", "spawnedUtc": "2026-11-26T10:32:11.819Z",
+            "exitUtc": "2026-11-26T10:34:15.767Z", "elapsedMs": 123948,
+            "exitCode": 1, "signalCode": None, "pairCodeObserved": False,
+        }
+        for module in (MODULE, COLLECTOR):
+            for broken in (
+                dict(base, exitCode=None, signalCode=None),
+                dict(base, exitCode=1, signalCode="SIGTERM"),
+                dict(base, exitCode=256),
+                dict(base, exitCode=-1),
+                dict(base, signalCode="SIGTERM with detail"),
+                dict(base, phase="relaunch"),
+                dict(base, elapsedMs=-1),
+                dict(base, exitUtc="2026-11-26T10:32:11.000Z"),
+                dict(base, spawnedUtc="not a stamp"),
+                dict(base, pairCodeObserved="yes"),
+                {k: v for k, v in base.items() if k != "elapsedMs"},
+                dict(base, extra="field"),
+            ):
+                with self.assertRaises(AssertionError):
+                    module.validate_service_child_exit(broken)
+
+    def test_launcher_interruption_shape_accepted(self):
+        for module in (MODULE, COLLECTOR):
+            module.validate_launcher_interruption({
+                "at": "2026-11-26T10:34:15.767Z",
+                "reason": "owned installed service exited before pairing",
+            })
+            module.validate_launcher_interruption({
+                "at": "2026-11-26T10:34:15.767Z", "reason": "unclassified-private-error",
+            })
+            module.validate_launcher_interruption({
+                "at": "2026-11-26T10:34:15.767Z", "reason": "bounded_native25_wait_expired",
+            })
+
+    def test_launcher_interruption_rejects_malformed_shape(self):
+        base = {
+            "at": "2026-11-26T10:34:15.767Z",
+            "reason": "owned installed service exited before pairing",
+        }
+        for module in (MODULE, COLLECTOR):
+            for broken in (
+                dict(base, reason="AssertionError [ERR_ASSERTION]: detail"),
+                dict(base, reason=""),
+                dict(base, reason="x" * 121),
+                dict(base, reason="MixedCase Detail"),
+                dict(base, at="not a stamp"),
+                {k: v for k, v in base.items() if k != "reason"},
+                dict(base, extra="field"),
+            ):
+                with self.assertRaises(AssertionError):
+                    module.validate_launcher_interruption(broken)
+
     def test_empty_allowlisted_receipt_is_rejected_by_name(self):
         path = self.root / "empty.tar"
         archive(path, {"controller-terminal.json": b""})

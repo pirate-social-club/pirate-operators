@@ -2,7 +2,7 @@
 // Actual installed app and bundled services; provider/account SDK transports explicitly simulated.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { appendFileSync, readFileSync, readdirSync, lstatSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync, lstatSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as tlsServer, request as tlsRequest } from "node:https";
@@ -526,6 +526,17 @@ fixtureRun: try {
    serviceStderr += String(b);
    appendFileSync(join(ROOT, "logs", "installed-service.stderr.log"), b);
   });
+  const launchPhase = observeInitialStartup ? "initial" : "restart";
+  const spawnedAtMs = Date.now();
+  child.once("exit", (exitCode, signalCode) => {
+   try {
+    writeFileSync(join(ROOT, "notes-service-child-exit-" + launchPhase + ".json"),
+     JSON.stringify({ phase: launchPhase,
+      spawnedUtc: new Date(spawnedAtMs).toISOString(), exitUtc: new Date().toISOString(),
+      elapsedMs: Date.now() - spawnedAtMs, exitCode, signalCode, pairCodeObserved: Boolean(code) }) + "\n",
+     { flag: "wx", mode: 0o600, flush: true });
+   } catch {} // Evidence capture cannot change the rehearsal outcome.
+  });
   child.on("error", () => cancel.abort(Error("owned_service_launch_error")));
   if (observeInitialStartup && child.pid !== undefined) {
    await startupMark("service-pid-observed");
@@ -818,6 +829,13 @@ fixtureRun: try {
   reason: cancel.signal.reason instanceof Error ? cancel.signal.reason.message : "stopped", stateRetained: true });
  requireSuccessfulRehearsalTerminal(cancel.signal);
 } catch (error) {
+ try {
+  const message = error instanceof Error ? error.message : "";
+  const bounded = /^[a-z0-9_ ]{1,120}$/.test(message) ? message : "unclassified-private-error";
+  writeFileSync(join(ROOT, "notes-launcher-interruption.json"),
+   JSON.stringify({ at: new Date().toISOString(), reason: bounded }) + "\n",
+   { flag: "wx", mode: 0o600, flush: true });
+ } catch {} // Evidence capture cannot change the rehearsal outcome.
  try { await record("manual-interruption.json", { at: new Date().toISOString(),
   reason: error instanceof Error ? error.message : "unknown", originalStateRetained: true,
   retry: "HELD_NO_AUTOMATIC_RELAUNCH_OR_NEW_ORIGINAL" }); }

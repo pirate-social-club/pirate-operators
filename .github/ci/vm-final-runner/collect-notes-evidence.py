@@ -233,6 +233,27 @@ def validate_install_server_container(row):
     assert type(container["exitCode"]) is int and 0 <= container["exitCode"] <= 255
 
 
+def validate_service_child_exit(row):
+    assert isinstance(row, dict) and set(row) == {"phase", "spawnedUtc", "exitUtc", "elapsedMs",
+                                                  "exitCode", "signalCode", "pairCodeObserved"}
+    assert row["phase"] in {"initial", "restart"}
+    assert UTC_STAMP.fullmatch(row["spawnedUtc"]) and UTC_STAMP.fullmatch(row["exitUtc"])
+    assert row["spawnedUtc"] <= row["exitUtc"]
+    assert type(row["elapsedMs"]) is int and 0 <= row["elapsedMs"] <= 5400 * 1000
+    assert row["exitCode"] is None or (type(row["exitCode"]) is int and 0 <= row["exitCode"] <= 255)
+    assert row["signalCode"] is None or (
+        type(row["signalCode"]) is str and re.fullmatch(r"SIG[A-Z0-9]{1,10}", row["signalCode"]))
+    assert (row["exitCode"] is None) != (row["signalCode"] is None)
+    assert type(row["pairCodeObserved"]) is bool
+
+
+def validate_launcher_interruption(row):
+    assert isinstance(row, dict) and set(row) == {"at", "reason"}
+    assert UTC_STAMP.fullmatch(row["at"])
+    assert type(row["reason"]) is str and (
+        re.fullmatch(r"[a-z0-9_ ]{1,120}", row["reason"]) or row["reason"] == "unclassified-private-error")
+
+
 def validate_install_server_refusal(row):
     base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
     assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
@@ -788,6 +809,28 @@ def collect_hold(session):
                     pass
                 else:
                     write_json(session / "install-server-refusal.json", evidence)
+
+    for child_phase in ("initial", "restart"):
+        child_exit = ROOT / f"notes-service-child-exit-{child_phase}.json"
+        if not child_exit.is_file():
+            continue
+        try:
+            _raw, row = private_json(child_exit)
+            validate_service_child_exit(row)
+            assert row["phase"] == child_phase
+        except (AssertionError, OSError, TypeError, ValueError):
+            continue
+        write_json(session / f"service-child-exit-{child_phase}.json", row)
+
+    interruption = ROOT / "notes-launcher-interruption.json"
+    if interruption.is_file():
+        try:
+            _raw, row = private_json(interruption)
+            validate_launcher_interruption(row)
+        except (AssertionError, OSError, TypeError, ValueError):
+            pass
+        else:
+            write_json(session / "launcher-interruption.json", row)
 
     for output, source in STATIC_RECEIPTS.items():
         file = ROOT / source

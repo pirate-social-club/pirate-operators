@@ -82,6 +82,7 @@ SUCCESS_OPTIONAL = {"native-progress.json", "native-memory.json"}
 HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
+    "service-child-exit-initial.json", "service-child-exit-restart.json", "launcher-interruption.json",
     "close-progress.json", "artifact-progress.json", "guest-memory.json",
     "native-progress.json", "native-memory.json",
 }
@@ -349,6 +350,27 @@ def validate_install_server_container(row):
     assert container["present"] is True
     assert type(container["running"]) is bool and type(container["oomKilled"]) is bool
     assert type(container["exitCode"]) is int and 0 <= container["exitCode"] <= 255
+
+
+def validate_service_child_exit(row):
+    assert isinstance(row, dict) and set(row) == {"phase", "spawnedUtc", "exitUtc", "elapsedMs",
+                                                  "exitCode", "signalCode", "pairCodeObserved"}
+    assert row["phase"] in {"initial", "restart"}
+    assert UTC_STAMP.fullmatch(row["spawnedUtc"]) and UTC_STAMP.fullmatch(row["exitUtc"])
+    assert row["spawnedUtc"] <= row["exitUtc"]
+    assert type(row["elapsedMs"]) is int and 0 <= row["elapsedMs"] <= 5400 * 1000
+    assert row["exitCode"] is None or (type(row["exitCode"]) is int and 0 <= row["exitCode"] <= 255)
+    assert row["signalCode"] is None or (
+        type(row["signalCode"]) is str and re.fullmatch(r"SIG[A-Z0-9]{1,10}", row["signalCode"]))
+    assert (row["exitCode"] is None) != (row["signalCode"] is None)
+    assert type(row["pairCodeObserved"]) is bool
+
+
+def validate_launcher_interruption(row):
+    assert isinstance(row, dict) and set(row) == {"at", "reason"}
+    assert UTC_STAMP.fullmatch(row["at"])
+    assert type(row["reason"]) is str and (
+        re.fullmatch(r"[a-z0-9_ ]{1,120}", row["reason"]) or row["reason"] == "unclassified-private-error")
 
 
 def validate_install_server_refusal(row):
@@ -640,6 +662,14 @@ def verify_worker_hold(held):
         row = held["browser-egress.json"]
         assert set(row) == {"browserClosed", "observedUtc"} and row["browserClosed"] is True
         assert UTC_STAMP.fullmatch(row["observedUtc"])
+    for child_phase in ("initial", "restart"):
+        name = f"service-child-exit-{child_phase}.json"
+        if name not in held:
+            continue
+        validate_service_child_exit(held[name])
+        assert held[name]["phase"] == child_phase
+    if "launcher-interruption.json" in held:
+        validate_launcher_interruption(held["launcher-interruption.json"])
 
 
 def assess(run, result):
@@ -706,6 +736,12 @@ def assess(run, result):
                 result["wizardInstallRefusal"] = held["wizard-install-refusal.json"]
             if "install-server-refusal.json" in held:
                 result["installServerRefusal"] = held["install-server-refusal.json"]
+            for child_phase in ("initial", "restart"):
+                name = f"service-child-exit-{child_phase}.json"
+                if name in held:
+                    result.setdefault("serviceChildExit", {})[child_phase] = held[name]
+            if "launcher-interruption.json" in held:
+                result["launcherInterruption"] = held["launcher-interruption.json"]
         return
     for unit in ("docker.socket", "docker.service", "containerd.service"):
         assert f"PIRATE_SMOKE_UNIT {unit} inactive" in serial
