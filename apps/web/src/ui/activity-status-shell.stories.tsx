@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { fn } from "storybook/test";
+import { expectLearningActivityFrameGeometry } from "../test-support/activity-frame-geometry.ts";
 import { ActivityStatusShell } from "./activity-status-shell.tsx";
 
 const meta = {
@@ -33,6 +34,9 @@ export const StudyEnded: Story = {
     progressTone: "success",
     primaryAction: { label: "New lesson", onClick: fn() },
   },
+  play: async ({ canvasElement }) => {
+    await expectLearningActivityFrameGeometry(canvasElement);
+  },
 };
 
 export const Loading: Story = {
@@ -42,6 +46,9 @@ export const Loading: Story = {
     exitIcon: "back",
     exitLabel: "Exit karaoke",
     onExit: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    await expectLearningActivityFrameGeometry(canvasElement, { footer: false });
   },
 };
 

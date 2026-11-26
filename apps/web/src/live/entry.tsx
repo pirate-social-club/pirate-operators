@@ -934,9 +934,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         <div class="live-study-overlay">
           <Show
             when={initialPractice.kind === "sing"}
-            fallback={<StudyLoading />}
+            fallback={<StudyLoading onExit={closeStudy} />}
           >
-            <KaraokeRouteLoadingState label="Loading karaoke" />
+            <KaraokeRouteLoadingState label="Loading karaoke" onExit={closeStudy} />
           </Show>
         </div>
       </Show>

@@ -136,3 +136,5 @@ export { createMediaQuery } from "@/lib/media-query";
 export { ErrorState } from "./ui/error-state.tsx";
 export { ActivityStatusShell } from "./ui/activity-status-shell.tsx";
 export { ActivityFooter } from "./ui/activity-footer.tsx";
+export { ActivityProgressHeader } from "./ui/activity-progress-header.tsx";
+export { LearningActivityFrame } from "./ui/learning-activity-frame.tsx";

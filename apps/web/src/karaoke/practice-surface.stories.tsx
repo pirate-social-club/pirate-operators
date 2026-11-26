@@ -2,6 +2,7 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { createSignal, onCleanup, onSettled } from "solid-js";
 import { expect, fn, userEvent, within } from "storybook/test";
+import { expectInsideLearningActivityColumn, expectLearningActivityFrameGeometry } from "../test-support/activity-frame-geometry.ts";
 
 import type { KaraokeResultsSummary } from "./results-model.ts";
 
@@ -15,7 +16,7 @@ const meta = {
   component: KaraokePracticeSurface,
   // Bind the owned lyric fixture directly instead of sending its array through args.
   render: (args) => (
-    <KaraokePracticeSurface {...args} lines={storyStageLines} />
+    <KaraokePracticeSurface {...args} lines={args.lines ?? storyStageLines} />
   ),
   parameters: {
     layout: "fullscreen",
@@ -59,14 +60,10 @@ export const NotScorable: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    // Karaoke keeps the shared header as it was: the back caret, full width.
     const exit = canvasElement.querySelector<HTMLElement>("[data-exit-icon]");
     if (exit === null) throw new Error("Expected the activity header");
     await expect(exit).toHaveAttribute("data-exit-icon", "back");
-    const header = exit.closest("header")!.getBoundingClientRect();
-    await expect(Math.round(header.width)).toBe(
-      Math.round(canvasElement.ownerDocument.documentElement.clientWidth),
-    );
+    await expectLearningActivityFrameGeometry(canvasElement, { footer: false });
   },
 };
 
@@ -85,6 +82,60 @@ export const PausedPrimed: Story = {
           "Signed-in, paused before the first line: the cue line is primed and the Start karaoke action is available.",
       },
     },
+  },
+};
+
+export const PausedPrimedGeometry: Story = {
+  ...PausedPrimed,
+  name: "Paused Primed Geometry",
+  play: async ({ canvasElement }) => {
+    const column = await expectLearningActivityFrameGeometry(canvasElement);
+    const lyric = canvasElement.querySelector(".karaoke-line");
+    if (!lyric) throw new Error("Expected a lyric line");
+    await expectInsideLearningActivityColumn(lyric, column);
+    const action = within(canvasElement).getByRole("button", { name: "Start karaoke" });
+    await expectInsideLearningActivityColumn(action, column);
+  },
+};
+
+function timedLongLine(text: string) {
+  const words = text.split(" ");
+  const startMs = 1000;
+  const endMs = 7000;
+  const step = (endMs - startMs) / words.length;
+  return {
+    id: "long-line",
+    text,
+    startMs,
+    endMs,
+    tokens: words.map((word, index) => ({
+      text: word,
+      startMs: Math.round(startMs + index * step),
+      endMs: Math.round(startMs + (index + 1) * step),
+      trailing: index < words.length - 1 ? " " : undefined,
+    })),
+  };
+}
+
+const longLyricLines = [
+  timedLongLine("I don't know why the harbor lights kept burning through the longest night while every wave was calling out your name"),
+  storyStageLines[1],
+];
+
+export const LongLyricGeometry: Story = {
+  ...PausedPrimed,
+  name: "Long Lyric Geometry",
+  args: {
+    ...PausedPrimed.args,
+    lines: longLyricLines,
+  },
+  play: async ({ canvasElement }) => {
+    const column = await expectLearningActivityFrameGeometry(canvasElement);
+    const lyric = canvasElement.querySelector(".karaoke-line");
+    if (!lyric) throw new Error("Expected the long lyric line");
+    await expectInsideLearningActivityColumn(lyric, column);
+    const action = within(canvasElement).getByRole("button", { name: "Start karaoke" });
+    await expectInsideLearningActivityColumn(action, column);
   },
 };
 

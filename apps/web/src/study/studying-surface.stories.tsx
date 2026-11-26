@@ -1,6 +1,7 @@
 // Independently owned copy of pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-surface.stories.tsx.
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { expect, within } from "storybook/test";
+import { expectLearningActivityFrameGeometry } from "../test-support/activity-frame-geometry.ts";
 
 import type { StudyingSurfaceState } from "./presentation/studying-model.ts";
 import {
@@ -296,21 +297,7 @@ export const MultipleChoiceWrong: Story = {
     await expect(
       canvas.queryByRole("button", { name: "Try again" }),
     ).toBeNull();
-    // Paper's desktop column is 640 wide, header included: the header is
-    // centred and lines up with the card column.
-    if (window.innerWidth >= 768) {
-      const column = box.parentElement!.getBoundingClientRect();
-      await expect(Math.round(column.width)).toBe(640);
-      const header = canvasElement
-        .querySelector<HTMLElement>("[data-study-header] header")!
-        .getBoundingClientRect();
-      await expect(Math.round(header.width)).toBe(640);
-      await expect(Math.round(header.left)).toBe(Math.round(column.left));
-      await expect(Math.round(header.right)).toBe(Math.round(column.right));
-      await expect(
-        Math.abs(header.left - (window.innerWidth - header.right)),
-      ).toBeLessThanOrEqual(1);
-    }
+    await expectLearningActivityFrameGeometry(canvasElement);
   },
 };
 

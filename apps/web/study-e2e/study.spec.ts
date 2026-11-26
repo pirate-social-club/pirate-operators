@@ -4,6 +4,7 @@ import {
   type Page,
   type APIRequestContext,
 } from "@playwright/test";
+import { expectLearningActivityFrame } from "../test/activity-frame-playwright.ts";
 declare global {
   interface Window {
     __studySounds: string[];
@@ -386,47 +387,55 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   await context.close();
 });
 
-test("a lesson has no time limit, and an unresolved lesson keeps its history when a new lesson opens", async ({
-  page,
-  request,
-}) => {
-  await page.goto("/");
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
-  const first = (await (await request.get("/__fixture")).json()).lesson;
-  // Days later the same lesson resumes; nothing expires it.
-  await request.patch("/__fixture", { data: { advanceMs: 3 * 86400000 } });
-  await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Lesson expired" }),
-  ).not.toBeVisible();
-  const resumed = (await (await request.get("/__fixture")).json()).lesson;
-  expect(resumed.lessonId).toBe(first.lessonId);
-  expect(
-    (await (await request.get("/api/study/lessons/" + first.lessonId)).json())
-      .status,
-  ).toBe("active");
-  const second = resumed;
-  await request.patch("/__fixture", { data: { failure: "unknown" } });
-  await record(page);
-  await expect(
-    page.getByText("This lesson can't continue. Start a new one."),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "New lesson" }).click();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
-  const ended = await (
-    await request.get("/api/study/lessons/" + second.lessonId)
-  ).json();
-  expect(ended.status).toBe("abandoned");
-  expect(ended.progress.firstPassGraded).toBe(0);
-  expect((await (await request.get("/__fixture")).json()).calls).toBe(1);
-});
+for (const width of [390, 1440]) {
+  test(`a lesson has no time limit, and an unresolved lesson keeps its frame when a new lesson opens at ${width}px`, async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    const frame = page.locator("main").first();
+    await page.goto("/");
+    await expect(
+      page.getByRole("button", { name: "Record", exact: true }),
+    ).toBeVisible();
+    await expectLearningActivityFrame(frame);
+    const first = (await (await request.get("/__fixture")).json()).lesson;
+    // Days later the same lesson resumes; nothing expires it.
+    await request.patch("/__fixture", { data: { advanceMs: 3 * 86400000 } });
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Record", exact: true }),
+    ).toBeVisible();
+    await expectLearningActivityFrame(frame);
+    await expect(
+      page.getByRole("heading", { name: "Lesson expired" }),
+    ).not.toBeVisible();
+    const resumed = (await (await request.get("/__fixture")).json()).lesson;
+    expect(resumed.lessonId).toBe(first.lessonId);
+    expect(
+      (await (await request.get("/api/study/lessons/" + first.lessonId)).json())
+        .status,
+    ).toBe("active");
+    const second = resumed;
+    await request.patch("/__fixture", { data: { failure: "unknown" } });
+    await record(page);
+    await expect(
+      page.getByText("This lesson can't continue. Start a new one."),
+    ).toBeVisible();
+    await expectLearningActivityFrame(frame);
+    await page.getByRole("button", { name: "New lesson" }).click();
+    await expect(
+      page.getByRole("button", { name: "Record", exact: true }),
+    ).toBeVisible();
+    await expectLearningActivityFrame(frame);
+    const ended = await (
+      await request.get("/api/study/lessons/" + second.lessonId)
+    ).json();
+    expect(ended.status).toBe("abandoned");
+    expect(ended.progress.firstPassGraded).toBe(0);
+    expect((await (await request.get("/__fixture")).json()).calls).toBe(1);
+  });
+}
 
 test("a legacy one-hour lesson still expires at its deadline and reopening Study starts a new lesson", async ({
   page,

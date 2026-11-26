@@ -1,22 +1,28 @@
 // Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import { Button, IconButton, IconCaretLeft, Spinner, Type } from "./ui.ts";
+import { ActivityProgressHeader } from "../ui/activity-progress-header.tsx";
+import { ActivityFooter } from "../ui/activity-footer.tsx";
+import { LearningActivityFrame } from "../ui/learning-activity-frame.tsx";
 
 export interface KaraokeRouteLoadingStateProps {
   label?: string;
+  onExit?: () => void;
 }
 
 export function KaraokeRouteLoadingState(props: KaraokeRouteLoadingStateProps) {
   return (
-    <main
-      aria-busy="true"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-label={props.label ?? "Loading"}
-      class="grid min-h-dvh w-full place-items-center bg-background text-foreground"
+    <LearningActivityFrame
+      as="main"
+      ariaAtomic
+      ariaBusy
+      ariaLabel={props.label ?? "Loading"}
+      ariaLive="polite"
+      contentClass="items-center justify-center"
+      header={props.onExit ? <ActivityProgressHeader exitLabel="Exit karaoke" onExit={props.onExit} /> : undefined}
     >
       <h1 class="sr-only">{props.label ?? "Loading"}</h1>
       <Spinner class="size-6" decorative />
-    </main>
+    </LearningActivityFrame>
   );
 }
 
@@ -37,17 +43,28 @@ function ErrorGhost() {
 
 export function KaraokeRouteLoadFailureState(props: KaraokeRouteLoadFailureStateProps) {
   return (
-    <main class="flex min-h-dvh items-center justify-center bg-background px-5 text-foreground">
-      <div class="flex w-full max-w-[350px] flex-col items-center text-center">
-        <ErrorGhost />
-        <Type as="h1" class="mt-5 text-xl" variant="h4">{props.title}</Type>
-        <Type as="p" class="mt-3 text-muted-foreground" variant="body">{props.description}</Type>
-        <div class="mt-5 flex w-full gap-3">
-          <Button class="h-13 flex-1" onClick={() => props.onRetry?.()} size="lg">Try Again</Button>
-          <Button class="h-13 flex-1" onClick={() => props.onGoHome?.()} size="lg" variant="secondary">Go Home</Button>
+    <LearningActivityFrame
+      as="main"
+      header={props.onGoHome ? (
+        <ActivityProgressHeader exitLabel="Exit karaoke" onExit={props.onGoHome} />
+      ) : undefined}
+      footer={(
+        <ActivityFooter
+          onPrimaryAction={() => props.onRetry?.()}
+          onSecondaryAction={() => props.onGoHome?.()}
+          primaryLabel="Try Again"
+          secondaryLabel="Go Home"
+        />
+      )}
+    >
+      <div class="flex flex-1 flex-col items-center justify-center px-5 text-center">
+        <div class="flex w-full max-w-[350px] flex-col items-center text-center">
+          <ErrorGhost />
+          <Type as="h1" class="mt-5 text-xl" variant="h4">{props.title}</Type>
+          <Type as="p" class="mt-3 text-muted-foreground" variant="body">{props.description}</Type>
         </div>
       </div>
-    </main>
+    </LearningActivityFrame>
   );
 }
 

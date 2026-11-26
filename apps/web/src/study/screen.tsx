@@ -8,7 +8,6 @@ import { createStudyingBrowserRecorder } from "./studying-browser-recorder.ts";
 import { StudyingRouteView } from "./studying-route-view.tsx";
 import type { StudyingRecorder } from "./studying-route-model.ts";
 import { StudyRouteLoadingState } from "./presentation/studying-route-states.tsx";
-import { ActivityProgressHeader } from "../karaoke/activity-progress-header.tsx";
 import {
   StudyCompletionFlow,
   type StudyCompletionCapability,
@@ -157,21 +156,5 @@ function OwnedStudyScreen(
 }
 
 export function StudyLoading(props: { onExit?: () => void }) {
-  return (
-    <div class="relative h-dvh w-full">
-      <Show when={props.onExit}>
-        <div class="absolute inset-x-0 top-0 z-10 mx-auto w-full max-w-[640px]">
-          <ActivityProgressHeader
-            progressMax={0}
-            progressValue={0}
-            progressTone="success"
-            exitIcon="close"
-            exitLabel="Exit study"
-            onExit={props.onExit}
-          />
-        </div>
-      </Show>
-      <StudyRouteLoadingState label="Loading Study" />
-    </div>
-  );
+  return <StudyRouteLoadingState label="Loading Study" onExit={props.onExit} />;
 }

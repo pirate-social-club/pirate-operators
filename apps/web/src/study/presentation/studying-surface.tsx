@@ -1,5 +1,5 @@
 // Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-surface.tsx; independently owned Paper/owner corrections recorded in the 2026-11-12 packet.
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 
 import {
@@ -16,9 +16,10 @@ import {
   Spinner,
   Type,
 } from "../ui.ts";
-import { ActivityProgressHeader } from "../../karaoke/activity-progress-header.tsx";
+import { ActivityProgressHeader } from "../../ui/activity-progress-header.tsx";
 import { ActivityResults, clampResultPercent, resultHeadline } from "../../karaoke/activity-results.tsx";
 import { ActivityFooter } from "../../ui/activity-footer.tsx";
+import { LearningActivityFrame } from "../../ui/learning-activity-frame.tsx";
 import {
   previousStreakForAnimation,
   primaryActionDisabled,
@@ -463,38 +464,43 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
   const primaryIcon = () => complete() || recordingBlocked() ? undefined : primaryActionIcon(props.state);
   const secondaryLabel = () => props.onStudyAgain && complete() && props.onExit && !props.completeActionLabel ? "Study again" : undefined;
   const secondaryAction = () => props.onStudyAgain;
+  const showHeader = createMemo(() => !complete());
+  const hasPrimaryAction = createMemo(() => Boolean(primaryLabel()));
 
   return (
-    <section class={cn("flex h-dvh w-full flex-col overflow-y-auto border border-border-soft bg-background text-foreground", props.class)}>
-      {/* A finished lesson needs no exit arrow or progress bar; Continue leaves. */}
-      <Show when={!complete()}>
-        {/* Paper: on desktop the header sits in the card's 640 column. The
-            shared header stays full width for Karaoke; Study caps it here. */}
-        <div class="mx-auto w-full max-w-[640px]" data-study-header>
-        <ActivityProgressHeader
-          exitIcon="close"
-          exitLabel="Exit study"
-          onExit={props.onExit}
-          progressMax={Math.max(0, props.lessonProgress?.totalCount ?? 0)}
-          progressValue={Math.max(0, Math.min(props.lessonProgress?.totalCount ?? 0, props.lessonProgress?.resolvedCount ?? 0))}
-          progressTone="success"
-          rewardLabel={props.state.kind === "locked" ? undefined : props.rewardLabel}
-          rewardPresentation="badge"
-        />
+    <LearningActivityFrame
+      as="section"
+      class={props.class}
+      header={showHeader() ? (
+        // A finished lesson needs no exit arrow or progress bar; Continue leaves.
+        <div data-study-header>
+          <ActivityProgressHeader
+            exitIcon="close"
+            exitLabel="Exit study"
+            onExit={props.onExit}
+            progressMax={Math.max(0, props.lessonProgress?.totalCount ?? 0)}
+            progressValue={Math.max(0, Math.min(props.lessonProgress?.totalCount ?? 0, props.lessonProgress?.resolvedCount ?? 0))}
+            progressTone="success"
+            rewardLabel={props.state.kind === "locked" ? undefined : props.rewardLabel}
+            rewardPresentation="badge"
+          />
         </div>
-      </Show>
+      ) : undefined}
+      footer={hasPrimaryAction() ? (
+        <ActivityFooter
+          onPrimaryAction={primaryAction()}
+          onSecondaryAction={secondaryAction()}
+          primaryDisabled={primaryActionDisabled(props.state)}
+          primaryIcon={primaryIcon()}
+          primaryLabel={primaryLabel()}
+          primaryVariant={primaryActionVariant(props.state)}
+          secondaryIcon={<IconArrowCounterClockwise class="size-5" />}
+          results={complete()}
+          secondaryLabel={secondaryLabel()}
+        />
+      ) : undefined}
+    >
       <Body onOptionSelect={props.onOptionSelect} rewardSlot={props.rewardSlot} state={props.state} />
-      <ActivityFooter
-        onPrimaryAction={primaryAction()}
-        onSecondaryAction={secondaryAction()}
-        primaryDisabled={primaryActionDisabled(props.state)}
-        primaryIcon={primaryIcon()}
-        primaryLabel={primaryLabel()}
-        primaryVariant={primaryActionVariant(props.state)}
-        secondaryIcon={<IconArrowCounterClockwise class="size-5" />}
-        results={complete()}
-        secondaryLabel={secondaryLabel()}
-      />
-    </section>
+    </LearningActivityFrame>
   );
 }
