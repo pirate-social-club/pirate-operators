@@ -247,11 +247,23 @@ def validate_service_child_exit(row):
     assert type(row["pairCodeObserved"]) is bool
 
 
+LAUNCHER_INTERRUPTION_REASONS = {
+    "owned installed service exited before pairing",
+    "bounded_native25_wait_expired",
+    "owned_service_launch_error",
+    "owned_service_log_bound",
+    "owned_service_shutdown_uncertain",
+    "root_native25_cancelled",
+    "root_native32_diagnostic_cancel",
+    "native25_3600_second_deadline",
+    "unclassified-private-error",
+}
+
+
 def validate_launcher_interruption(row):
     assert isinstance(row, dict) and set(row) == {"at", "reason"}
     assert UTC_STAMP.fullmatch(row["at"])
-    assert type(row["reason"]) is str and (
-        re.fullmatch(r"[a-z0-9_ ]{1,120}", row["reason"]) or row["reason"] == "unclassified-private-error")
+    assert type(row["reason"]) is str and row["reason"] in LAUNCHER_INTERRUPTION_REASONS
 
 
 def validate_install_server_refusal(row):

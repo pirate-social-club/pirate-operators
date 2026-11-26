@@ -172,6 +172,23 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     module.validate_install_server_refusal(broken)
 
+    def test_verify_worker_hold_pairs_server_refusal_with_prepare_or_install_502(self):
+        server = {"boundary": "install-apply", "errorClass": "Error", "message": "unclassified-private-error",
+                  "throwSite": "unknown", "responseStatus": 502}
+        client = {"stage": "install-response", "requestCount": 1, "responseStatus": 502, "errorClass": "AssertionError"}
+        held = {"wizard-install-refusal.json": client, "install-server-refusal.json": server}
+        MODULE.verify_worker_hold(held)
+        MODULE.verify_worker_hold({
+            "install-server-refusal.json": dict(server, boundary="wizard-before-install-port"),
+            "wizard-install-refusal.json": {"stage": "installation-prepare-response", "responseStatus": 502,
+                                           "errorClass": "AssertionError"},
+        })
+        for other in (dict(client, responseStatus=503), dict(client, stage="installation-status-response")):
+            with self.assertRaises(AssertionError):
+                MODULE.verify_worker_hold(dict(held, **{"wizard-install-refusal.json": other}))
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"install-server-refusal.json": server})
+
     def test_service_child_exit_shape_accepted(self):
         base = {
             "phase": "restart", "spawnedUtc": "2026-11-26T10:32:11.819Z",
@@ -232,6 +249,8 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 dict(base, reason=""),
                 dict(base, reason="x" * 121),
                 dict(base, reason="MixedCase Detail"),
+                dict(base, reason="private diagnostic detail"),
+                dict(base, reason="0" * 64),
                 dict(base, at="not a stamp"),
                 {k: v for k, v in base.items() if k != "reason"},
                 dict(base, extra="field"),

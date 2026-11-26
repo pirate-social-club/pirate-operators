@@ -831,7 +831,17 @@ fixtureRun: try {
 } catch (error) {
  try {
   const message = error instanceof Error ? error.message : "";
-  const bounded = /^[a-z0-9_ ]{1,120}$/.test(message) ? message : "unclassified-private-error";
+  const publicReasons = [
+   "owned installed service exited before pairing",
+   "bounded_native25_wait_expired",
+   "owned_service_launch_error",
+   "owned_service_log_bound",
+   "owned_service_shutdown_uncertain",
+   "root_native25_cancelled",
+   "root_native32_diagnostic_cancel",
+   rehearsalDeadline,
+  ];
+  const bounded = publicReasons.includes(message) ? message : "unclassified-private-error";
   writeFileSync(join(ROOT, "notes-launcher-interruption.json"),
    JSON.stringify({ at: new Date().toISOString(), reason: bounded }) + "\n",
    { flag: "wx", mode: 0o600, flush: true });
