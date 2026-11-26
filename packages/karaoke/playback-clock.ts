@@ -1,4 +1,4 @@
-// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-playback-clock.ts; see docs/karaoke-learner-handoff.md.
+// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-playback-clock.ts; see docs/archive/handoffs/karaoke-learner-handoff.md.
 export interface KaraokeClockObservation {
   captureMs: number;
   songMs: number;

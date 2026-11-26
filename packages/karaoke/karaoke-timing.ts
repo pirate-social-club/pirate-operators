@@ -1,4 +1,4 @@
-// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-timing.ts; see docs/karaoke-learner-handoff.md.
+// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-timing.ts; see docs/archive/handoffs/karaoke-learner-handoff.md.
 import type { KaraokeStageLine } from "./lyric-transform.ts";
 
 export const KARAOKE_LINE_HOLD_MS = 1600;

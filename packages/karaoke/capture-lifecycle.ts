@@ -1,4 +1,4 @@
-// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-capture-lifecycle.ts; see docs/karaoke-capture-handoff.md.
+// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-capture-lifecycle.ts; see docs/archive/handoffs/karaoke-capture-handoff.md.
 /**
  * Phase 5.2.4 — wires a {@link KaraokeMicCapture} engine to the transport's
  * capture hooks (SPEC §4.3/§4.4/§6). This is the single place that orders the

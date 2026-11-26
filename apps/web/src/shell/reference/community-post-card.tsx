@@ -1,6 +1,6 @@
 import { SongContentFrame } from "../player/song-content-frame.tsx";
 // Independently owned presentation from src/features/community/page-shell/page-shell.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Exact extraction/adapter boundaries: docs/v1-shell-owner-correction-20261111.md.
+// Exact extraction/adapter boundaries: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
 import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { CommunityAvatar, IconMusicNote, Type } from "../../design-system.ts";

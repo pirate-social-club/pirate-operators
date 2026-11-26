@@ -1,8 +1,8 @@
 // Standalone acceptance entry for the adopted Karaoke screen. Without a capture
 // fixture it plays a timed manifest and simulates an active take. With one, it
 // captures the microphone and streams to the operator socket the acceptance
-// host exposes. Not the live router; see docs/karaoke-learner-handoff.md and
-// docs/karaoke-capture-handoff.md.
+// host exposes. Not the live router; see docs/archive/handoffs/karaoke-learner-handoff.md and
+// docs/archive/handoffs/karaoke-capture-handoff.md.
 import { render } from "@solidjs/web";
 import { createSignal, Show } from "solid-js";
 import {

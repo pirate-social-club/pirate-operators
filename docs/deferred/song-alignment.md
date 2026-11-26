@@ -25,7 +25,7 @@ characters do not reproduce the text, or whose word entries are malformed,
 remains unavailable; nothing is interpolated. The request body is the
 centralized byte-exact multipart encoding, because FormData rewrites line
 breaks to CRLF. The community application runs the operation on the
-controller's signed request; see docs/karaoke-integration-handoff.md. The
+controller's signed request; see docs/archive/handoffs/karaoke-integration-handoff.md. The
 reviewed deployment and execution package remain outstanding. No provider call
 is established by local tests or by this document.
 

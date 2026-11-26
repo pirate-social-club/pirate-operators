@@ -11,8 +11,8 @@
     "sessionIssuer": "packages/community/accounts.ts through community-application challenge/verify routes",
     "authority": [
       "docs/community-web-client.md",
-      "docs/community-accounts-portability.md",
-      "docs/v1-shell-interface-v1.md"
+      "docs/archive/design/community-accounts-portability.md",
+      "docs/archive/lanes/v1/v1-shell-interface-v1.md"
     ],
     "centralRuntimeRequired": false,
     "scope": "This contract covers the independently deployed community implementation in pirate-operators: its Solid frontend, decentralized API and community-local cookie-session issuer. The earlier centralized implementations provide behavior and pure-source provenance; they are not runtime containers for this deployment."

@@ -1,5 +1,5 @@
 // Independently owned source copy. src/features/shell/navigation-model.ts @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Adapter differences: docs/v1-shell-owner-correction-20261111.md.
+// Adapter differences: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
 // The host capability adapter filters these pure destinations; no API import.
 
 /** One destination map for desktop, the mobile drawer and the available mobile tabs. */

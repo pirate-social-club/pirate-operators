@@ -1,4 +1,4 @@
-// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-capture-dsp.ts; see docs/karaoke-capture-handoff.md.
+// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-capture-dsp.ts; see docs/archive/handoffs/karaoke-capture-handoff.md.
 /**
  * Phase 5.2 capture DSP core — PURE, browser-independent (no AudioWorklet, no
  * AudioContext), so it is fully unit-testable off the worklet. The worklet

@@ -1,4 +1,4 @@
-// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/lyric-transform.ts; see docs/karaoke-learner-handoff.md.
+// Independently adopted from pirate-web-solid 667a6f22 src/features/karaoke/lyric-transform.ts; see docs/archive/handoffs/karaoke-learner-handoff.md.
 export interface KaraokeStageToken {
   text: string;
   startMs: number;

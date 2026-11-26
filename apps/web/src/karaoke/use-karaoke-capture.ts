@@ -8,7 +8,7 @@
 // scoring/use-karaoke-scoring-session.ts: the same lifecycle edge and recovery
 // generation guards, with operator-ticket identity replacing central sessions.
 // The protected capture-controller retains the independently owned orchestrator.
-// See docs/karaoke-capture-handoff.md and docs/v1-learning-surface-correction-20261111.md.
+// See docs/archive/handoffs/karaoke-capture-handoff.md and docs/archive/lanes/v1/v1-learning-surface-correction-20261111.md.
 import {
   createEffect,
   createMemo,

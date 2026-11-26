@@ -1,5 +1,5 @@
 // Independently owned presentation from src/features/songs/your-songs-page.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Exact extraction/adapter boundaries: docs/v1-shell-owner-correction-20261111.md.
+// Exact extraction/adapter boundaries: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
 const leaderboardLibraryHref = (href: string) => href;
 // The live entry owns document.title; no new head-manager dependency.
 import { createMemo, createSignal, For, Show } from "solid-js";

@@ -1,4 +1,4 @@
-// Independently adopted from api-next a5c63b8; provenance and policy in docs/study-slice-handoff.md.
+// Independently adopted from api-next a5c63b8; provenance and policy in docs/archive/handoffs/study-slice-handoff.md.
 import {
   phoneticStreamSimilarity,
   tokenPhoneCount,

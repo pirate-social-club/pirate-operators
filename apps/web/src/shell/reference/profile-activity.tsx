@@ -1,5 +1,5 @@
 // Independently owned source copy @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Exact source and dependency differences: docs/v1-shell-owner-correction-20261111.md.
+// Exact source and dependency differences: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
 import { getRequestEvent, type JSX } from "@solidjs/web";
 import {
   For,
