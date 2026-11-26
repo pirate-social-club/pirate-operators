@@ -7,6 +7,7 @@ import { expectInsideLearningActivityColumn, expectLearningActivityFrameGeometry
 import type { KaraokeResultsSummary } from "./results-model.ts";
 
 import { KaraokePracticeSurface } from "./practice-surface.tsx";
+import { Button } from "./ui.ts";
 import { storyArtworkSrc, storyStageLines } from "./story-fixtures.ts";
 
 const meta = {
@@ -322,6 +323,34 @@ export const PlaybackRefused: Story = {
   },
 };
 
+function RecoveryNoticeSlot() {
+  const [checked, setChecked] = createSignal(false);
+  return (
+    <div role="alert" class="rounded-lg bg-card p-4 text-center">
+      <p>Your result is still unavailable. Check the same take again.</p>
+      <Button variant="secondary" onClick={() => setChecked(true)}>
+        {checked() ? "Checked" : "Check status"}
+      </Button>
+    </div>
+  );
+}
+
+export const ActiveRecoveryNotice: Story = {
+  args: {
+    ...PausedPrimed.args,
+    singingStatus: "active",
+    statusSlot: <RecoveryNoticeSlot />,
+  },
+  play: async ({ canvasElement }) => {
+    const column = await expectLearningActivityFrameGeometry(canvasElement);
+    const action = within(canvasElement).getByRole("button", { name: "Check status" });
+    await expectInsideLearningActivityColumn(action, column);
+    await userEvent.click(action);
+    await expect(within(canvasElement).getByRole("button", { name: "Checked" })).toBeVisible();
+  },
+};
+
+/** The phone took the audio mid-take (a call, another app). One button resumes the same take. */
 /** The phone took the audio mid-take (a call, another app). One button resumes the same take. */
 export const PlaybackInterrupted: Story = {
   args: {

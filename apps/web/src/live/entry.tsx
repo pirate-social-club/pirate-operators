@@ -264,6 +264,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   function closeStudy() {
     setDancing({ kind: "none" });
     actionOwner.clear();
+    setOpening(false);
     setStudying(null);
     setSinging(null);
     setStudyLesson(undefined);

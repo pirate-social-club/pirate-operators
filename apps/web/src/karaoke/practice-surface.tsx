@@ -195,7 +195,7 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
         </>
       ) : undefined}
       contentLabel={ended() ? "Results" : undefined}
-      footer={footerKind() ? (
+      footer={footerKind() || props.statusSlot ? (
         <ActivityFooter
           error={footerKind() === "start" ? props.startError : undefined}
           notice={footerKind() === "interrupted"
@@ -207,13 +207,13 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
           onSecondaryAction={startAction}
           primaryDisabled={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
           primaryIcon={footerKind() === "start" && !resultsFooter() ? <IconMicrophoneStage class="size-5" /> : undefined}
-          primaryLabel={footerKind() === "interrupted"
+          primaryLabel={footerKind() ? (footerKind() === "interrupted"
             ? "Tap to continue"
             : footerKind() === "issue"
               ? "Start backing track"
               : resultsFooter()
                 ? "Continue"
-                : startLabel()}
+                : startLabel()) : undefined}
           primaryLoading={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
           primaryVariant="default"
           results={footerKind() === "start" && resultsFooter()}

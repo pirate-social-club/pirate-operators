@@ -28,7 +28,7 @@ export interface ActivityFooterProps {
 /** Shared mobile-safe action footer for Study, Karaoke and route status states. */
 export function ActivityFooter(props: ActivityFooterProps) {
   return (
-    <Show when={props.primaryLabel}>
+    <Show when={props.primaryLabel || props.topSlot || props.notice || props.error}>
       <footer class="sticky bottom-0 z-10 mx-auto w-full max-w-[640px] border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl">
         <Show when={props.topSlot}>
           {(slot) => <div class="mb-3">{slot()}</div>}
@@ -39,6 +39,7 @@ export function ActivityFooter(props: ActivityFooterProps) {
         <Show when={props.notice}>
           {(notice) => <p role="status" class="mb-3 text-center text-sm text-muted-foreground">{notice()}</p>}
         </Show>
+        <Show when={props.primaryLabel}>
         <div class={cn("mx-auto grid w-full max-w-[640px] gap-3", props.secondaryLabel && (props.results ? "grid-cols-2" : "sm:grid-cols-2"))}>
           <Show when={props.results && props.secondaryLabel}>
             <Button class="h-13 w-full" disabled={props.secondaryDisabled} leadingIcon={props.secondaryIcon} loading={props.secondaryLoading} onClick={props.onSecondaryAction} size="lg" variant="secondary">
@@ -73,6 +74,7 @@ export function ActivityFooter(props: ActivityFooterProps) {
             </Button>
           </Show>
         </div>
+        </Show>
       </footer>
     </Show>
   );
