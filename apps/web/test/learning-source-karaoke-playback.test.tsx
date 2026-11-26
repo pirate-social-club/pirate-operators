@@ -33,6 +33,7 @@ afterEach(() => {
 function mount(
   resumePlayback = vi.fn(async () => true),
   playbackAccess?: KaraokePlaybackAccess,
+  statusSlot?: JSX.Element,
 ) {
   const [status, setStatus] = createSignal<
     | "idle"
@@ -66,6 +67,7 @@ function mount(
         onPlay={onPlay}
         onTimeChange={onTimeChange}
         onPlaybackElement={onPlaybackElement}
+        statusSlot={statusSlot}
       />
     ),
     host,
@@ -99,6 +101,27 @@ test("starts the backing track once the scored microphone session becomes active
   expect(play).not.toHaveBeenCalled();
   setStatus("active");
   await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+});
+
+test("keeps route recovery status visible and actionable while a take is active", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const onCheck = vi.fn();
+  const { host, setStatus } = mount(
+    vi.fn(async () => true),
+    undefined,
+    <button onClick={onCheck} type="button">Check status</button>,
+  );
+  setStatus("active");
+  await vi.waitFor(() => {
+    const footer = host.querySelector('[data-activity-frame-slot="footer"]');
+    const action = button(host, "Check status");
+    expect(footer).not.toBeNull();
+    expect(action).toBeDefined();
+    expect(footer!.contains(action!)).toBe(true);
+  });
+  button(host, "Check status")!.click();
+  expect(onCheck).toHaveBeenCalledOnce();
 });
 
 test("offers gesture recovery and waits for a running context before restarting media", async () => {

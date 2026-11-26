@@ -764,7 +764,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
             when={!loading()}
             fallback={
               props.loadingSlot ?? (
-                <StudyRouteLoadingState label="Loading study" />
+                <StudyRouteLoadingState label="Loading study" onExit={props.onExit} />
               )
             }
           >

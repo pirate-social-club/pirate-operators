@@ -1,7 +1,7 @@
 // Adopted from pirate-web-solid 667a6f22 src/features/activity/activity-progress-header.tsx; independently owned Paper success/spacing correction, 2026-11-12.
 import { Show } from "solid-js";
 
-import { cn, IconButton, IconCaretLeft, IconGift, IconX } from "./ui.ts";
+import { cn, IconButton, IconCaretLeft, IconGift, IconX } from "../design-system.ts";
 
 export interface ActivityProgressHeaderProps {
   progressMax?: number;
@@ -43,7 +43,7 @@ export function ActivityProgressHeader(props: ActivityProgressHeaderProps) {
         onClick={props.onExit}
         variant="secondary"
       >
-        <Show when={props.exitIcon === "close"} fallback={<IconCaretLeft class="size-5" />}>
+        <Show when={props.exitIcon === "close"} fallback={<IconCaretLeft class="size-5 rtl:-scale-x-100" />}>
           <IconX class="size-5" />
         </Show>
       </IconButton>

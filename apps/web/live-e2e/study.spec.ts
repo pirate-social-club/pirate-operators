@@ -9,6 +9,7 @@ import {
 } from "./account-fixture.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
+import { expectLearningActivityFrame } from "../test/activity-frame-playwright.ts";
 import { readFile } from "node:fs/promises";
 
 async function expectNoPublicationPanel(page: Page) {
@@ -458,8 +459,7 @@ for (const width of [1366, 390]) {
     await expect(
       page.getByRole("navigation", { name: "Study policies" }),
     ).toHaveCount(0);
-    const header = await surface.locator("[data-study-header]").boundingBox();
-    expect(header!.width).toBeLessThanOrEqual(Math.min(width, 640));
+    await expectLearningActivityFrame(surface);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

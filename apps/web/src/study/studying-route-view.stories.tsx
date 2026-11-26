@@ -1,8 +1,10 @@
 // Independently owned copy of pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-route-view.stories.tsx.
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expectLearningActivityFrameGeometry } from "../test-support/activity-frame-geometry.ts";
 
 import { StudyingRouteView } from "./studying-route-view";
+import { StudyLoading } from "./screen.tsx";
 import {
   createAuthRequiredClient,
   createFailingClient,
@@ -91,6 +93,7 @@ export const RecordingOutcomeUnknown: Story = {
       canvas.queryByRole("button", { name: "Recording paused" }),
     ).toBeNull();
     await expect(canvas.queryByRole("button", { name: "Leave Study" })).toBeNull();
+    await expectLearningActivityFrameGeometry(canvasElement);
   },
 };
 
@@ -125,6 +128,7 @@ export const ExpiredLesson: Story = {
     await expect(
       canvas.getByRole("button", { name: "New lesson" }),
     ).toBeEnabled();
+    await expectLearningActivityFrameGeometry(canvasElement);
   },
 };
 
@@ -187,12 +191,32 @@ export const Loading: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    await expectLearningActivityFrameGeometry(canvasElement, { header: false, footer: false });
+  },
+};
+
+export const MountedLoading: Story = {
+  name: "Mounted loading",
+  render: () => (
+    <main aria-label="Study loading">
+      <h1 class="sr-only">Study loading</h1>
+      <StudyLoading onExit={noop} />
+    </main>
+  ),
+  play: async ({ canvasElement }) => {
+    await expectLearningActivityFrameGeometry(canvasElement, { footer: false });
+  },
 };
 
 export const LoadFailure: Story = {
   render: () => (
-    <StudyingRouteView client={createFailingClient()} postId={storyPostId} />
+    <StudyingRouteView client={createFailingClient()} onExit={noop} postId={storyPostId} />
   ),
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByRole("button", { name: "Try Again" });
+    await expectLearningActivityFrameGeometry(canvasElement);
+  },
 };
 
 export const AuthRequired: Story = {
@@ -200,9 +224,14 @@ export const AuthRequired: Story = {
     <StudyingRouteView
       client={createAuthRequiredClient()}
       onConnect={noop}
+      onExit={noop}
       postId={storyPostId}
     />
   ),
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByRole("button", { name: "Sign in" });
+    await expectLearningActivityFrameGeometry(canvasElement);
+  },
 };
 
 /** Record starts capture at once, with no recording notice in the flow; Stop is the only action until the take ends. */

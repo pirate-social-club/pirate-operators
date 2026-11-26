@@ -9,6 +9,7 @@ import {
   communityId,
   ownerAuthorId,
   catalogAudioPath,
+  catalogPostId,
   serveCommunity as serve,
 } from "./community-fixture.ts";
 import {
@@ -755,6 +756,35 @@ test("Karaoke retains its song route across reload and reads server attempt stat
     page.getByRole("heading", { name: "Your songs", exact: true }),
   ).toBeVisible();
 });
+
+for (const activity of ["study", "sing"] as const) {
+  test(`exiting a pending ${activity} deep link closes its loading overlay before the session resolves`, async ({
+    page,
+  }) => {
+    await serve(page, false, false, false, "strict-origin", { songs: true });
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+    await page.route(`${origin}/api/session`, async (route) => {
+      await sessionGate;
+      await route.fallback();
+    });
+    await page.goto(`${origin}/?${activity}=${catalogPostId}`);
+    const overlay = page.locator(".live-study-overlay");
+    const exit = overlay.getByRole("button", {
+      name: activity === "study" ? "Exit study" : "Exit karaoke",
+      exact: true,
+    });
+    await expect(exit).toBeVisible();
+    await exit.click();
+    expect(new URL(page.url()).searchParams.has(activity)).toBe(false);
+    await expect(overlay).toHaveCount(0);
+    releaseSession();
+    await expect(
+      page.getByRole("heading", { name: "Browser Fixture Community" }),
+    ).toBeVisible();
+    await expect(overlay).toHaveCount(0);
+  });
+}
 
 test("an anonymous Study deep link survives sign-in; malformed and missing song links recover visibly", async ({
   page,

@@ -848,19 +848,6 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
     >
       <div class="live-karaoke">
-        <Show when={notice() && song() && startPhase() === "idle" && (take() || finished())}>
-          <div
-            role="alert"
-            class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
-          >
-            <p>{notice()}</p>
-            <Show when={song() && !starting()}>
-              <Button variant="secondary" onClick={() => void checkResult()}>
-                Check status
-              </Button>
-            </Show>
-          </div>
-        </Show>
         <Show
           when={loaded()}
           fallback={
@@ -941,6 +928,16 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                   singingStatus={singingStatus()}
                   summary={finished()?.result.presentation ?? null}
                   startError={startError() ?? undefined}
+                  statusSlot={notice() && song() && startPhase() === "idle" && (take() || finished()) ? (
+                    <div role="alert" class="rounded-lg bg-card p-4 text-center">
+                      <p>{notice()}</p>
+                      <Show when={song() && !starting()}>
+                        <Button variant="secondary" onClick={() => void checkResult()}>
+                          Check status
+                        </Button>
+                      </Show>
+                    </div>
+                  ) : undefined}
                   bestCombo={
                     finished()?.result.presentation?.bestCombo ??
                     currentFeedback().bestCombo
