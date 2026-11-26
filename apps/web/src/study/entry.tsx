@@ -10,7 +10,7 @@ const response = await fetch("/api/study/config", {
 });
 if (!response.ok)
   document.getElementById("app")!.textContent =
-    "Study is unavailable. Sign in and try again.";
+    "Study is unavailable. Try again.";
 else {
   const config: { song: StudySong; csrf: string; account: string } =
     await response.json();

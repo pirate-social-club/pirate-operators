@@ -4,8 +4,8 @@ import { Show } from "solid-js";
 import { cn, IconButton, IconCaretLeft, IconGift, IconX } from "./ui.ts";
 
 export interface ActivityProgressHeaderProps {
-  progressMax: number;
-  progressValue: number;
+  progressMax?: number;
+  progressValue?: number;
   /** Reward value for this activity. Shown as the gift mark's accessible name. */
   rewardLabel?: string;
   /** Uses the compact gift mark from the studying reference or the karaoke badge. */
@@ -28,8 +28,9 @@ function clampProgress(value: number, max: number): number {
 }
 
 export function ActivityProgressHeader(props: ActivityProgressHeaderProps) {
-  const value = () => clampProgress(props.progressValue, props.progressMax);
-  const progressPercent = () => props.progressMax > 0 ? (value() / props.progressMax) * 100 : 0;
+  const value = () => clampProgress(props.progressValue ?? 0, props.progressMax ?? 0);
+  const hasProgress = () => props.progressMax !== undefined && props.progressMax > 0;
+  const progressPercent = () => hasProgress() ? (value() / props.progressMax!) * 100 : 0;
   const rewardPresentation = () => props.rewardPresentation ?? "badge";
   const progressTone = () => props.progressTone ?? "warning";
 
@@ -47,22 +48,24 @@ export function ActivityProgressHeader(props: ActivityProgressHeaderProps) {
         </Show>
       </IconButton>
       <div class={cn("flex h-9 min-w-0 flex-1 items-center", rewardPresentation() === "icon" && "gap-3")}>
-        <div
-          aria-label="Activity progress"
-          aria-valuemax={props.progressMax}
-          aria-valuemin="0"
-          aria-valuenow={value()}
-          class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary"
-          role="progressbar"
-        >
+        <Show when={hasProgress()}>
           <div
-            class={cn(
-              "h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none",
-              progressTone() === "success" ? "bg-success" : "bg-warning",
-            )}
-            style={{ width: `${progressPercent()}%` }}
-          />
-        </div>
+            aria-label="Activity progress"
+            aria-valuemax={props.progressMax}
+            aria-valuemin="0"
+            aria-valuenow={value()}
+            class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary"
+            role="progressbar"
+          >
+            <div
+              class={cn(
+                "h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none",
+                progressTone() === "success" ? "bg-success" : "bg-warning",
+              )}
+              style={{ width: `${progressPercent()}%` }}
+            />
+          </div>
+        </Show>
         <Show when={props.rewardLabel}>
           {(rewardLabel) => (
             <Show

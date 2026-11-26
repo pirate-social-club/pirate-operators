@@ -7,6 +7,7 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @import "@pirate/web-solid-ui/styles/tokens.css";
+@import "./accessible-tokens.css";
 
 @source "../client";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";

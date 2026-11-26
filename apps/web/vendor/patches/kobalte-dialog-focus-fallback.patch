@@ -1,0 +1,32 @@
+--- a/dist/dialog/DZMZsnbW.js
++++ b/dist/dialog/DZMZsnbW.js
+@@ -72,8 +72,11 @@
+ 	const onCloseAutoFocus = (e) => {
+ 		mergedProps.onCloseAutoFocus?.(e);
+ 		if (context.modal()) {
+-			e.preventDefault();
+-			context.triggerRef()?.focus({ preventScroll: true });
++			const trigger = context.triggerRef();
++			if (trigger?.isConnected) {
++				e.preventDefault();
++				trigger.focus({ preventScroll: true });
++			}
+ 		} else {
+ 			if (!e.defaultPrevented) {
+ 				if (!hasInteractedOutside) context.triggerRef()?.focus({ preventScroll: true });
+--- a/dist/dialog/C9YDO9vc.jsx
++++ b/dist/dialog/C9YDO9vc.jsx
+@@ -67,8 +67,11 @@
+ 	const onCloseAutoFocus = (e) => {
+ 		mergedProps.onCloseAutoFocus?.(e);
+ 		if (context.modal()) {
+-			e.preventDefault();
+-			context.triggerRef()?.focus({ preventScroll: true });
++			const trigger = context.triggerRef();
++			if (trigger?.isConnected) {
++				e.preventDefault();
++				trigger.focus({ preventScroll: true });
++			}
+ 		} else {
+ 			if (!e.defaultPrevented) {
+ 				if (!hasInteractedOutside) context.triggerRef()?.focus({ preventScroll: true });

@@ -46,6 +46,8 @@ export interface KaraokePracticeSurfaceProps {
   summary?: KaraokeResultsSummary | null;
   /** Longest run of well-sung lines, from the client's live feedback. */
   bestCombo?: number;
+  /** Start-screen feedback; result recovery notices belong to the page overlay. */
+  startError?: string;
 }
 
 interface AudioElementRef {
@@ -248,6 +250,13 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
       </Show>
       <Show when={props.onStartSinging && props.singingStatus !== "active"}>
         <footer class="border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl sm:px-6">
+          <Show when={props.startError}>
+            {(message) => (
+              <p role="alert" class="mb-3 text-center text-sm text-destructive-text">
+                {message()}
+              </p>
+            )}
+          </Show>
           {/* Results: "Sing again" and Continue side by side, Continue on the right. */}
           <div class={ended() && props.onExit ? "mx-auto grid w-full max-w-3xl grid-cols-2 gap-3" : "mx-auto grid w-full max-w-3xl gap-3"}>
             <Button

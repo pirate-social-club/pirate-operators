@@ -54,9 +54,9 @@ for (const status of [401, 409])
                 endpointStatus: 200,
               },
             }
-          : /confirm this take/,
+          : /karaoke_start_outcome_unknown/,
       );
-      await assert.rejects(port.ticket(), /confirm this take/);
+      await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
       assert.equal(writes, 1);
       observedOpen = true;
       assert.equal((await port.ticket()).ticketId, "original-ticket");

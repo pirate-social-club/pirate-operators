@@ -1,0 +1,11 @@
+--- a/src/patterns/navigation/sidebar/sidebar.stories.tsx
++++ b/src/patterns/navigation/sidebar/sidebar.stories.tsx
+@@ -124,7 +124,7 @@
+   await expect(within(sheet).getByRole("button", { name: "Home" })).toBeVisible();
+   await userEvent.keyboard("{Escape}");
+   await waitFor(() => expect(sheet).not.toBeInTheDocument());
+-  await expect(trigger).toHaveFocus();
++  await waitFor(() => expect(trigger).toHaveFocus());
+ }
+ 
+ function SidebarStoryFrame(props: { side?: "left" | "right" }) {

@@ -354,11 +354,11 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   await request.patch("/__fixture", { data: { failure: "unknown" } });
   await record(page);
   await expect(
-    page.getByText(/Recording is paused for this lesson/),
+    page.getByText("This lesson can't continue. Start a new one."),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByText(/Recording is paused for this lesson/),
+    page.getByText("This lesson can't continue. Start a new one."),
   ).toBeVisible();
   state = await (await request.get("/__fixture")).json();
   expect(state.lesson.progress.presentations).toBe(0);
@@ -386,7 +386,7 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   await context.close();
 });
 
-test("a lesson has no time limit, and a paused lesson keeps its history when Study again opens a new one", async ({
+test("a lesson has no time limit, and an unresolved lesson keeps its history when a new lesson opens", async ({
   page,
   request,
 }) => {
@@ -414,9 +414,9 @@ test("a lesson has no time limit, and a paused lesson keeps its history when Stu
   await request.patch("/__fixture", { data: { failure: "unknown" } });
   await record(page);
   await expect(
-    page.getByText(/Recording is paused for this lesson/),
+    page.getByText("This lesson can't continue. Start a new one."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Study again" }).click();
+  await page.getByRole("button", { name: "New lesson" }).click();
   await expect(
     page.getByRole("button", { name: "Record", exact: true }),
   ).toBeVisible();

@@ -30,9 +30,9 @@
     "test:ui:stories": "node --test scripts/ui/story-conformance.test.mjs"
   },
   "dependencies": {
-    "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
+    "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.5.tgz",
     "@megaeth-labs/wallet-sdk": "1.0.8",
-    "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.1.tgz",
+    "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.16.tgz",
     "@solidjs/web": "2.0.0-rc.21",
     "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
@@ -55,7 +55,7 @@
     "multiformats": "14.0.5",
     "remark-gfm": "4.0.1",
     "storybook": "10.6.8",
-    "storybook-solidjs-vite": "10.6.0",
+    "storybook-solidjs-vite": "10.7.4",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "8.3.6",
@@ -67,7 +67,7 @@
     "@floating-ui/dom": "1.8.0",
     "@floating-ui/utils": "0.2.12",
     "@internationalized/number": "3.6.7",
-    "@kobalte/core": "$@kobalte/core",
+    "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.5.tgz",
     "@kobalte/utils": "2.0.0-alpha.0",
     "@oxc-project/types": "0.127.0",
     "@rolldown/binding-linux-x64-gnu": "1.2.11",
@@ -105,7 +105,7 @@
     "tailwind-merge": "3.6.0",
     "tslib": "2.8.1",
     "jsdom": {
-      "undici": "8.10.2"
+      "undici": "8.13.1"
     },
     "@storybook/builder-vite": "10.6.8",
     "solid-js": "$solid-js",

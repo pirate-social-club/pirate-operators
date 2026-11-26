@@ -47,6 +47,8 @@ export interface OperatorKaraokePort {
   dispose(): void;
 }
 
+export const KARAOKE_START_UNKNOWN_MESSAGE = "karaoke_start_outcome_unknown";
+
 /** Adapted from the c7 session bridge's identity-preserving create/reconnect
  * boundary. Operator tickets, proofs and admission replace central sessions.
  * Socket reconnect is owned by KaraokeOperatorAudioClient and reuses this ticket.
@@ -61,6 +63,7 @@ export function createOperatorKaraokePort(options: {
   const controller = new AbortController();
   let inFlight: Promise<OpenKaraokeTake> | undefined;
   let startUnknown = false;
+  let startUnknownUntil = 0;
   let originalStartFailure: unknown;
   let disposed = false;
   const request = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -99,7 +102,7 @@ export function createOperatorKaraokePort(options: {
   });
   const unknownStart = () =>
     new Error(
-      "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
+      KARAOKE_START_UNKNOWN_MESSAGE,
       { cause: originalStartFailure },
     );
   return {
@@ -117,10 +120,16 @@ export function createOperatorKaraokePort(options: {
         const previous = await attempt();
         if (previous.state === "open") {
           startUnknown = false;
+          startUnknownUntil = 0;
           originalStartFailure = undefined;
           return opened(previous);
         }
-        if (startUnknown) throw unknownStart();
+        if (startUnknown && Date.now() < startUnknownUntil) throw unknownStart();
+        if (startUnknown) {
+          startUnknown = false;
+          startUnknownUntil = 0;
+          originalStartFailure = undefined;
+        }
         try {
           const issued = await request<{
             ticket: { body: { ticketId: string } };
@@ -147,6 +156,7 @@ export function createOperatorKaraokePort(options: {
           )
             throw error;
           startUnknown = true;
+          startUnknownUntil = Date.now() + 10_000;
           originalStartFailure ??= error;
           if (disposed || isLearningAuthorityLoss(error)) throw error;
           let recovered: KaraokeAttemptView | null = null;
@@ -162,6 +172,7 @@ export function createOperatorKaraokePort(options: {
           }
           if (recovered?.state === "open") {
             startUnknown = false;
+            startUnknownUntil = 0;
             originalStartFailure = undefined;
             return opened(recovered);
           }

@@ -1,0 +1,37 @@
+--- a/src/patterns/overlays/action-menu/action-menu.stories.tsx
++++ b/src/patterns/overlays/action-menu/action-menu.stories.tsx
+@@ -89,17 +89,23 @@
+     await userEvent.click(trigger);
+     const menu = await body.findByRole("menu");
+     await expect(menu).toBeVisible();
+-    await expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Boost"]);
+-    // The menu opens under the trigger, aligned to its end edge.
+-    const triggerBox = trigger.getBoundingClientRect();
+-    const menuBox = menu.getBoundingClientRect();
+-    await expect(menuBox.top).toBeGreaterThanOrEqual(triggerBox.bottom);
+-    await expect(Math.round(menuBox.right)).toBe(Math.round(triggerBox.right));
+-
+-    // Close before the a11y check: an open modal menu hides the page, trigger
+-    // included, from assistive tech, so axe runs on the settled page instead.
+-    await userEvent.keyboard("{Escape}");
+-    await waitFor(() => expect(body.queryByRole("menu")).not.toBeInTheDocument());
++    try {
++      await expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Boost"]);
++      // The menu opens under the trigger, aligned to its end edge.
++      const triggerBox = trigger.getBoundingClientRect();
++      const menuBox = menu.getBoundingClientRect();
++      await expect(menuBox.top).toBeGreaterThanOrEqual(triggerBox.bottom);
++      if (document.documentElement.dir === "rtl") {
++        await expect(Math.round(menuBox.left)).toBe(Math.round(triggerBox.left));
++      } else {
++        await expect(Math.round(menuBox.right)).toBe(Math.round(triggerBox.right));
++      }
++    } finally {
++      // Close before the a11y check: an open modal menu hides the page, trigger
++      // included, from assistive tech, so axe runs on the settled page instead.
++      await userEvent.keyboard("{Escape}");
++      await waitFor(() => expect(body.queryByRole("menu")).not.toBeInTheDocument());
++    }
+   },
+ };
+ 

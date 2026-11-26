@@ -22,11 +22,11 @@ export function createHostEvidence() {
       if (!Object.hasOwn(data, kind)) throw new Error("Unknown evidence kind: " + kind);
       if (!final) data[kind].push(structuredClone(value));
     },
-    close(raw, observedPageSize) {
+    close(raw, observedPageSize, reviewedAvatars = []) {
       // This synchronous call is the host-side observation boundary.
       // Browser channel collection has already closed inside page.evaluate.
       final ??= immutableCopy({
-        ...data, raw, observedPageSize, closed: true,
+        ...data, raw, observedPageSize, reviewedAvatars, closed: true,
         closedAt: new Date().toISOString(),
       });
       return final;
@@ -53,7 +53,7 @@ export async function captureAndClassify({
   if (final.blocked.length) errors.push("External network or WebSocket attempted");
   errors.push(...(final.raw?.collectionErrors ?? []));
   if (captureError) errors.push(captureError);
-  const classified = classify(id, final.raw, size, errors);
+  const classified = classify(id, final.raw, size, errors, final.reviewedAvatars);
   if (!screenshot) {
     classified.passed = false;
     classified.failures.push("screenshot_missing");

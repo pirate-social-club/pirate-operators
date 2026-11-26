@@ -554,7 +554,7 @@ export function LiveKaraoke(props: {
     URL.revokeObjectURL(url);
   }
   return (
-    <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
+    <div class="live-karaoke">
       <Show when={notice()}>
         <div
           role="alert"
@@ -572,7 +572,7 @@ export function LiveKaraoke(props: {
           fallback={
             <KaraokeRouteLoadFailureState
               title="Karaoke unavailable"
-              description="We couldn't load karaoke for this song."
+              description="Karaoke couldn't be loaded for this song."
               onRetry={() => void loadSong()}
               onGoHome={props.onExit}
             />

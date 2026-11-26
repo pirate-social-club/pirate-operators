@@ -10,7 +10,7 @@ import {
   resolveLocaleLanguageTag,
 } from "../src/lib/ui-locale-core.ts";
 
-import "../src/live/style.css";
+import "./catalog.css";
 
 // Catalog composition from the reviewed pirate-web-solid unified catalog
 // model: one place reviews a token on its Foundations page and in every
@@ -20,6 +20,35 @@ import "../src/live/style.css";
 // system's Foundations, Components and Patterns.
 type ThemeMode = "dark" | "light" | "system";
 type DirectionMode = "auto" | "ltr" | "rtl";
+
+// Screens own document structure. Flows, Parts and the vendored Components and
+// Patterns are fragments, so their host page owns these three document rules.
+const PAGE_LEVEL_A11Y_RULES = [
+  "landmark-one-main",
+  "page-has-heading-one",
+  "region",
+];
+
+const withDocumentA11yScope = createDecorator((Story, context) => {
+  const isScreen = context.tags?.includes("screen") ?? false;
+  const current = context.parameters.a11y ?? {};
+  const config = current.config ?? {};
+  const currentRules = Array.isArray(config.rules) ? config.rules : [];
+  context.parameters.a11y = {
+    ...current,
+    // axe's document rules select from html. Scope Screens to the document;
+    // fragments keep Storybook's body scope because their host page owns them.
+    ...(isScreen ? { context: document.documentElement } : {}),
+    config: {
+      ...config,
+      rules: [
+        ...currentRules.filter((rule) => !PAGE_LEVEL_A11Y_RULES.includes(rule.id)),
+        ...PAGE_LEVEL_A11Y_RULES.map((id) => ({ id, enabled: isScreen })),
+      ],
+    },
+  };
+  return Story();
+});
 
 const withAppDocument = createDecorator((Story, context) => {
   const mode = context.globals.theme as ThemeMode;
@@ -45,7 +74,7 @@ const withAppDocument = createDecorator((Story, context) => {
 });
 
 const preview: Preview = {
-  decorators: [withAppDocument],
+  decorators: [withDocumentA11yScope, withAppDocument],
   globalTypes: {
     theme: {
       name: "Theme",
@@ -75,7 +104,7 @@ const preview: Preview = {
     },
     locale: {
       name: "Locale",
-      description: "Global story locale",
+      description: "Document language and direction smoke check; not translated-copy proof",
       defaultValue: "en",
       toolbar: {
         icon: "globe",

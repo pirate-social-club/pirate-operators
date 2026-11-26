@@ -18,6 +18,7 @@ import {
 } from "../ui.ts";
 import { ActivityProgressHeader } from "../../karaoke/activity-progress-header.tsx";
 import { ActivityResults, clampResultPercent, resultHeadline } from "../../karaoke/activity-results.tsx";
+import { ActivityFooter } from "../../ui/activity-footer.tsx";
 import {
   previousStreakForAnimation,
   primaryActionDisabled,
@@ -50,54 +51,6 @@ export interface StudyingSurfaceProps {
   rewardSlot?: JSX.Element;
   sayItBackIdleLabel?: string;
   state: StudyingSurfaceState;
-}
-
-function ActivityFooter(props: {
-  onPrimaryAction?: () => void;
-  onSecondaryAction?: () => void;
-  primaryDisabled?: boolean;
-  primaryIcon?: JSX.Element;
-  primaryLabel?: string;
-  primaryVariant?: "default" | "destructive" | "secondary";
-  secondaryIcon?: JSX.Element;
-  secondaryLabel?: string;
-  /** Results: "again" and Continue side by side, Continue on the right. */
-  results?: boolean;
-}) {
-  return (
-    <Show when={props.primaryLabel}>
-      <footer class="sticky bottom-0 z-10 mx-auto w-full max-w-[640px] border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl">
-        <div class={cn("mx-auto grid w-full max-w-[640px] gap-3", props.secondaryLabel && (props.results ? "grid-cols-2" : "sm:grid-cols-2"))}>
-          <Show when={props.results && props.secondaryLabel}>
-            <Button class="h-13 w-full" leadingIcon={props.secondaryIcon} onClick={props.onSecondaryAction} size="lg" variant="secondary">
-              {props.secondaryLabel}
-            </Button>
-          </Show>
-          <Button
-            class="h-13 w-full"
-            disabled={props.primaryDisabled}
-            leadingIcon={props.primaryIcon}
-            onClick={props.onPrimaryAction}
-            size="lg"
-            variant={props.primaryVariant ?? "default"}
-          >
-            {props.primaryLabel}
-          </Button>
-          <Show when={!props.results && props.secondaryLabel}>
-            <Button
-              class="h-13 w-full"
-              leadingIcon={props.secondaryIcon}
-              onClick={props.onSecondaryAction}
-              size="lg"
-              variant="secondary"
-            >
-              {props.secondaryLabel}
-            </Button>
-          </Show>
-        </div>
-      </footer>
-    </Show>
-  );
 }
 
 /** Shared upper-aligned exercise prompt used by every interactive study type. */
@@ -492,18 +445,24 @@ function primaryActionIcon(state: StudyingSurfaceState): JSX.Element {
 export function StudyingSurface(props: StudyingSurfaceProps) {
   const complete = () => props.state.kind === "complete";
   const recordingBlocked = () => props.state.kind === "say_it_back" && props.state.phase === "blocked";
-  // Results: one Continue back to the song, with "Study again" as the quiet option.
-  const primaryLabel = () => complete()
-    ? props.completeActionLabel
-      ?? (props.onExit ? "Continue" : props.onStudyAgain ? "Study again" : undefined)
-    : primaryActionLabel(props.state, props.sayItBackIdleLabel);
-  const primaryAction = () => complete()
-    ? props.completeActionLabel
-      ? props.onPrimaryAction
-      : props.onExit ?? props.onStudyAgain
-    : props.onPrimaryAction;
-  const primaryIcon = () => complete() ? undefined : primaryActionIcon(props.state);
-  const secondaryLabel = () => props.onStudyAgain && (recordingBlocked() || (complete() && props.onExit && !props.completeActionLabel)) ? "Study again" : undefined;
+  // Unknown recordings are rendered by the route's ErrorState, never as a
+  // disabled action inside the exercise surface.
+  const primaryLabel = () => recordingBlocked()
+    ? undefined
+    : complete()
+      ? props.completeActionLabel
+        ?? (props.onExit ? "Continue" : props.onStudyAgain ? "Study again" : undefined)
+      : primaryActionLabel(props.state, props.sayItBackIdleLabel);
+  const primaryAction = () => recordingBlocked()
+    ? undefined
+    : complete()
+      ? props.completeActionLabel
+        ? props.onPrimaryAction
+        : props.onExit ?? props.onStudyAgain
+      : props.onPrimaryAction;
+  const primaryIcon = () => complete() || recordingBlocked() ? undefined : primaryActionIcon(props.state);
+  const secondaryLabel = () => props.onStudyAgain && complete() && props.onExit && !props.completeActionLabel ? "Study again" : undefined;
+  const secondaryAction = () => props.onStudyAgain;
 
   return (
     <section class={cn("flex h-dvh w-full flex-col overflow-y-auto border border-border-soft bg-background text-foreground", props.class)}>
@@ -527,7 +486,7 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
       <Body onOptionSelect={props.onOptionSelect} rewardSlot={props.rewardSlot} state={props.state} />
       <ActivityFooter
         onPrimaryAction={primaryAction()}
-        onSecondaryAction={props.onStudyAgain}
+        onSecondaryAction={secondaryAction()}
         primaryDisabled={primaryActionDisabled(props.state)}
         primaryIcon={primaryIcon()}
         primaryLabel={primaryLabel()}

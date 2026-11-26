@@ -2,23 +2,88 @@
 // so the tier discipline lives in story metadata, enforced here.
 // - tags must be exactly one of: screen, flow, part
 // - a flow-tagged story file must contain at least one play function
-// - a screen-tagged meta must not disable the two page-level axe rules:
+// - a screen-tagged meta must not disable the three page-level axe rules:
 //   a route-level view owns the page structure, so disabling them marks a
 //   fragment, which belongs to the flow or part tier
 // Same script convention as scripts/storybook/check-production-imports.mjs.
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 export const TIERS = ["screen", "flow", "part"];
-const PAGE_RULES = ["landmark-one-main", "page-has-heading-one"];
+const PAGE_RULES = ["landmark-one-main", "page-has-heading-one", "region"];
+
+function propertyKey(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function functionValue(node, callableNames) {
+  if (!node) return false;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return true;
+  return ts.isIdentifier(node) && callableNames.has(node.text);
+}
+
+function exportedStoryPlay(node, callableNames) {
+  if (!ts.isVariableStatement(node)) return false;
+  const exported = ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  if (!exported) return false;
+  return node.declarationList.declarations.some((declaration) => {
+    if (!declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer)) return false;
+    return declaration.initializer.properties.some((property) => {
+      if (ts.isMethodDeclaration(property) && propertyKey(property.name) === "play") return true;
+      return ts.isPropertyAssignment(property) &&
+        propertyKey(property.name) === "play" &&
+        functionValue(property.initializer, callableNames);
+    });
+  });
+}
+
+function parseEvidence(source) {
+  const ast = ts.createSourceFile("story.stories.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const callableNames = new Set();
+  const disabledPageRules = new Set();
+  const collectCallables = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) callableNames.add(node.name.text);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && functionValue(node.initializer, callableNames)) {
+      callableNames.add(node.name.text);
+    }
+    ts.forEachChild(node, collectCallables);
+  };
+  collectCallables(ast);
+  let hasPlay = false;
+  const visit = (node) => {
+    if (exportedStoryPlay(node, callableNames)) hasPlay = true;
+    if (ts.isObjectLiteralExpression(node)) {
+      let id = null;
+      let enabled = true;
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const key = propertyKey(property.name);
+        if (key === "id" && ts.isStringLiteral(property.initializer)) id = property.initializer.text;
+        if (key === "enabled") enabled = property.initializer.kind !== ts.SyntaxKind.FalseKeyword;
+      }
+      if (id && !enabled && PAGE_RULES.includes(id)) disabledPageRules.add(id);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return { hasPlay, disabledPageRules };
+}
 
 export function parseMeta(source) {
   const title = /title: "([^"]+)"/.exec(source)?.[1] ?? null;
   const tag = /tags: \["([a-z]+)"\]/.exec(source)?.[1] ?? null;
-  const hasPlay = /\bplay:/.test(source);
-  const disablesPageRules = PAGE_RULES.every((rule) => source.includes(`{ id: "${rule}", enabled: false }`));
-  return { title, tag, hasPlay, disablesPageRules };
+  const evidence = parseEvidence(source);
+  return {
+    title,
+    tag,
+    hasPlay: evidence.hasPlay,
+    disablesPageRules: evidence.disabledPageRules.size > 0,
+    disabledPageRules: [...evidence.disabledPageRules],
+  };
 }
 
 export function scanSources(files) {

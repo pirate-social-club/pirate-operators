@@ -17,25 +17,19 @@ function PlaybackFixture(props: {
     (value) => { setPlaying(value); },
   );
   return (
-    <main class="min-h-screen bg-background p-6 text-foreground">
-      <h1 class="mb-4 text-xl font-semibold">Playback controls</h1>
-      <p class="mb-6 text-muted-foreground">
-        UI state only. No audio is loaded or played.
-      </p>
-      <div class="grid max-w-xl grid-cols-1">
-        <SongPlaybackControls
-          title="Catalog preview"
-          playing={playing()}
-          buffering={props.buffering}
-          position={position()}
-          duration={180}
-          canSeek={canSeek()}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onSeek={(milliseconds) => setPosition(milliseconds / 1000)}
-        />
-      </div>
-    </main>
+    <div class="w-[min(36rem,calc(100vw-2rem))] bg-background p-2 text-foreground">
+      <SongPlaybackControls
+        title="Catalog preview"
+        playing={playing()}
+        buffering={props.buffering}
+        position={position()}
+        duration={180}
+        canSeek={canSeek()}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onSeek={(milliseconds) => setPosition(milliseconds / 1000)}
+      />
+    </div>
   );
 }
 
@@ -47,7 +41,7 @@ const meta = {
   args: { playing: false, buffering: false, canSeek: true },
   render: (args) => <PlaybackFixture {...args} />,
   parameters: {
-    layout: "fullscreen",
+    layout: "centered",
     docs: {
       description: {
         component:
@@ -94,9 +88,23 @@ export const Playing: Story = {
 export const Buffering: Story = {
   args: { buffering: true },
   play: async ({ canvasElement }) => {
-    await expect(
-      within(canvasElement).getByRole("button", { name: "Loading Catalog preview" }),
-    ).toBeDisabled();
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("button", {
+      name: "Play Catalog preview",
+    });
+    await expect(control).toBeEnabled();
+    await expect(control).toHaveAttribute("aria-busy", "true");
+    const elapsed = canvas.getByText("0:30", { exact: true });
+    const total = canvas.getByText("3:00", { exact: true });
+    const scrubber = canvas.getByRole("slider");
+    const elapsedBox = elapsed.getBoundingClientRect();
+    const scrubberBox = scrubber.getBoundingClientRect();
+    const totalBox = total.getBoundingClientRect();
+    expect(elapsedBox.width).toBeGreaterThan(0);
+    expect(scrubberBox.width).toBeGreaterThan(0);
+    expect(totalBox.width).toBeGreaterThan(0);
+    expect(elapsedBox.right).toBeLessThanOrEqual(scrubberBox.left);
+    expect(scrubberBox.right).toBeLessThanOrEqual(totalBox.left);
   },
 };
 

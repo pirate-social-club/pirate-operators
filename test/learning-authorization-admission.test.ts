@@ -521,7 +521,7 @@ test(
     });
     try {
       const pending = client.ticket();
-      const rejected = assert.rejects(pending, /confirm this take/);
+      const rejected = assert.rejects(pending, /karaoke_start_outcome_unknown/);
       await commit;
       const first = JSON.parse(
         (await f.db
@@ -533,9 +533,9 @@ test(
       assert.ok(first.open);
       releaseAck();
       await rejected;
-      await assert.rejects(client.ticket(), /confirm this take/);
+      await assert.rejects(client.ticket(), /karaoke_start_outcome_unknown/);
       observation = "finished";
-      await assert.rejects(client.ticket(), /confirm this take/);
+      await assert.rejects(client.ticket(), /karaoke_start_outcome_unknown/);
       assert.equal(posts, 1);
       assert.deepEqual(serialized, [
         { error: "fixture_reservation_ack_lost", status: 409 },

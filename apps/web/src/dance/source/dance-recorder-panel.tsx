@@ -225,7 +225,7 @@ export function DanceRecorderPanel(props: {
   };
   const status = () => {
     if (state()?.matches({ processing: "interrupted" }))
-      return "Connection interrupted. We’ll check when you reconnect or return.";
+      return "Connection interrupted. Reconnect or return to check again.";
     if (state()?.matches({ processing: "resting" }))
       return "Your recording is still being prepared. You can leave and return later.";
     if (processing()) return "Your recording is being prepared.";

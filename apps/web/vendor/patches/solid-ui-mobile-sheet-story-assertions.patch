@@ -1,0 +1,69 @@
+--- a/src/patterns/navigation/sidebar/sidebar.stories.tsx
++++ b/src/patterns/navigation/sidebar/sidebar.stories.tsx
+@@ -1,5 +1,5 @@
+ import type { Meta, StoryObj } from "storybook-solidjs-vite";
+-import { expect, userEvent, within } from "storybook/test";
++import { expect, userEvent, waitFor, within } from "storybook/test";
+ 
+ import { Type } from "@/components/data-display/type/type";
+ import { PirateBrandMark } from "@/patterns/identity/pirate-brand-mark/pirate-brand-mark";
+@@ -114,6 +114,19 @@
+   );
+ }
+ 
++async function expectMobileSidebarSheet(canvasElement: HTMLElement, trigger: HTMLElement) {
++  // The mobile branch hydrates after the first client render; wait until the
++  // desktop sidebar copy has left before opening the sheet.
++  await waitFor(() => expect(canvasElement.querySelector("[data-side]")).toBeNull());
++  await userEvent.click(trigger);
++  const page = within(canvasElement.ownerDocument.body);
++  const sheet = await page.findByRole("dialog", { name: "Sidebar" });
++  await expect(within(sheet).getByRole("button", { name: "Home" })).toBeVisible();
++  await userEvent.keyboard("{Escape}");
++  await waitFor(() => expect(sheet).not.toBeInTheDocument());
++  await expect(trigger).toHaveFocus();
++}
++
+ function SidebarStoryFrame(props: { side?: "left" | "right" }) {
+   return (
+     <SidebarProvider>
+@@ -135,6 +148,10 @@
+     const contentHeader = canvas.getByText("Content area").closest("header");
+     if (!contentHeader) throw new Error("Content header is missing");
+     const trigger = within(contentHeader).getByRole("button", { name: "Toggle sidebar" });
++    if (window.innerWidth < 768) {
++      await expectMobileSidebarSheet(canvasElement, trigger);
++      return;
++    }
+     const sidebar = canvasElement.querySelector("[data-side]");
+     await expect(sidebar).toHaveAttribute("data-state", "expanded");
+     await userEvent.click(trigger);
+@@ -164,6 +181,12 @@
+     </SidebarProvider>
+   ),
+   play: async ({ canvasElement }) => {
++    if (window.innerWidth < 768) {
++      const canvas = within(canvasElement);
++      const trigger = canvas.getByRole("button", { name: "Toggle sidebar" });
++      await expectMobileSidebarSheet(canvasElement, trigger);
++      return;
++    }
+     const sidebar = canvasElement.querySelector("[data-side]");
+     await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+     await expect(sidebar).toHaveAttribute("data-collapsible", "icon");
+--- a/src/patterns/engagement/vertical-feed/vertical-feed.stories.tsx
++++ b/src/patterns/engagement/vertical-feed/vertical-feed.stories.tsx
+@@ -206,9 +206,10 @@
+   },
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    await expect(
+-      canvas.getAllByText(/deliberately long caption/)[0],
+-    ).toBeVisible();
++    const captions = canvas.getAllByText(/deliberately long caption/);
++    const visibleCaptions = captions.filter((caption) => caption.checkVisibility());
++    await expect(visibleCaptions).toHaveLength(1);
++    await expect(visibleCaptions[0]).toBeVisible();
+   },
+ };
+ 

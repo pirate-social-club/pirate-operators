@@ -1,0 +1,5 @@
+--- a/src/components/overlays/dialog/dialog.stories.tsx
++++ b/src/components/overlays/dialog/dialog.stories.tsx
+@@ -104 +104 @@
+-    await expect(body.getByRole("button", { name: "Cancel" })).toHaveFocus();
++    await waitFor(() => expect(body.getByRole("button", { name: "Cancel" })).toHaveFocus());

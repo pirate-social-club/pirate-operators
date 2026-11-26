@@ -213,7 +213,6 @@ export function primaryActionLabel(
       if (state.phase === "wrong") return state.revealReference ? "Continue" : "Record";
       if (state.phase === "checking") return "Checking…";
       if (state.phase === "acquiring") return "Starting microphone…";
-      if (state.phase === "blocked") return "Recording paused";
       return state.phase === "listening" ? "Stop" : sayItBackIdleLabel ?? "Record";
     case "multiple_choice":
       // Owner correction, 2026-11-12: retain the selected card while grading,
@@ -232,7 +231,7 @@ export function primaryActionVariant(state: StudyingSurfaceState): "default" | "
 
 export function primaryActionDisabled(state: StudyingSurfaceState): boolean {
   if (state.kind === "multiple_choice") return Boolean(state.submitting);
-  if (state.kind === "say_it_back") return state.phase === "checking" || state.phase === "acquiring" || state.phase === "blocked";
+  if (state.kind === "say_it_back") return state.phase === "checking" || state.phase === "acquiring";
   return false;
 }
 

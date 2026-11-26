@@ -27,7 +27,7 @@ const config: StorybookConfig = {
     },
     "@storybook/addon-a11y",
   ],
-  staticDirs: ["../src/live/public"],
+  staticDirs: ["../src/live/public", "./public"],
   framework: {
     name: "storybook-solidjs-vite",
     options: {
