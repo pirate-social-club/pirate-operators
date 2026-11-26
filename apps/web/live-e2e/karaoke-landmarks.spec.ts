@@ -1,4 +1,4 @@
-// UNRUN. Actual built App -> LearningPageMount -> KaraokePage. Reuses the
+// Actual built App -> LearningPageMount -> KaraokePage. Reuses the
 // account harness's explicit session/SDK simulation; adds only narrow GETs.
 // No take, signature, provider connection, recording or scoring is fabricated.
 import { expect, test, type Locator, type Page } from "@playwright/test";
@@ -9,17 +9,15 @@ import {
   serveAccounts,
 } from "./account-fixture.ts";
 
-const unavailable = { name: "Karaoke unavailable", level: 2, exact: true } as const;
+const unavailable = { name: "Karaoke unavailable", level: 1, exact: true } as const;
 const overlay = (page: Page) => page.locator(".live-karaoke-overlay");
 
 async function failureMain(page: Page, description: string) {
   const activity = overlay(page);
   await expect(activity).toBeVisible();
-  await expect(
-    activity.getByRole("group", { name: "Karaoke: Fixture song", exact: true }),
-  ).toBeVisible();
-  const main = activity.getByRole("main");
-  await expect(main).toHaveCount(1);
+  await expect(activity.getByRole("main")).toHaveCount(1);
+  const main = activity.getByRole("main", { name: "Karaoke: Fixture song", exact: true });
+  await expect(main).toBeVisible();
   await expect(main.getByRole("heading", unavailable)).toBeVisible();
   await expect(main.getByText(description, { exact: true })).toBeVisible();
 
@@ -211,7 +209,9 @@ for (const viewport of [
       const practice = overlay(page).getByRole("main", { name: "Fixture song", exact: true });
       await expect(practice).toBeVisible();
       await expect(practice.getByRole("heading", { name: "Fixture song", level: 1, exact: true })).toHaveCount(1);
-      await expect(practice.getByLabel("Fixture timing", { exact: true })).toBeVisible();
+      const lyric = practice.getByRole("paragraph").filter({ hasText: "Fixture timing" });
+      await expect(lyric).toBeVisible();
+      await expect(lyric).toMatchAriaSnapshot("- paragraph: Fixture timing");
       await expect(practice.getByRole("button", { name: "Start karaoke", exact: true })).toBeEnabled();
       expect(attemptReads).toEqual([`${origin}/api/karaoke/attempt?postId=${postId}`]);
       expect(new URL(page.url()).searchParams.get("sing")).toBe(postId);
