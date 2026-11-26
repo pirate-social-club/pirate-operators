@@ -54,3 +54,18 @@
      await expect(canvas.getByText("Optional")).toHaveClass("text-muted-foreground");
    },
  };
+--- a/src/components/forms/combobox/multi-combobox.stories.tsx
++++ b/src/components/forms/combobox/multi-combobox.stories.tsx
+@@ -140,7 +140,11 @@
+     const chipBottom = Math.max(...chips.map((chip) => chip.getBoundingClientRect().bottom));
+     await expect(caret.top).toBeGreaterThanOrEqual(chipBottom);
+     const controlBox = control.getBoundingClientRect();
+-    await expect(Math.abs(controlBox.right - 1 - 12 - caret.right)).toBeLessThanOrEqual(1);
++    if (getComputedStyle(control).direction === "rtl") {
++      await expect(Math.abs(caret.left - (controlBox.left + 1 + 12))).toBeLessThanOrEqual(1);
++    } else {
++      await expect(Math.abs(controlBox.right - 1 - 12 - caret.right)).toBeLessThanOrEqual(1);
++    }
+     const inputBox = input.getBoundingClientRect();
+     await expect(Math.abs(inputBox.top + inputBox.height / 2 - (caret.top + caret.height / 2))).toBeLessThanOrEqual(1);
+   },
