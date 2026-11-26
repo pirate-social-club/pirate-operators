@@ -339,8 +339,14 @@ export const ActiveRecoveryNotice: Story = {
   args: {
     ...PausedPrimed.args,
     singingStatus: "active",
-    statusSlot: <RecoveryNoticeSlot />,
   },
+  render: (args) => (
+    <KaraokePracticeSurface
+      {...args}
+      lines={args.lines ?? storyStageLines}
+      statusSlot={<RecoveryNoticeSlot />}
+    />
+  ),
   play: async ({ canvasElement }) => {
     const column = await expectLearningActivityFrameGeometry(canvasElement);
     const action = within(canvasElement).getByRole("button", { name: "Check status" });
@@ -350,7 +356,6 @@ export const ActiveRecoveryNotice: Story = {
   },
 };
 
-/** The phone took the audio mid-take (a call, another app). One button resumes the same take. */
 /** The phone took the audio mid-take (a call, another app). One button resumes the same take. */
 export const PlaybackInterrupted: Story = {
   args: {
