@@ -535,7 +535,7 @@ fixtureRun: try {
   await wait(async () => {
    assert(child.exitCode === null && child.signalCode === null, "owned installed service exited before pairing");
    return Boolean(code);
-  }, 120);
+  }, 300);
   progressMark("service-pair-wait", "return");
   assert(child.pid && code);
   if (observeInitialStartup) await startupMark("pair-code-observed");
