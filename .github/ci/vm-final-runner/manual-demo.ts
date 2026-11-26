@@ -502,7 +502,7 @@ fixtureRun: try {
  const serviceExecutable = join(release, built.execution.node);
  const serviceArgv = ["--import", join(release, built.execution.loader), join(release, "source/deploy/linux/web2-service.ts"), serviceConfiguration];
  async function wait(test: () => Promise<boolean>, seconds: number) { const end = Date.now() + seconds * 1000; while (!(await test())) { cancel.signal.throwIfAborted(); assert(Date.now() < end, "bounded_native25_wait_expired"); await new Promise(r => setTimeout(r, 500)); } }
- async function launchService(observeInitialStartup = false) {
+ async function launchService(observeInitialStartup = false, pairWaitSeconds = 120) {
   cancel.signal.throwIfAborted();
   await lease.assertHeld();
   if (observeInitialStartup) await startupMark("bridge-check-enter");
@@ -535,7 +535,7 @@ fixtureRun: try {
   await wait(async () => {
    assert(child.exitCode === null && child.signalCode === null, "owned installed service exited before pairing");
    return Boolean(code);
-  }, 300);
+  }, pairWaitSeconds);
   progressMark("service-pair-wait", "return");
   assert(child.pid && code);
   if (observeInitialStartup) await startupMark("pair-code-observed");
@@ -756,7 +756,7 @@ fixtureRun: try {
    });
    progressMark("restart-container-stop", "return");
    progressMark("restart-service-launch", "enter");
-   serviceBoot = await launchService();
+   serviceBoot = await launchService(false, 300);
    progressMark("restart-service-launch", "return");
    progressMark("restart-snapshot-after", "enter");
    const after = await snapshot();
