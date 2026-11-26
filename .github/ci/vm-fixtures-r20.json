@@ -1,9 +1,9 @@
 {
-  "fixtureImageId": "sha256:3088dd47364de4878a76dc50047089612fcbec2b885124d9fa70bdd568428565",
-  "manifestSha256": "6c3ba9d3c2298e411326142ac39d7c501725fc7ce2ba3d219d92dae48be1b8ee",
-  "productSourceHead": "299ebfe5ccb0371f7b2b0c6e8ef3fe2cf5ffce21",
-  "productSourceTree": "3f13269b483f4ed3367c24de97138e0c532dc843",
-  "release": "pirate-v1-staging-vm-fixtures-20261125-r22",
+  "fixtureImageId": "sha256:84810e0f0024474e2fc8a9aa6065a3494808f391d62855d5aaaeeb00c0b6eeae",
+  "manifestSha256": "1f4b4ac2049307bb216936035142787114136588916ea288bf6e2c046f565438",
+  "productSourceHead": "c99644d870e92f465a396f42497d203913a55e58",
+  "productSourceTree": "11e0616e371d31ddfb4e3635a1bcc370a9fb0586",
+  "release": "pirate-v1-staging-vm-fixtures-20261126-r23",
   "schema": "pirate.vm-fixture-pin/1",
   "unchangedAssetRelease": "pirate-v1-staging-vm-fixtures-20261125-r13"
 }
