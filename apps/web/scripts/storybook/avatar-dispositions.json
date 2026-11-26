@@ -1,0 +1,58 @@
+{
+  "reviewBefore": "2026-12-03T00:00:00Z",
+  "evidence": {
+    "sourceRef": "9e20166902411c99c8c9e9b03b3534177082de37",
+    "sourceSeal": "3bd0df4835da1603ebfe3c4f282597f02ee745951b0c9d0c6244b14e4b9b8d42",
+    "nodeObservations": "profile-name-observations.jsonl",
+    "nodeObservationsSha256": "02eb2c9f47b7b49c77a4345d0fc630d8208edf0b348b49ea7231a768205b3cda",
+    "overflowChatObservations": "overflow-chat-observations.jsonl",
+    "overflowChatObservationsSha256": "06f150c0f807a4d2175c4ac142b8a6ec19f52c00456b1bbab605f234e0bdd5c9"
+  },
+  "reviews": [
+    {
+      "rule": "label-content-name-mismatch",
+      "stories": [
+        "patterns-navigation-appheader--desktop-header",
+        "patterns-navigation-appheader--desktop-header-overflow-chat",
+        "patterns-navigation-appheader--desktop-header-overflow-notifications",
+        "patterns-navigation-appheader--desktop-header-rtl",
+        "patterns-navigation-appheader--desktop-header-with-notifications",
+        "patterns-navigation-appheader--desktop-header-with-single-notification",
+        "patterns-navigation-appheader--mobile-header",
+        "patterns-navigation-appheader--mobile-header-rtl"
+      ],
+      "target": ".p-0",
+      "name": "Open profile",
+      "visibleText": "PU",
+      "decorativeText": ["PU"]
+    },
+    {
+      "rule": "label-content-name-mismatch",
+      "stories": [
+        "patterns-engagement-verticalfeed--mobile",
+        "patterns-navigation-mobilefooternav--default",
+        "patterns-navigation-mobilefooternav--songs-active"
+      ],
+      "target": "button[aria-label=\"Profile\"]",
+      "name": "Profile",
+      "visibleText": "PU Profile",
+      "decorativeText": ["PU"]
+    },
+    {
+      "rule": "label-content-name-mismatch",
+      "stories": ["patterns-navigation-mobilefooternav--rtl"],
+      "target": "button[aria-label=\"الملف الشخصي\"]",
+      "name": "الملف الشخصي",
+      "visibleText": "PU الملف الشخصي",
+      "decorativeText": ["PU"]
+    },
+    {
+      "rule": "label-content-name-mismatch",
+      "stories": ["patterns-navigation-mobilepageheader--avatar-title"],
+      "target": ".max-w-full",
+      "name": "Open Atlas Gardens",
+      "visibleText": "AG Atlas Gardens",
+      "decorativeText": ["AG"]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Catalog coverage and next work
 
-Current reference: `9e722d72cf8132ca6713eeecd7adae980cddeb3e`. The rebuilt catalog index contains 93 app stories, 237 vendored design-system stories and 62 docs entries. The app-side tier split is 34 screen stories, 49 flow stories and 10 part stories; 46 app stories carry play-function evidence. This supersedes the older 82-story baseline that previously appeared here.
+The viewport audit used an exact build of `9e20166902411c99c8c9e9b03b3534177082de37`. Its catalog index contains 332 stories, with 93 app stories and 239 vendored design-system stories.
 
 ## Coverage snapshot
 
@@ -18,9 +18,11 @@ Current reference: `9e722d72cf8132ca6713eeecd7adae980cddeb3e`. The rebuilt catal
 
 ## Verification state
 
-The exact-head focused browser audit for ErrorState Blocked, ActionMenu Open, Karaoke Loading, Reward operator Ready and Reward operator Payment review recorded all 10 viewport loads with zero failures, zero axe violations and zero incomplete checks. This is focused repair evidence, not the full current-head matrix.
+The full viewport sweep recorded 634 rows, each exactly once. All stories rendered and all play functions passed. Raw axe reported 19 label-content-name findings on decorative avatar initials, including both Overflow Chat rows. The comparison with the 453-row reduced sweep found no changed outcomes in the overlapping rows.
 
-Static checks on this head pass: web typecheck, story-conformance tests, story tier conformance, token conformance, production-import reachability and the Storybook production build.
+The [avatar disposition ledger](../../scripts/storybook/avatar-dispositions.json) records the inspected stories, selectors, names, and text. The audit retains the raw axe findings and checks the live button against the ledger before accepting a match. These entries need review by December 2, 2026.
+
+The full viewport sweep recorded 139 incomplete axe rule results across 451 node observations. A separate 104-row accessibility audit covered 13 stories across light and dark themes, LTR and RTL, and phone and desktop. It recorded zero violations and 28 incomplete rule results in VerticalFeed More Menu Open. Full-catalog theme and direction coverage is pending.
 
 ## Next expansion order
 

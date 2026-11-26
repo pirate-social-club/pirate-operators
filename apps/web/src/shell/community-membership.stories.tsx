@@ -30,30 +30,21 @@ const initial = (unavailable: boolean): MembershipState => ({
   joinUncertain: false, nameUncertain: false, error: null,
 });
 
-function Preview(props: { unavailable: boolean; startOpen: boolean }) {
-  const [state, setState] = createSignal({
-    ...initial(props.unavailable),
-    nameOpen: props.startOpen,
-  });
-  let trigger: HTMLButtonElement | undefined;
-  return <div class="min-h-screen bg-background p-6 text-foreground">
-    <p role="note" class="mb-4">UI fixture only. Controls do not join a community or issue a name.</p>
-    <button ref={(node) => { trigger = node; }}
-      onClick={() => setState({ ...state(), nameOpen: true })}>Open optional-name preview</button>
+function Preview(props: { unavailable: boolean }) {
+  const [state, setState] = createSignal(initial(props.unavailable));
+  let returnTarget: HTMLDivElement | undefined;
+  return <div class="min-h-screen bg-background text-foreground"
+    tabindex={-1} ref={(node) => { returnTarget = node; }}>
     <ChooseHandle communityName="Preview fixture" state={state()}
-      returnFocus={() => trigger}
+      returnFocus={() => returnTarget}
       onClose={() => setState({ ...state(), nameOpen: false })}
       onPrepare={fn()} onConsent={fn()} onCheck={fn()} onReconcile={fn()} />
   </div>;
 }
 
 export const ChooseName: Story = {
-  render: () => <Preview unavailable={false} startOpen={false} />,
+  render: () => <Preview unavailable={false} />,
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Open optional-name preview" }),
-    );
     const dialogElement = await within(canvasElement.ownerDocument.body).findByRole(
       "dialog",
       { name: "Choose your name" },
@@ -74,5 +65,5 @@ export const ChooseName: Story = {
   },
 };
 export const NamingUnavailable: Story = {
-  render: () => <Preview unavailable={true} startOpen={true} />,
+  render: () => <Preview unavailable={true} />,
 };

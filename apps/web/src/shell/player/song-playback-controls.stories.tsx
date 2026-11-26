@@ -17,25 +17,19 @@ function PlaybackFixture(props: {
     (value) => { setPlaying(value); },
   );
   return (
-    <main class="min-h-screen bg-background p-6 text-foreground">
-      <h1 class="mb-4 text-xl font-semibold">Playback controls</h1>
-      <p class="mb-6 text-muted-foreground">
-        UI state only. No audio is loaded or played.
-      </p>
-      <div class="grid max-w-xl grid-cols-1">
-        <SongPlaybackControls
-          title="Catalog preview"
-          playing={playing()}
-          buffering={props.buffering}
-          position={position()}
-          duration={180}
-          canSeek={canSeek()}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onSeek={(milliseconds) => setPosition(milliseconds / 1000)}
-        />
-      </div>
-    </main>
+    <div class="w-[min(36rem,calc(100vw-2rem))] bg-background p-2 text-foreground">
+      <SongPlaybackControls
+        title="Catalog preview"
+        playing={playing()}
+        buffering={props.buffering}
+        position={position()}
+        duration={180}
+        canSeek={canSeek()}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onSeek={(milliseconds) => setPosition(milliseconds / 1000)}
+      />
+    </div>
   );
 }
 
@@ -47,7 +41,7 @@ const meta = {
   args: { playing: false, buffering: false, canSeek: true },
   render: (args) => <PlaybackFixture {...args} />,
   parameters: {
-    layout: "fullscreen",
+    layout: "centered",
     docs: {
       description: {
         component:
