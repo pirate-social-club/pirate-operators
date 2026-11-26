@@ -83,7 +83,7 @@ HOLD = {
     "hold-terminal.json", "worker-diagnostic.json", "controller-terminal.json", "browser-egress.json",
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
     "service-child-exit-initial.json", "service-child-exit-restart.json", "launcher-interruption.json",
-    "apply-observation.json",
+    "apply-observation.json", "publication-failure-before.json", "publication-failure-after.json",
     "close-progress.json", "artifact-progress.json", "guest-memory.json",
     "native-progress.json", "native-memory.json",
 }
@@ -423,6 +423,36 @@ def validate_apply_observation(row):
         assert set(entry) == base | extras
 
 
+PUBLICATION_FAILURE_PHASES = {
+    "baseline", "composer", "single_seal", "wait_for_same_published_original",
+    "play_before_ordinary_restart", "public_read_only_replay",
+}
+PUBLICATION_LITERAL_REASONS = {
+    "original_seal_not_accepted",
+    "no_publication_window_before_restart_reserve",
+    "insufficient_remaining_window_before_seal",
+    "decoded_capture_before_restart_failed",
+    "decoded_capture_after_restart_failed",
+}
+PUBLICATION_FAILURE_CATEGORIES = PUBLICATION_LITERAL_REASONS | {
+    "unexpected-public-proof", "original-publication-unconfirmed", "unclassified-private-error",
+}
+
+
+def validate_publication_failure(row):
+    assert isinstance(row, dict) and set(row) == {"phase", "sealAcceptedAndIdentified", "failure"}
+    assert row["phase"] in PUBLICATION_FAILURE_PHASES
+    assert type(row["sealAcceptedAndIdentified"]) is bool
+    failure = row["failure"]
+    assert isinstance(failure, dict) and set(failure) <= {"category", "status"} and "category" in failure
+    assert failure["category"] in PUBLICATION_FAILURE_CATEGORIES
+    if "status" in failure:
+        assert type(failure["status"]) is int and 100 <= failure["status"] <= 599
+        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"}
+    else:
+        assert failure["category"] not in {"unexpected-public-proof", "original-publication-unconfirmed"}
+
+
 def validate_install_server_refusal(row):
     base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
     assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
@@ -723,6 +753,9 @@ def verify_worker_hold(held):
         validate_launcher_interruption(held["launcher-interruption.json"])
     if "apply-observation.json" in held:
         validate_apply_observation(held["apply-observation.json"])
+    for name in ("publication-failure-before.json", "publication-failure-after.json"):
+        if name in held:
+            validate_publication_failure(held[name])
 
 
 def assess(run, result):
@@ -797,6 +830,10 @@ def assess(run, result):
                 result["launcherInterruption"] = held["launcher-interruption.json"]
             if "apply-observation.json" in held:
                 result["applyObservation"] = held["apply-observation.json"]
+            if "publication-failure-before.json" in held:
+                result["publicationFailureBefore"] = held["publication-failure-before.json"]
+            if "publication-failure-after.json" in held:
+                result["publicationFailureAfter"] = held["publication-failure-after.json"]
         return
     for unit in ("docker.socket", "docker.service", "containerd.service"):
         assert f"PIRATE_SMOKE_UNIT {unit} inactive" in serial

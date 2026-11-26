@@ -305,6 +305,69 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     module.validate_apply_observation(broken)
 
+    def test_publication_failure_shape_accepted(self):
+        base = {"phase": "wait_for_same_published_original", "sealAcceptedAndIdentified": True,
+                "failure": {"category": "original-publication-unconfirmed", "status": 503}}
+        for module in (MODULE, COLLECTOR):
+            module.validate_publication_failure(dict(base, failure=dict(base["failure"])))
+            module.validate_publication_failure({
+                "phase": "single_seal", "sealAcceptedAndIdentified": False,
+                "failure": {"category": "original_seal_not_accepted"}})
+            module.validate_publication_failure({
+                "phase": "play_before_ordinary_restart", "sealAcceptedAndIdentified": True,
+                "failure": {"category": "unclassified-private-error"}})
+            module.validate_publication_failure({
+                "phase": "public_read_only_replay", "sealAcceptedAndIdentified": True,
+                "failure": {"category": "unexpected-public-proof", "status": 404}})
+
+    def test_publication_failure_rejects_malformed_shape(self):
+        base = {"phase": "wait_for_same_published_original", "sealAcceptedAndIdentified": True,
+                "failure": {"category": "original-publication-unconfirmed", "status": 503}}
+        for module in (MODULE, COLLECTOR):
+            for broken in (
+                dict(base, phase="publishing"),
+                dict(base, sealAcceptedAndIdentified="yes"),
+                dict(base, failure={"category": "arbitrary text here"}),
+                dict(base, failure={"category": "original-publication-unconfirmed"}),
+                dict(base, failure={"category": "original_seal_not_accepted", "status": 502}),
+                dict(base, failure={"category": "original-publication-unconfirmed", "status": 99}),
+                dict(base, failure={"category": "original-publication-unconfirmed", "status": 600}),
+                dict(base, failure={"category": "unclassified-private-error", "status": 503}),
+                dict(base, extra="field"),
+                {k: v for k, v in base.items() if k != "phase"},
+            ):
+                with self.assertRaises(AssertionError):
+                    module.validate_publication_failure(broken)
+
+    def test_publication_failure_projection_keeps_private_text_private(self):
+        record = {
+            "phase": "wait_for_same_published_original",
+            "original": {"postId": "pub-1", "jobId": "publication:sub-1", "submissionId": "sub-1",
+                         "sealUtc": "2026-11-26T13:12:00.000Z"},
+            "error": {"name": "AssertionError", "message": "one_original_publication_unconfirmed_http_404"},
+            "privateField": "arbitrary private content",
+        }
+        row = COLLECTOR.project_publication_failure(record)
+        self.assertEqual(row, {
+            "phase": "wait_for_same_published_original", "sealAcceptedAndIdentified": True,
+            "failure": {"category": "original-publication-unconfirmed", "status": 404}})
+        row = COLLECTOR.project_publication_failure(dict(
+            record, error={"name": "Error", "message": "detailed private diagnostic with secrets"}))
+        self.assertEqual(row["failure"], {"category": "unclassified-private-error"})
+        row = COLLECTOR.project_publication_failure(dict(record, original=None))
+        self.assertEqual(row["sealAcceptedAndIdentified"], False)
+        row = COLLECTOR.project_publication_failure(dict(
+            record, error={"name": "AssertionError", "message": "original_seal_not_accepted"}))
+        self.assertEqual(row["failure"], {"category": "original_seal_not_accepted"})
+        with self.assertRaises(AssertionError):
+            COLLECTOR.project_publication_failure(dict(record, phase="unknown_phase"))
+        overlong = COLLECTOR.project_publication_failure(dict(
+            record, error={"name": "AssertionError", "message": "unexpected_public_proof_http_99999"}))
+        self.assertEqual(overlong["failure"], {"category": "unclassified-private-error"})
+        unexpected = COLLECTOR.project_publication_failure(dict(
+            record, error={"name": "AssertionError", "message": "unexpected_public_proof_http_500"}))
+        self.assertEqual(unexpected["failure"], {"category": "unexpected-public-proof", "status": 500})
+
     def test_empty_allowlisted_receipt_is_rejected_by_name(self):
         path = self.root / "empty.tar"
         archive(path, {"controller-terminal.json": b""})

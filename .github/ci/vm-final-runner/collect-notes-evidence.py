@@ -303,6 +303,99 @@ def validate_apply_observation(row):
         assert set(entry) == base | extras
 
 
+PUBLICATION_FAILURE_PHASES = {
+    "baseline", "composer", "single_seal", "wait_for_same_published_original",
+    "play_before_ordinary_restart", "public_read_only_replay",
+}
+PUBLICATION_LITERAL_REASONS = {
+    "original_seal_not_accepted",
+    "no_publication_window_before_restart_reserve",
+    "insufficient_remaining_window_before_seal",
+    "decoded_capture_before_restart_failed",
+    "decoded_capture_after_restart_failed",
+}
+PUBLICATION_FAILURE_CATEGORIES = PUBLICATION_LITERAL_REASONS | {
+    "unexpected-public-proof", "original-publication-unconfirmed", "unclassified-private-error",
+}
+PUBLICATION_EMBEDDED_STATUS = {
+    "unexpected_public_proof": "unexpected-public-proof",
+    "one_original_publication_unconfirmed": "original-publication-unconfirmed",
+}
+
+
+def validate_publication_failure(row):
+    assert isinstance(row, dict) and set(row) == {"phase", "sealAcceptedAndIdentified", "failure"}
+    assert row["phase"] in PUBLICATION_FAILURE_PHASES
+    assert type(row["sealAcceptedAndIdentified"]) is bool
+    failure = row["failure"]
+    assert isinstance(failure, dict) and set(failure) <= {"category", "status"} and "category" in failure
+    assert failure["category"] in PUBLICATION_FAILURE_CATEGORIES
+    if "status" in failure:
+        assert type(failure["status"]) is int and 100 <= failure["status"] <= 599
+        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"}
+    else:
+        assert failure["category"] not in {"unexpected-public-proof", "original-publication-unconfirmed"}
+
+
+def project_publication_failure(record):
+    # Projects bounded evidence from the browser helper's private failure record.
+    # The record's error text is arbitrary and stays private; only the allowlisted
+    # category, an embedded three-digit proof status, the controlled phase and the
+    # seal fact cross the boundary.
+    assert isinstance(record, dict)
+    phase = record.get("phase")
+    assert phase in PUBLICATION_FAILURE_PHASES
+    original = record.get("original")
+    seal = isinstance(original, dict) and all(
+        type(original.get(key)) is str and len(original[key]) <= 128
+        for key in ("postId", "jobId", "submissionId", "sealUtc"))
+    error = record.get("error")
+    message = ""
+    if isinstance(error, dict) and type(error.get("message")) is str and len(error["message"]) <= 1024:
+        message = error["message"]
+    category = "unclassified-private-error"
+    status = None
+    embedded = re.fullmatch(r"(unexpected_public_proof|one_original_publication_unconfirmed)_http_(\d{3})", message)
+    if embedded:
+        category = PUBLICATION_EMBEDDED_STATUS[embedded[1]]
+        status = int(embedded[2])
+    elif message in PUBLICATION_LITERAL_REASONS:
+        category = message
+    failure = {"category": category}
+    if status is not None:
+        failure["status"] = status
+    row = {"phase": phase, "sealAcceptedAndIdentified": bool(seal), "failure": failure}
+    validate_publication_failure(row)
+    return row
+
+
+def publication_failure_files(root=ROOT, owner=1000):
+    artifact_root = root / "artifacts"
+    if not artifact_root.is_dir() or artifact_root.resolve(strict=True) != artifact_root:
+        return []
+    if artifact_root.stat().st_uid != owner:
+        return []
+    try:
+        runs = sorted(
+            item.name for item in artifact_root.iterdir()
+            if RUN_DIR.fullmatch(item.name) and item.is_dir() and not item.is_symlink()
+        )
+    except OSError:
+        return []
+    if len(runs) != 1:
+        return []
+    directory = artifact_root / runs[0]
+    found = []
+    for relative, output in (
+        ("application-before/w6-native-notes-before-failed.json", "publication-failure-before.json"),
+        ("reopened/application-after/w6-native-notes-after-failed.json", "publication-failure-after.json"),
+    ):
+        file = directory / relative
+        if file.is_file() and not file.is_symlink():
+            found.append((file, output))
+    return found
+
+
 def validate_install_server_refusal(row):
     base = {"boundary", "errorClass", "message", "responseStatus", "throwSite"}
     assert isinstance(row, dict) and base <= set(row) <= base | {"container"}
@@ -880,6 +973,14 @@ def collect_hold(session):
             pass
         else:
             write_json(session / "launcher-interruption.json", row)
+
+    for failure_file, output in publication_failure_files():
+        try:
+            _raw, record = private_json(failure_file)
+            row = project_publication_failure(record)
+        except (AssertionError, OSError, TypeError, ValueError):
+            continue
+        write_json(session / output, row)
 
     apply_observation = ROOT / "notes-apply-observation.json"
     if apply_observation.is_file():
