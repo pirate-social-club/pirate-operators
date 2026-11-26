@@ -266,7 +266,13 @@ def validate_launcher_interruption(row):
     assert type(row["reason"]) is str and row["reason"] in LAUNCHER_INTERRUPTION_REASONS
 
 
+APPLY_ASSERTION_CODES = {
+    "original_start_effect_uncertain", "original_start_intent_changed", "native_expanded_publication_selection_changed",
+}
+
+
 APPLY_OBSERVATION_OPERATIONS = {
+    "load-original", "reauthorize", "read-start-intent", "retain-launch", "retain-start-intent",
     "authorize", "create", "inspect", "retain-ingress", "start", "ingress-wait", "public-ingress-start",
 }
 
@@ -298,12 +304,13 @@ def validate_apply_observation(row):
             assert entry.get("errorClass") in INSTALL_SERVER_CLASSES
             extras.add("errorClass")
             if "message" in entry:
-                assert type(entry["message"]) is str and re.fullmatch(r"[a-z0-9_]{1,80}", entry["message"])
+                assert entry["errorClass"] == "AssertionError" and entry["message"] in APPLY_ASSERTION_CODES
                 extras.add("message")
         assert set(entry) == base | extras
 
 
 PUBLICATION_FAILURE_PHASES = {
+    "bootstrap",
     "baseline", "composer", "single_seal", "wait_for_same_published_original",
     "play_before_ordinary_restart", "public_read_only_replay",
 }
@@ -346,9 +353,13 @@ def project_publication_failure(record):
     phase = record.get("phase")
     assert phase in PUBLICATION_FAILURE_PHASES
     original = record.get("original")
-    seal = isinstance(original, dict) and all(
-        type(original.get(key)) is str and len(original[key]) <= 128
-        for key in ("postId", "jobId", "submissionId", "sealUtc"))
+    seal = (
+        isinstance(original, dict)
+        and isinstance(original.get("postId"), str) and re.fullmatch(r"0x[0-9a-f]{64}", original["postId"])
+        and isinstance(original.get("submissionId"), str) and re.fullmatch(r"[a-f0-9-]{36}", original["submissionId"])
+        and original.get("jobId") == "publication:" + original["submissionId"]
+        and isinstance(original.get("sealUtc"), str) and UTC_STAMP.fullmatch(original["sealUtc"])
+    )
     error = record.get("error")
     message = ""
     if isinstance(error, dict) and type(error.get("message")) is str and len(error["message"]) <= 1024:

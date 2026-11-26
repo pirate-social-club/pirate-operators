@@ -296,6 +296,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 {"observations": [dict(complete, signalAborted=False)]},
                 {"observations": [{k: v for k, v in complete.items() if k != "elapsedMs"}]},
                 {"observations": [dict(complete, phase="throw", errorClass="ArbitraryText")]},
+                {"observations": [dict(complete, phase="throw", errorClass="AssertionError", message="private_marker")]},
                 {"observations": [dict(complete, phase="throw", errorClass="TimeoutError", message="Has Uppercase")]},
                 {"observations": [dict(complete, extra="field")]},
                 {"observations": [{"event": "web2-install-apply-observation", "operation": "start",
@@ -342,7 +343,7 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
     def test_publication_failure_projection_keeps_private_text_private(self):
         record = {
             "phase": "wait_for_same_published_original",
-            "original": {"postId": "pub-1", "jobId": "publication:sub-1", "submissionId": "sub-1",
+            "original": {"postId": "0x" + "a" * 64, "jobId": "publication:" + "1" * 36, "submissionId": "1" * 36,
                          "sealUtc": "2026-11-26T13:12:00.000Z"},
             "error": {"name": "AssertionError", "message": "one_original_publication_unconfirmed_http_404"},
             "privateField": "arbitrary private content",
@@ -361,6 +362,12 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         self.assertEqual(row["failure"], {"category": "original_seal_not_accepted"})
         with self.assertRaises(AssertionError):
             COLLECTOR.project_publication_failure(dict(record, phase="unknown_phase"))
+        empty = dict.fromkeys(("postId", "jobId", "submissionId", "sealUtc"), "")
+        for malformed in (empty, dict(record["original"], jobId="publication:other")):
+            self.assertFalse(COLLECTOR.project_publication_failure(dict(record, original=malformed))["sealAcceptedAndIdentified"])
+        bootstrap = COLLECTOR.project_publication_failure({"phase": "bootstrap"})
+        self.assertEqual(bootstrap["phase"], "bootstrap")
+        self.assertFalse(bootstrap["sealAcceptedAndIdentified"])
         overlong = COLLECTOR.project_publication_failure(dict(
             record, error={"name": "AssertionError", "message": "unexpected_public_proof_http_99999"}))
         self.assertEqual(overlong["failure"], {"category": "unclassified-private-error"})
