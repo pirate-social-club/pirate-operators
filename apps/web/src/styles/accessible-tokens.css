@@ -4,6 +4,6 @@
 @layer base {
   .light {
     --muted-foreground: oklch(0.51 0.01 250);
-    --success: oklch(0.47 0.14 145);
+    --success: oklch(44.8% 0.119 151.328);
   }
 }

@@ -68,7 +68,7 @@ const comparisons: Comparison[] = [
 
 const variantLabels: Record<PaletteVariant, Record<PaletteRole, string>> = {
   current: {
-    success: "Current token: --success",
+    success: "Current token: --success (green-800)",
     error: "Current tokens: --destructive-text over a --destructive tint",
   },
   tailwind: {
@@ -78,7 +78,7 @@ const variantLabels: Record<PaletteVariant, Record<PaletteRole, string>> = {
 };
 
 const walletAddress = `0x${"11".repeat(20)}`;
-const expectedStudyCorrectCurrentRatio = 4.94;
+const expectedStudyCorrectCurrentRatio = 5.4;
 
 function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
@@ -544,13 +544,14 @@ function SemanticColorComparison() {
       <header class="flex flex-col gap-2">
         <h1 class="text-2xl font-semibold">Semantic color comparison</h1>
         <p class="max-w-3xl text-muted-foreground">
-          Light-mode comparison for the owner decision. Each row keeps the
-          current semantic tokens and the pinned Tailwind candidate adjacent.
-          Tailwind colors come from the installed tailwindcss 4.3.3 palette
-          utilities rather than hardcoded hex. Ratios use computed browser
-          colors converted to sRGB, with translucent tints composited over their
-          actual backdrop. Success and error rows are independent decisions;
-          this fixture changes no production tokens.
+          Light-mode comparison after the owner palette decision. The success
+          rows show the adopted Tailwind green-800 token, so the current and
+          candidate success samples intentionally match. The error rows keep the
+          retained destructive tokens beside the red-700 candidate. Tailwind
+          colors come from the installed tailwindcss 4.3.3 palette utilities
+          rather than hardcoded hex. Ratios use computed browser colors
+          converted to sRGB, with translucent tints composited over their actual
+          backdrop. This fixture changes no production tokens.
         </p>
       </header>
       <For each={comparisons}>
@@ -607,7 +608,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Owner decision fixture only: it compares the current semantic success/destructive tokens with the pinned Tailwind green-800/red-700 palette in product-state geometry, then measures computed foreground/effective-background contrast. It does not change production tokens or qualify the affected states.",
+          "Post-decision evidence fixture: it verifies the adopted semantic success token against Tailwind green-800, keeps the retained destructive tokens beside the red-700 candidate in product-state geometry, and measures computed foreground/effective-background contrast. It does not change production tokens or qualify the affected states.",
       },
     },
   },
