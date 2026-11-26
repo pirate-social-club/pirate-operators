@@ -29,6 +29,131 @@
     "workflowConclusion": "success",
     "zeroByteLogs": 6
   },
+  "currentReview": {
+    "checkoutObjects": {
+      "checkoutCiTreeSha": "3ce102e9e880f51587d16b3a603321d4e1092cb3",
+      "checkoutFinalWorkflowBlobSha": "0fd268d1b8b524c1ae3b000f6d1fd535136861f9",
+      "checkoutInstallWorkflowBlobSha": "d1e4f225b2147e21c3bb60c0daef5be5eb618bb5"
+    },
+    "evidenceHead": "db1faa1cf0d2664a9d1cf9092816dd9a002174b2",
+    "fixture": {
+      "fixtureImageId": "sha256:3088dd47364de4878a76dc50047089612fcbec2b885124d9fa70bdd568428565",
+      "manifestSha256": "941d2e915079fec1e2c9bf648915df1eb04f3d454e1123b8d3264b40fa7280ac",
+      "productSourceHead": "299ebfe5ccb0371f7b2b0c6e8ef3fe2cf5ffce21",
+      "productSourceTree": "3f13269b483f4ed3367c24de97138e0c532dc843",
+      "release": "pirate-v1-staging-vm-fixtures-20261125-r21",
+      "schema": "pirate.vm-fixture-pin/1",
+      "unchangedAssetRelease": "pirate-v1-staging-vm-fixtures-20261125-r13"
+    },
+    "fixturePinFileSha256": "75aaf4fece9f73a80310f1ce849aa55a294c7d9290c285337a21e11ab1385ad0",
+    "historicalScope": "The other top-level fields preserve the original audit at auditedUtc. Their latest run and successor fixture refer to that snapshot.",
+    "passingFinalRuns": [
+      {
+        "artifactId": 15074772457,
+        "baseSha": null,
+        "checkoutSha": "e7534510e22d2356665c1e6a374f8a76fc6a3407",
+        "event": "workflow_dispatch",
+        "executedMergeSha": null,
+        "guestEvidenceArchiveSha256": "227dd638f3cf42ebaa7ba6e17a4fcf48e0729e03e8e46992bca4988c1d02768d",
+        "headSha": "e7534510e22d2356665c1e6a374f8a76fc6a3407",
+        "initialLimitSeconds": 300,
+        "initialPairWaitSeconds": 17.031,
+        "memorySamples": 269,
+        "minGuestAvailableKiB": 71624,
+        "restartLauncherArrayBuffersMiB": [
+          22.0,
+          43.4
+        ],
+        "restartLimitSeconds": 300,
+        "restartPairWaitSeconds": 137.948,
+        "runAttempt": "1",
+        "runId": "45725776096"
+      },
+      {
+        "artifactId": 15076672303,
+        "baseSha": null,
+        "checkoutSha": "e7534510e22d2356665c1e6a374f8a76fc6a3407",
+        "event": "workflow_dispatch",
+        "executedMergeSha": null,
+        "guestEvidenceArchiveSha256": "c3eddeaa062dae85b8df0ac37546cc45ddb4d8bd6a08a265f8c208c43612f34a",
+        "headSha": "e7534510e22d2356665c1e6a374f8a76fc6a3407",
+        "initialLimitSeconds": 300,
+        "initialPairWaitSeconds": 17.033,
+        "memorySamples": 302,
+        "minGuestAvailableKiB": 46280,
+        "restartLauncherArrayBuffersMiB": [
+          22.5,
+          26.1
+        ],
+        "restartLimitSeconds": 300,
+        "restartPairWaitSeconds": 127.378,
+        "runAttempt": "1",
+        "runId": "45729825351"
+      },
+      {
+        "artifactId": 15078550611,
+        "baseSha": "a35d3c0fc89e21b0d19aea91d4edb6240301fca7",
+        "checkoutSha": "36105406b47f0dffc7bef1d682513a78127039bd",
+        "event": "pull_request",
+        "executedMergeSha": "36105406b47f0dffc7bef1d682513a78127039bd",
+        "guestEvidenceArchiveSha256": "3edd23a49184e532459ce1dc0e2b1b18bc441c0c97aec30e86a0207d83baa042",
+        "headSha": "c4ec3ff4cf3bc65c48258788d3dad44b865a8f3a",
+        "initialLimitSeconds": 300,
+        "initialPairWaitSeconds": 17.026,
+        "memorySamples": 293,
+        "minGuestAvailableKiB": 98484,
+        "restartLauncherArrayBuffersMiB": [
+          22.0,
+          43.4
+        ],
+        "restartLimitSeconds": 300,
+        "restartPairWaitSeconds": 128.318,
+        "runAttempt": "2",
+        "runId": "45732354057"
+      },
+      {
+        "artifactId": 15091195326,
+        "baseSha": "a35d3c0fc89e21b0d19aea91d4edb6240301fca7",
+        "checkoutSha": "039022b207779448520c3786e96878a9df78d674",
+        "event": "pull_request",
+        "executedMergeSha": "039022b207779448520c3786e96878a9df78d674",
+        "guestEvidenceArchiveSha256": "f2d2e86476d8acb5b59decc5762f2132b9e039b6baaabc781abe1fb41d6e0264",
+        "headSha": "db1faa1cf0d2664a9d1cf9092816dd9a002174b2",
+        "initialLimitSeconds": 120,
+        "initialPairWaitSeconds": 17.036,
+        "memorySamples": 268,
+        "minGuestAvailableKiB": 77448,
+        "restartLauncherArrayBuffersMiB": [
+          22.0,
+          36.2
+        ],
+        "restartLimitSeconds": 300,
+        "restartPairWaitSeconds": 138.771,
+        "runAttempt": "1",
+        "runId": "45761666797"
+      }
+    ],
+    "standaloneInstallOnly": {
+      "artifactId": 15090351679,
+      "baseSha": "a35d3c0fc89e21b0d19aea91d4edb6240301fca7",
+      "checkoutSha": "039022b207779448520c3786e96878a9df78d674",
+      "event": "pull_request",
+      "executedMergeSha": "039022b207779448520c3786e96878a9df78d674",
+      "guestEvidenceArchiveSha256": "2101cd49c03265b23af2194b20e37d879c289a2641ad688edb72dc5dd7318479",
+      "guestIdentity": {
+        "head": "34f73d22f794e499a9bf86b22311629dcd2e000a",
+        "image": "sha256:eadd63a378767e660337c2f3b2b594ad0c869ebeebada873a7a06bc9b6194a23",
+        "tree": "94e58bd43806e484d5a85cf3ad144194c3d9f724"
+      },
+      "headSha": "db1faa1cf0d2664a9d1cf9092816dd9a002174b2",
+      "installPhase": "install-only-complete",
+      "outerImageId": "sha256:3088dd47364de4878a76dc50047089612fcbec2b885124d9fa70bdd568428565",
+      "result": "pass",
+      "runAttempt": "1",
+      "runId": "45761666749"
+    },
+    "verificationScope": "Disposable offline pilot on 4096 MiB. The independent install-only guest still uses the predecessor. Main whole-system behavior and the Fluence foreground-to-Pair measurement remain unqualified."
+  },
   "earlierFinalAcceptanceRun": {
     "baseSha": "cf03e0b57fbf4321cdbf896fdf8364683209ea01",
     "cleanup": 1,
