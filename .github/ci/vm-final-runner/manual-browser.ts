@@ -69,7 +69,9 @@ async function openBrowser(input: Inputs, pins: string[], controlLabel: "wizard"
   ] : [];
   assert(process.stdin.isTTY && process.stdout.isTTY, "manual_demo_requires_interactive_tty");
   assert(process.env.DISPLAY || process.env.WAYLAND_DISPLAY, "headed_browser_display_required");
-  assert.equal(digest(await readFile(input.executable)), input.executableSha256);
+  const executableHash = createHash("sha256");
+  for await (const chunk of createReadStream(input.executable)) executableHash.update(chunk);
+  assert.equal(executableHash.digest("hex"), input.executableSha256);
   const browser = await pw.chromium.launch({ executablePath: input.executable, headless: false, args: [
     "--host-resolver-rules=MAP signing.native25.test 127.0.0.1",
     "--ignore-certificate-errors-spki-list=" + pins.join(","),
