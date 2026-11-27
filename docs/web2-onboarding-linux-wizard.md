@@ -13,14 +13,15 @@ authorize the exact enrollment; a shared account signs once.
 
 The private original must survive ordinary runner reconstruction. Missing,
 corrupt, oversized, symlinked or public state must fail closed without deleting
-it. Public state never includes the invitation, signatures or signed raw
-transactions. Concurrent tabs serialize against the same revision. Host,
+it. Public state never includes funding invitation secrets, signatures or
+signed raw transactions. Concurrent tabs serialize against the same revision. Host,
 paired-channel authorization, Origin and CSRF checks precede mutation; bounded
 request and response reads must also bound stalled transports.
 
-Installation requires the Linux-owned port and actual consumed registration.
-Persist the exact draft and returned plan before apply; later funding status is
-a separate view and must not change that draft on retry. An unavailable native
+Installation requires the Linux-owned port and must not require a consumed
+registration receipt. Persist the exact draft and returned plan before apply;
+later funding and registration status are separate views and must not change
+that draft on retry. An unavailable native
 port reports unavailable, never installed. Tests must retain actual receipt,
 identity, request and browser artifacts. Simulated external wallet/content
 transport is named and is not native installation or public-host acceptance.
@@ -32,7 +33,7 @@ This changes no server authority window, approval or original-operation rule.
 An interrupted reply still requires reconciliation of the saved original.
 
 The later approved [checkpoint 1 delivery decisions](self-hosting/checkpoint-1-pilot-delivery-20261114.md)
-govern the invited pilot's hosting, gas funding, service responsibilities and
+govern the pilot's hosting, gas funding, service responsibilities and
 checkpoint order. Pirate funds capped publisher/controller top-ups; those
 community accounts submit their own publications/configuration changes. Pirate
 does not become the community publisher. The runtime gaps below remain open.
@@ -47,11 +48,13 @@ It does not establish a supported installed host. Current acceptance evidence is
 Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
 context and private host-only paths, without a prebound community identity.
 The Wizard persists its actual community/Directory installation IDs and exact
-configuration before external effects, then prepares/signs/redeems/reconciles
-the hosted enrollment. It persists the receipt-bearing LinuxWeb2Draft before
-calling the Linux-owned installation prepare port. That producer must bind and
-authenticate the actual runtime and host admission from this original draft;
-a strict installer requiring that future draft during bootstrap would be circular.
+configuration before external effects, then prepares and signs the hosted
+enrollment. It persists the controller-authorized LinuxWeb2Draft before calling
+the Linux-owned installation prepare port. That producer must bind and
+authenticate the actual runtime and host admission from this original draft
+without requiring a future registration receipt during bootstrap. After the
+verified public installation readback, hosted enrollment registers or reconciles
+the same original and supplies its receipt.
 The host installation reference remains distinct from the Directory installation
 ID. Closing this Wizard borrows no right to release the persistent service lease.
 Public status is a view, not chain authority or a fresh native-health proof.
@@ -166,14 +169,22 @@ This ownership check precedes provisioning approval. It is distinct from the
 later routing, certificate and application checks. Failed or expired control
 requires a new valid challenge or supported reconciliation, not an override.
 
-### 3. Register and enroll automatically
+### 3. Prepare permissionless enrollment
 
-Before registration, collect every input the registration prepare call binds: the neutral human community title, canonical HTTPS origin, controller and publisher addresses, invitation token and required pilot notice acceptance. The HTTPS control proof establishes the selected origin; it does not defer choosing that origin until installation review. These values become part of the original registration draft and cannot be silently changed later.
+Before registration preparation, collect every input the enrollment prepare
+call binds: the neutral human community title, canonical HTTPS origin,
+controller and publisher addresses, and required pilot notice acceptance. No
+invitation token is part of ordinary registration. The HTTPS control proof
+establishes the selected origin; it does not defer choosing that origin until
+installation review. These values become part of the original registration
+draft and cannot be silently changed later.
 
-Before installation preparation begins, the scoped automatic registrar registers or reconciles the same community and configuration, then hosted enrollment produces its required evidence.
-Use the original idempotency key and retain the canonical receipt/checkpoint.
-There is no manual Pirate approval queue. A missing registrar implementation is
-an implementation gap, not a new operator instruction to contact staff.
+The controller wallet authorizes the exact enrollment before installation.
+The scoped automatic registrar does not write registration yet. It later uses
+the original enrollment identity and controller authorization only after the
+exact installation passes public HTTPS verification. There is no manual Pirate
+approval queue. A missing registrar implementation is an implementation gap,
+not a new operator instruction to contact staff.
 
 The registrar may create only the admitted neutral HTTPS community binding for
 the exact authorized installation/source/profile. Its credentials cannot grant
@@ -181,7 +192,9 @@ namespace issuance, registry administration or HNS attester authority. Directory
 registration is not verified namespace discovery. Read back the actual accepted
 community/configuration through the selected reader before reporting its success.
 
-The Wizard must retain the registration receipt/readback and enrollment evidence required by the selected profile before it prepares installation. Do not fabricate a receipt or infer registration from a running website. HNS verification is not an appReady condition. Show distinct website, registration and naming statuses.
+Do not fabricate a receipt or infer registration from a running website. HNS
+verification is not an appReady condition. Show distinct website, registration
+and naming statuses.
 
 ### 4. Review and provision one complete installation
 
@@ -225,7 +238,7 @@ before effects. One approving operation wins concurrent submissions. Dirty
 settings invalidate unstarted approval. Provision through the genuine owning
 backend; a setup page, empty callback or a capability declaration is insufficient.
 
-### 5. Configure routing and TLS, verify the installation, and open the actual site
+### 5. Configure routing and TLS, verify the installation, register, and open the actual site
 
 After provisioning yields the real ingress, show the actual routing records
 needed for the selected host. Ownership and routing records have separate check
@@ -252,8 +265,15 @@ authentication, media/publication and jobs under the selected profile. Private
 checks must use their real authentication; public checks must reach the public
 origin. Neither provider control nor an HNS ceremony result supplies this proof.
 
+Only after that exact installation readback does the registrar submit or
+reconcile the original registration once, using the retained enrollment identity
+and controller authorization. Failed DNS, routing, TLS or installation checks
+produce zero registrations. A lost reply reconciles the original operation and
+recovers the same receipt; it never signs or broadcasts a replacement.
 
-Report appReady only from actual HTTPS/full-app checks plus the already retained registration and enrollment evidence. Expose Open actual site only for the verified provisioned origin, never the setup listener.
+Report appReady only from actual HTTPS/full-app checks plus the resulting
+registration receipt/readback and enrollment evidence. Expose Open actual site
+only for the verified provisioned origin, never the setup listener.
 ### 6. Use the community and survive an ordinary restart
 
 Prove real member authentication and a different operator-published first song

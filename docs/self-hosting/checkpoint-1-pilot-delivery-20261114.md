@@ -7,8 +7,8 @@ and discovery policy. A community can launch on ordinary HTTPS, participate in
 the shared feed and add HNS later without recreating its accounts or content.
 HNS ownership gates HNS claims, not community registration or gas eligibility.
 
-The first usable milestone remains an invited, disposable testnet community:
-fresh installation, automatic registration, plain member sign-in, first-song
+The first usable milestone remains a disposable testnet community: fresh
+installation, automatic permissionless registration, plain member sign-in, first-song
 publication/playback and persistence through restart. The expanded Web2 release
 includes Study, Karaoke, Dance, the shared feed and Megapot rewards. The smaller
 first-song acceptance remains a staging milestone and does not wait for HNS or
@@ -46,7 +46,7 @@ Live Fluence staging acceptance remains open. Public DNS/ACME issuance, external
 | 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | PR60/61 qualify service/application source. Acceptance status is recorded in [First-song acceptance status](#first-song-acceptance-status). HNS, names, learning-results and Dance remain disabled.                                                                                         |
 | 4a. Activities and shared feed   | V5 Study/Karaoke with private practice independent of publication grants; V2 Dance capture/review and separately consented public videos; canonical song references; aggregate indexing/playback; delisting, retention and deletion.                           | Requires the consent/Dance foundation, actual normal-route/media/source/profile and HTTP/queue/scheduler/Linux joins, and a green baseline. First-song acceptance remains separately useful.                                                                                   |
 | 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../deferred/manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
-| 5. Release and handback          | Qualify the expanded Web2 scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                                  | Requires checkpoints 3, 4a and 4b. An invited first-song staging milestone may precede them; it is not completion of the expanded release. HNS remains independent.                                                                                                            |
+| 5. Release and handback          | Qualify the expanded Web2 scope with operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                                  | Requires checkpoints 3, 4a and 4b. A first-song staging milestone may precede them; it is not completion of the expanded release. HNS remains independent.                                                                                                            |
 
 Checkpoint 2 fixes known failures without waiting for final contracts. Integrate
 contract changes when ready and qualify the combined candidate before release.
@@ -221,23 +221,25 @@ shared Pirate sender as every community's publisher to bypass the current
 contract. Member-name sponsorship remains checkpoint 1b/HNS activation work. External creator
 registration, creator wallets and royalties remain outside this pilot.
 
-## Invites and service admission
+## Invites and funding admission
 
-Use a short-lived, single-use invite that expires unused and can be revoked
-before redemption. Redeem atomically into a controller/installation-bound
-service enrollment after proof of control. Concurrent redemption, replay,
-expiry and revocation must not create another enrollment or budget. Retain the
-original operation identity after a lost response. Keep invite secrets out of
-logs and public configuration; possession alone authorizes no arbitrary
-transaction. Subsequent requests authenticate the enrolled binding and action.
-Revoking an enrollment stops future service access and top-ups; it does not
-revoke community keys, reclaim transferred ETH or erase completed effects.
+Ordinary community registration is permissionless and uses no invite. Invites
+only admit Pirate-funded initial gas. Use a short-lived, single-use invite that
+expires unused and can be revoked before funding redemption. Redeem atomically
+into a controller/installation-bound service enrollment after proof of control.
+Concurrent redemption, replay, expiry and revocation must not create another
+enrollment or budget. Retain the original operation identity after a lost
+response. Keep invite secrets out of logs and public configuration; possession
+alone authorizes no arbitrary transaction. Subsequent funding requests
+authenticate the enrolled binding and action. Revoking an enrollment stops
+future service access and top-ups; it does not revoke community keys, reclaim
+transferred ETH or erase completed effects.
 
 ## Selected external services
 
 | Capability                               | Operator and credential custody                                                                                                                 | Pilot acceptance                                                                                                                                                                                 |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Community enrollment and testnet top-ups | Pirate operates the hosted service and holds registrar/funding credentials. Communities retain publisher/controller signing custody.            | Real enrollment and capped transfers, invite controls, budget enforcement and interrupted-operation reconciliation.                                                                              |
+| Community enrollment and testnet top-ups | Pirate operates the hosted service and holds registrar/funding credentials. Communities retain publisher/controller signing custody.            | Permissionless registration, real enrollment, capped transfers, funding invite controls, budget enforcement and interrupted-operation reconciliation.                                            |
 | Song recognition and shared catalog      | Pirate operates the shared recognition service and holds ACRCloud credentials and catalog costs. Communities use scoped service pairings.       | Real recognition and accepted-song enrollment; unavailable/inconclusive evidence never becomes permission to publish.                                                                            |
 | Publication approval                     | Controller-authorized owner publication under the selected owner-catalog policy.                                                                | Real authorization and declared rating/language. Automated moderation is deferred; no OpenAI moderation service is required or claimed for this profile.                                         |
 | Public media pinning                     | Pirate's publishing service holds Filebase credentials; the community publisher retains on-chain publication authority.                         | Actual admitted-file pinning, CID verification and retrievable published bytes.                                                                                                                  |
@@ -252,9 +254,9 @@ community hosting is Linux. Operators do not supply Pirate's provider or funding
 keys. Learning speech services, Telegram and general creator registration are
 not prerequisites for the first-song playback profile.
 
-## Invited pilot disclosure
+## Pilot disclosure
 
-Show this notice before invite redemption and retain the acknowledgement:
+Show this notice before enrollment preparation and retain the acknowledgement:
 
 > This is an experimental testnet pilot for disposable data. Backups and
 > supported restoration are unavailable. Losing the server or its disk may make
@@ -262,7 +264,7 @@ Show this notice before invite redemption and retain the acknowledgement:
 > production operations. Public media and on-chain records may remain even if
 > the community server is lost.
 
-Checkpoint 3 permits invited operators to perform this testnet acceptance. It
+Checkpoint 3 permits operators to perform this testnet acceptance. It
 does not authorize general production operation, mainnet or a recoverability
 promise. HNS/naming readiness is independent of production storage readiness.
 
@@ -336,8 +338,8 @@ These observations support reviewing admission/waiting overhead; they do not
 attribute every minute or establish that required testing should be removed.
 
 Advance checkpoints on concrete outputs and evidence, with no invented dates.
-The contract foundations, repaired baseline, first-song runtime and invited
-hosted enrollment service are merged and CI-qualified source. Acceptance status is recorded in [First-song acceptance status](#first-song-acceptance-status). Defer further plan-review loops unless a concrete
+The contract foundations, repaired baseline, first-song runtime and hosted
+enrollment service are merged and CI-qualified source. Acceptance status is recorded in [First-song acceptance status](#first-song-acceptance-status). Defer further plan-review loops unless a concrete
 implementation finding changes an accepted boundary.
 
 ## Additional addresses (deferred, after the Web2 pilot)
