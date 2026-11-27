@@ -40,6 +40,13 @@ const wire = (value: unknown): unknown =>
   JSON.parse(
     JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? String(v) : v)),
   );
+const wireBytes32 = (value: unknown): Hex => {
+  insist(
+    typeof value === "string" && /^0x[0-9a-f]{64}(?![\s\S])/.test(value),
+    "invalid_shared_bytes32",
+  );
+  return value as Hex;
+};
 async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   let abort: () => void = () => {};
   try {
@@ -68,8 +75,8 @@ export function checkedHostedPreparation(
   const typed = object(v.typedData),
     message = object(typed.message);
   const id = sharedBytes32(v.enrollmentId),
-    wireInviteId = sharedBytes32(message.inviteId),
-    wireAllowanceId = sharedBytes32(message.allowanceId);
+    wireInviteId = wireBytes32(message.inviteId),
+    wireAllowanceId = wireBytes32(message.allowanceId);
   const inviteId = wireInviteId === HOSTED_NO_INVITE_ID ? null : wireInviteId,
     allowanceId =
       wireAllowanceId === HOSTED_NO_INVITE_ID ? null : wireAllowanceId;

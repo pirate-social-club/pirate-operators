@@ -69,13 +69,11 @@ export interface Journal {
   policyHash: Hex;
   phase: Phase;
   pending: string | null;
-  invitationRefused: boolean;
   rejectedAuthorizations: Array<{
     controller: Hex | null;
     recipients: Array<{ recipient: Hex; signature: Hex }> | null;
   }>;
   request: SelectionInput | null;
-  inviteToken: string | null;
   plan: ReturnType<typeof planDocument> | null;
   deployment: Web2CommunityDeploymentProfile | null;
   prepared: PreparedHostedEnrollment | null;
@@ -178,10 +176,8 @@ export async function createWeb2Journal(
       "policyHash",
       "phase",
       "pending",
-      "invitationRefused",
       "rejectedAuthorizations",
       "request",
-      "inviteToken",
       "plan",
       "deployment",
       "prepared",
@@ -209,8 +205,7 @@ export async function createWeb2Journal(
     );
     integer(journal.revision, 0, Number.MAX_SAFE_INTEGER);
     insist(
-      typeof journal.invitationRefused === "boolean" &&
-        Array.isArray(journal.rejectedAuthorizations) &&
+      Array.isArray(journal.rejectedAuthorizations) &&
         journal.rejectedAuthorizations.length <= 32,
       "web2_original_changed",
     );
@@ -251,9 +246,7 @@ export async function createWeb2Journal(
         text(r.name, 63) === plan.config.app.label &&
           httpsOrigin(r.origin) === plan.config.app.origin &&
           address(r.controller) === plan.config.controller &&
-          address(r.publisher) === plan.config.publisher &&
-          typeof journal.inviteToken === "string" &&
-          /^[a-f0-9]{64}$/.test(journal.inviteToken),
+          address(r.publisher) === plan.config.publisher,
         "web2_original_changed",
       );
       const d = validateCommunityDeploymentProfile(journal.deployment);
@@ -269,7 +262,6 @@ export async function createWeb2Journal(
     } else
       insist(
         journal.request === null &&
-          journal.inviteToken === null &&
           journal.deployment === null &&
           journal.prepared === null,
         "web2_original_changed",
@@ -344,10 +336,8 @@ export async function createWeb2Journal(
       policyHash: policyHash(policy),
       phase: "empty",
       pending: null,
-      invitationRefused: false,
       rejectedAuthorizations: [],
       request: null,
-      inviteToken: null,
       plan: null,
       deployment: null,
       prepared: null,

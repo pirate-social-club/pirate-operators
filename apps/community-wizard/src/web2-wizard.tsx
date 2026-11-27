@@ -21,8 +21,7 @@ export function Web2Wizard() {
   const [name, setName] = createSignal(""),
     [origin, setOrigin] = createSignal(""),
     [controller, setController] = createSignal(""),
-    [owner, setOwner] = createSignal(""),
-    [invite, setInvite] = createSignal("");
+    [owner, setOwner] = createSignal("");
   const [rolesReviewed, setRolesReviewed] = createSignal(false),
     [ownerReviewed, setOwnerReviewed] = createSignal(false),
     [accepted, setAccepted] = createSignal(false),
@@ -133,10 +132,8 @@ export function Web2Wizard() {
                   origin: origin(),
                   controller: controller(),
                   publisher: view()!.serverPublisher?.address ?? "",
-                  inviteToken: invite(),
                   noticeAccepted: accepted(),
                 });
-                setInvite("");
                 return state;
               });
             }}
@@ -206,18 +203,6 @@ export function Web2Wizard() {
               />
               I reviewed the controller, owner and server publisher
             </label>
-            <label>
-              Pilot invitation
-              <input
-                required
-                pattern="[a-f0-9]{64}"
-                type="password"
-                autocomplete="off"
-                value={invite()}
-                onInput={(e) => setInvite(e.currentTarget.value)}
-                disabled={locked()}
-              />
-            </label>
             <p>{view()!.notice}</p>
             <label>
               <input
@@ -244,41 +229,9 @@ export function Web2Wizard() {
         </Show>
         <p role="status">Setup state: {view()!.phase}</p>
         <Show when={view()!.selection && !view()!.challenge}>
-          <Show when={view()!.invitationCorrectionRequired}>
-            <label>
-              Replacement pilot invitation
-              <input
-                type="password"
-                autocomplete="off"
-                value={invite()}
-                onInput={(e) => setInvite(e.currentTarget.value)}
-                disabled={locked()}
-              />
-            </label>
-            <p>{view()!.notice}</p>
-            <label>
-              <input
-                type="checkbox"
-                checked={accepted()}
-                onChange={(e) => setAccepted(e.currentTarget.checked)}
-              />
-              I accept this pilot notice for the corrected invitation.
-            </label>
-          </Show>
           <button
-            disabled={
-              locked() || (view()!.invitationCorrectionRequired && !accepted())
-            }
-            onClick={() =>
-              void perform(() =>
-                send(
-                  "resume-prepare",
-                  view()!.invitationCorrectionRequired
-                    ? { inviteToken: invite(), noticeAccepted: accepted() }
-                    : {},
-                ),
-              )
-            }
+            disabled={locked()}
+            onClick={() => void perform(() => send("resume-prepare"))}
           >
             Resume original preparation
           </button>
@@ -328,27 +281,29 @@ export function Web2Wizard() {
             (op) => op.kind === "registration" && op.state === "consumed",
           )}
         >
-          <h2>Initial publication gas</h2>
-          <p>
-            Pirate supplies the policy's capped initial gas allocation. Each
-            distinct recipient authorizes this enrollment; no funding key is
-            collected.
-          </p>
-          <For each={view()!.recipients}>
-            {(r) => (
-              <p>
-                {r.address}: {formatEther(BigInt(r.value))} ETH
-              </p>
-            )}
-          </For>
-          <button
-            disabled={locked()}
-            onClick={() => void perform(() => send("topup"))}
-          >
-            {view()!.fundingAuthorized
-              ? "Retry original gas allocation"
-              : "Authorize initial gas allocation"}
-          </button>
+          <Show when={view()!.fundingAvailable}>
+            <h2>Initial publication gas</h2>
+            <p>
+              Pirate supplies the policy's capped initial gas allocation. Each
+              distinct recipient authorizes this enrollment; no funding key is
+              collected.
+            </p>
+            <For each={view()!.recipients}>
+              {(r) => (
+                <p>
+                  {r.address}: {formatEther(BigInt(r.value))} ETH
+                </p>
+              )}
+            </For>
+            <button
+              disabled={locked()}
+              onClick={() => void perform(() => send("topup"))}
+            >
+              {view()!.fundingAuthorized
+                ? "Retry original gas allocation"
+                : "Authorize initial gas allocation"}
+            </button>
+          </Show>
           <h2>Owner publishing authorization</h2>
           <p>
             Publishing is reviewed separately from enrollment, login and song

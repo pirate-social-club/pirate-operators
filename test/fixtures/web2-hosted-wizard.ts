@@ -232,18 +232,19 @@ export async function hostedWizardFixture(
       await client.waitForTransactionReceipt({ hash: init });
       await chain.rpc("anvil_mine", ["0x40", "0x0"]);
     }
-    const inviteToken = token();
-    await provisionHostedInvite(
-      db,
-      policy,
-      {
-        id: publicId(),
-        token: inviteToken,
-        allowanceId: publicId(),
-        expiresAt: runtime.now() + 3500,
-      },
-      runtime.now(),
-    );
+    const inviteToken = options.sameRecipient ? token() : undefined;
+    if (inviteToken)
+      await provisionHostedInvite(
+        db,
+        policy,
+        {
+          id: publicId(),
+          token: inviteToken,
+          allowanceId: publicId(),
+          expiresAt: runtime.now() + 3500,
+        },
+        runtime.now(),
+      );
     const before = chain.effects.broadcasts;
     const transport: typeof fetch = async (url, init) => {
       const request = new Request(url, init);
@@ -286,7 +287,7 @@ export async function hostedWizardFixture(
     const signing = await operatorSigningFixture(directory,policy,options);
     const prepareInput = {
       name:"Wizard Garden",origin:"https://wizard-community.example",controller,
-      publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
+      publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),noticeAccepted:true,
     };
     let installationAttempts=0;
     const installationUnavailable=async()=>{installationAttempts++;throw Error("fixture installation must not run after an expired owner window");};
@@ -316,12 +317,12 @@ export async function hostedWizardFixture(
       const selected={name:prepareInput.name,origin:prepareInput.origin,controller,publisher:controller};
       const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
       await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
-      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken);
+      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken!);
       const e=parseEnrollment(prepared.enrollment),proof=await web2Owner.signTypedData(enrollmentTypedData(e));
       await oldClient.redeem(prepared,proof);await chain.rpc("anvil_mine",["0x40","0x0"]);
       await oldClient.topup(prepared,proof,[{recipient:controller,signature:proof}]);await chain.rpc("anvil_mine",["0x40","0x0"]);
       const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
-      Object.assign(journal,{request:selected,inviteToken,plan:web2Wire(planDocument(plan)),deployment,prepared,
+      Object.assign(journal,{request:selected,plan:web2Wire(planDocument(plan)),deployment,prepared,
         controllerSignature:proof,recipientProofs:[{recipient:controller,signature:proof}],
         enrollment:await oldClient.status(prepared,proof),phase:"funded"});
       await save();
@@ -470,7 +471,6 @@ export async function hostedWizardFixture(
       custodyUnavailable:()=>signing.custodyUnavailable(),
       changeGrantSelection:(kind:"publisher")=>signing!.changeGrantSelection(kind),
       journal: join(directory, "web2-wizard-original.json"),
-      inviteToken,
       prepareInput,
       raw,
       state,

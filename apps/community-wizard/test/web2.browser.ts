@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { hostedWizardFixture } from "../../../test/fixtures/web2-hosted-wizard.ts";
 
-test("actual hosted Web2 enrollment and gas authorization resume in the browser without reporting a missing installer as running", async ({
+test("actual hosted Web2 enrollment resumes in the browser without an invitation or reporting a missing installer as running", async ({
   page,
   context,
 }, info) => {
@@ -82,7 +82,6 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await expect(page.getByLabel("Owner wallet", {exact:true})).toHaveValue(f.prepareInput.controller);
     await page.getByLabel("Owner wallet", {exact:true}).fill(f.nominatedOwner);
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
-    await page.getByLabel("Pilot invitation").fill(f.inviteToken);
     await page
       .getByLabel("I accept this pilot notice", { exact: false })
       .check();
@@ -110,25 +109,9 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
         name: "Authorize initial gas allocation",
         exact: true,
       }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", {
-        name: "Authorize initial gas allocation",
-        exact: true,
-      })
-      .click();
+    ).toHaveCount(0);
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
-    ).toBeEnabled();
-    await f.mine();
-    await page
-      .getByRole("button", { name: "Reconcile original enrollment" })
-      .click();
-    await expect(
-      page.getByText("Setup state: funded", { exact: true }),
+      page.getByText("Setup state: registered", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", {name:"Review owner publishing"}).click();
     await expect(page.getByText(f.nominatedOwner, {exact:false}).first()).toBeVisible();
@@ -150,7 +133,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     const before = f.broadcasts();
     await page.reload();
     await expect(
-      page.getByText("Setup state: funded", { exact: true }),
+      page.getByText("Setup state: registered", { exact: true }),
     ).toBeVisible();
     expect(f.broadcasts()).toBe(before);
     const gate = f.holdNextStatus();
@@ -175,19 +158,13 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       page.getByRole("button", { name: "Refresh retained setup" }),
     ).toBeEnabled();
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
+      page.getByRole("button", { name: "Reconcile original enrollment" }),
     ).toBeDisabled();
     gate.release();
     await forwarded;
     await page.getByRole("button", { name: "Refresh retained setup" }).click();
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
+      page.getByRole("button", { name: "Reconcile original enrollment" }),
     ).toBeEnabled();
     expect(f.broadcasts()).toBe(before);
     await expect(
@@ -201,7 +178,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     expect(await page.evaluate(() => localStorage.length)).toBe(0);
     expect(
       requests.some((r) => r.path === "/api/web2/topup" && r.method === "POST"),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requests.some(
         (r) =>

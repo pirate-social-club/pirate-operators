@@ -92,8 +92,8 @@ export interface Web2WizardView {
   challenge: unknown | null;
   enrollment: HostedEnrollmentStatus | null;
   controllerAuthorized: boolean;
+  fundingAvailable: boolean;
   fundingAuthorized: boolean;
-  invitationCorrectionRequired: boolean;
   recipients: Array<{ address: Hex; value: string }>;
   installationAvailable: boolean;
   installPlan: LinuxWeb2PlanSummary | null;
@@ -217,9 +217,9 @@ export async function createWeb2Setup(
       challenge: journal.prepared?.typedData ?? null,
       enrollment: journal.enrollment,
       controllerAuthorized: Boolean(journal.controllerSignature),
+      fundingAvailable: Boolean(e?.allowanceId),
       fundingAuthorized: Boolean(journal.recipientProofs),
-      invitationCorrectionRequired: journal.invitationRefused,
-      recipients: e
+      recipients: e?.allowanceId
         ? initialRecipients(e, policy)
             .filter((r) => r.value > 0n)
             .map((r) => ({ address: r.address, value: String(r.value) }))
@@ -266,23 +266,9 @@ export async function createWeb2Setup(
     busy = true;
     try {
       if (action === "resume-prepare") {
-        exact(
-          body,
-          journal.invitationRefused ? ["inviteToken", "noticeAccepted"] : [],
-        );
-        insist(
-          journal.request && journal.inviteToken,
-          "web2_prepare_required",
-          409,
-        );
-        Object.assign(body, journal.request, {
-          inviteToken: journal.invitationRefused
-            ? body.inviteToken
-            : journal.inviteToken,
-          noticeAccepted: journal.invitationRefused
-            ? body.noticeAccepted
-            : true,
-        });
+        exact(body, []);
+        insist(journal.request, "web2_prepare_required", 409);
+        Object.assign(body, journal.request, { noticeAccepted: true });
         action = "prepare";
       }
       if (action === "prepare") {
@@ -291,7 +277,6 @@ export async function createWeb2Setup(
           "origin",
           "controller",
           "publisher",
-          "inviteToken",
           "noticeAccepted",
         ]);
         insist(body.noticeAccepted === true, "pilot_notice_required", 409);
@@ -323,20 +308,12 @@ export async function createWeb2Setup(
             409,
           );
         }
-        const inviteToken = text(body.inviteToken, 1024);
-        insist(/^[a-f0-9]{64}$/.test(inviteToken), "invalid_invite");
         if (journal.request) {
           insist(
-            canonical(selected) === canonical(journal.request) &&
-              (inviteToken === journal.inviteToken ||
-                (journal.invitationRefused &&
-                  !journal.prepared &&
-                  journal.pending === null)),
+            canonical(selected) === canonical(journal.request),
             "web2_original_selection_changed",
             409,
           );
-          journal.inviteToken = inviteToken;
-          journal.invitationRefused = false;
         } else {
           const { plan, deployment } = await prepareWeb2WizardRegistration(
             policy,
@@ -345,7 +322,6 @@ export async function createWeb2Setup(
             selected,
           );
           journal.request = selected;
-          journal.inviteToken = inviteToken;
           journal.plan = wire(planDocument(plan));
           journal.deployment = deployment;
         }
@@ -363,7 +339,7 @@ export async function createWeb2Setup(
             bytes,
             sha256: hashJson(plan.config),
           });
-          journal.prepared = await client.prepare(plan, journal.inviteToken!);
+          journal.prepared = await client.prepare(plan);
         }
         journal.phase = "prepared";
       } else if (
@@ -565,14 +541,6 @@ export async function createWeb2Setup(
       journal.revision++;
       await save();
     } catch (error) {
-      if (
-        error instanceof CommunityError &&
-        error.code === "hosted_invitation_refused"
-      ) {
-        journal.invitationRefused = true;
-        journal.pending = null;
-        journal.phase = "pending";
-      }
       if (
         error instanceof CommunityError &&
         error.code === "hosted_authorization_refused"

@@ -20,7 +20,7 @@ import {
 
 // Failure plan precedes production in the onboarding document. These exercise
 // the actual paired HTTP server, hosted handlers, D1, signatures and local RPC.
-test("paired Web2 Wizard retains one original across lost redeem reply and restart, then funds distinct signers", async () => {
+test("paired Web2 Wizard retains one original across lost redeem reply and restart without Pirate-funded gas", async () => {
   const f = await hostedWizardFixture();
   try {
     const bad = await f.post("prepare", {
@@ -59,14 +59,12 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     const sent = f.broadcasts();
     view = await f.send("redeem", { signature: await f.sign(view.challenge!) });
     assert.equal(f.broadcasts(), sent);
-    const proofs = await f.recipientProofs(view);
-    view = await f.send("topup", {});
-    await f.mine();
-    view = await f.send("reconcile", {});
-    assert.equal(view.enrollment?.operations.length, 3);
+    assert.equal(view.enrollment?.operations.length, 1);
     assert(view.enrollment.operations.every((op) => op.state === "consumed"));
     const funded = f.broadcasts();
-    await f.send("topup", {});
+    const topup = await f.post("topup", {});
+    assert.equal(topup.status, 409);
+    assert.equal(topup.body.code, "hosted_request_refused");
     assert.equal(f.broadcasts(), funded);
     const unavailable = await f.post("install", {});
     assert.equal(unavailable.status, 503);
@@ -101,18 +99,17 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     assert.deepEqual((await f.state()).selection, identity);
     assert.equal(f.broadcasts(), funded);
     const publicText = JSON.stringify(await f.state());
-    assert(!publicText.includes(f.inviteToken));
-    assert(!publicText.includes(proofs[0]!.signature));
+    assert(!publicText.includes("inviteToken"));
     assert.equal((await lstat(f.journal)).mode & 0o777, 0o600);
     const original = JSON.parse(await readFile(f.journal, "utf8"));
-    assert.equal(original.inviteToken, f.inviteToken);
+    assert.equal(Object.hasOwn(original, "inviteToken"), false);
     await f.artifact("recovery", view);
   } finally {
     await f.close();
   }
 });
 
-test("unknown preparation resumes after reconstruction using the retained private invitation and same community", async () => {
+test("unknown preparation resumes after reconstruction using the retained original community", async () => {
   const f = await hostedWizardFixture();
   try {
     f.dropPrepareReply();
@@ -150,7 +147,7 @@ test("repeated real journal rename failures permit no hosted preparation until t
   }
 });
 
-test("definitively refused invitation and signature can be corrected without replacing the community or replaying an unknown original", async () => {
+test("unexpected invitation input is refused and a wrong signature can be corrected without replacing the community", async () => {
   const f = await hostedWizardFixture();
   try {
     const malformed = await f.post("prepare", {
@@ -159,17 +156,7 @@ test("definitively refused invitation and signature can be corrected without rep
     });
     assert.equal(malformed.status, 400);
     assert.equal((await f.state()).selection, null);
-    const refused = await f.post("prepare", {
-      ...f.prepareInput,
-      inviteToken: "f".repeat(64),
-    });
-    assert.equal(refused.status, 409);
-    const identity = (await f.state()).selection;
-    let view = await f.send("resume-prepare", {
-      inviteToken: f.inviteToken,
-      noticeAccepted: true,
-    });
-    assert.deepEqual(view.selection, identity);
+    let view = await f.prepare();
     const wrong = await web2Other.signTypedData(
       view.challenge as ReturnType<typeof enrollmentTypedData>,
     );
