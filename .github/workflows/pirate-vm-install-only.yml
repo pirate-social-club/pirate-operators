@@ -41,6 +41,11 @@ jobs:
           python3 .github/ci/verify-vm-fixtures.py "$RUNNER_TEMP/pirate-vm-assets/ASSET-SHA256SUMS" "$expected"
           gh release download "$unchanged" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*' --skip-existing
           cd "$RUNNER_TEMP/pirate-vm-assets"
+          smoke_pin=$(awk '$2 == "smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          final_smoke_pin=$(awk '$2 == "final-smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          if [[ -n "$smoke_pin" && "$smoke_pin" == "$final_smoke_pin" ]]; then
+            ln -f smoke-inputs.iso final-smoke-inputs.iso
+          fi
           sha256sum -c --strict ASSET-SHA256SUMS
       - name: Adapt sealed host runner
         run: |
