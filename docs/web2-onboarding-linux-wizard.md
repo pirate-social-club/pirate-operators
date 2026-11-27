@@ -186,10 +186,10 @@ The Wizard must retain the registration receipt/readback and enrollment evidence
 ### 4. Review and provision one complete installation
 
 Use the community title and canonical HTTPS origin already bound by registration.
-Generate technical identifiers and keep their details under Advanced. Preserve
-the portable community key, chain-specific community identity, installation and
-resource IDs, selected source/ABI/artifact digests and explicit installation
-mapping. A requested TLD and a hosting address do not generate these identities.
+Use the portable community key, chain-specific community identity and installation
+identifier generated during registration; keep their details under Advanced.
+Preserve those identities, resource IDs, selected source/ABI/artifact digests
+and explicit installation mapping. A requested TLD and a hosting address do not generate these identities.
 
 The operator may start separate HNS preparation now or later. Until verification,
 the Wizard omits the requested TLD from public community profiles, titles,
@@ -367,36 +367,29 @@ successor is separate from ordinary HTTPS v1 and requires its own explicit revie
 
 ## Current implementation gaps and ownership
 
-The inspected W6 create milestone is commit `417862b` on base `bb9aee0`. Its
-linux-create-profile.ts still requires settings.namespace.tld and a full proof;
-linux-plan.ts requires verified unexpired namespace authority before prepare/apply.
-shared-directory.ts and config-manifest.ts require the namespace-bound tuple;
-the current origin cannot change. Therefore pending-Web2 creation and attachment
-are not implemented by this document or that milestone.
+The merged Wizard source implements pending-Web2 registration preparation,
+hosted enrollment evidence, immutable original-draft reconciliation, and the
+installation-preparation handoff described above. Do not reimplement automatic
+registration or reinterpret the old strict create profile as the current Web2
+profile. Strict verified-proof decoders remain correct for verified namespace
+listing, grant creation and member issuance, but they are not the pending-Web2
+registration path.
 
-The HNS service's static bounded access-profile selection is not automatic
-enrollment of a new installation. Its actual admitted server policy/registrar
-join and unavailable admission/installation-proof producer remain implementation
-work. The existing namespace-proof callback alone cannot bootstrap a fresh TLD
-because its observer already requires admitted current authority. The ceremony
-adapter must run before that proof path, without substituting ceremony progress.
+The remaining implementation and acceptance joins are the supported fresh-host
+package/bootstrap producers, genuine hosting control and DNS/TLS observations,
+installation nonce/readback, member authentication, optional name UI, first-song
+publication/playback, ordinary restart/retry behavior, and live Fluence staging
+acceptance. HNS attachment remains a separate versioned operation with genuine
+namespace authority; it does not block ordinary HTTPS use. Naming, Core/Directory,
+Storage, the member application and the contract owners retain their existing
+component responsibilities.
 
-W6 owns the create codec/UI, ceremony transport/journal and exact caller mapping.
-Storage owns real host/bootstrap, managed credential/key inputs, signed profile
-production, full-app lifecycle, installation nonce/readback and ordinary restart.
-HNS owns its protocol, consent/observation deadlines and real admission/proof
-capabilities. Naming owns genuine proof/store/current-scope and member-claim SDK
-joins. Core/Directory owns pending representation, automatic registrar, attach
-transition and accepted ABI/cache versions. The member-app owner connects actual
-authentication, optional name UI and the eligible funded sender. The P0 contract
-actor separately owns Registry56 scope validity. No lane replaces another's
-producer or turns unimplemented capability into approval.
-
-Required joint work is finite: accept the pending profile/Directory/configuration
-contract; implement its real producers and scoped automatic registration; mount
-the existing ceremony wire and genuine authority path; qualify supported hosting
-control, DNS/TLS and installation readbacks; then execute the one-host browser,
-member/name, first-song and restart/retry journeys. Existing component results do not establish the full journey by themselves. A pinned 4 GiB VM run at product successor `299ebfe` passed installation, publication, HTTPS playback, same-store restart, replay with zero duplicate effects, and clean shutdown. That evidence does not qualify live Fluence staging, public DNS/ACME, external providers, real devices, or the expanded release; live staging acceptance remains open.
+Existing component results do not establish the full journey by themselves. A
+pinned 4 GiB VM run at product successor `299ebfe` passed installation,
+publication, HTTPS playback, same-store restart, replay with zero duplicate
+effects, and clean shutdown. That evidence does not qualify live Fluence
+staging, public DNS/ACME, external providers, real devices, or the expanded
+release; live staging acceptance remains open.
 
 ## Retained historical boundaries
 
