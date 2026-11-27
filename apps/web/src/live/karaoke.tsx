@@ -554,25 +554,17 @@ export function LiveKaraoke(props: {
     URL.revokeObjectURL(url);
   }
   return (
-    <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
-      <Show when={notice()}>
-        <div
-          role="alert"
-          class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
-        >
-          <p>{notice()}</p>
-        </div>
-      </Show>
+    <div class="live-karaoke">
       <Show
         when={loaded()}
-        fallback={<KaraokeRouteLoadingState label="Loading karaoke" />}
+        fallback={<KaraokeRouteLoadingState label="Loading karaoke" onExit={props.onExit} />}
       >
         <Show
           when={song()}
           fallback={
             <KaraokeRouteLoadFailureState
               title="Karaoke unavailable"
-              description="We couldn't load karaoke for this song."
+              description="Karaoke couldn't be loaded for this song."
               onRetry={() => void loadSong()}
               onGoHome={props.onExit}
             />
@@ -586,6 +578,11 @@ export function LiveKaraoke(props: {
               initialTimeMs={resume()?.elapsedMs ?? 0}
               singingStatus={singingStatus()}
               summary={finished()?.result.presentation ?? null}
+              statusSlot={notice() ? (
+                <div role="alert" class="rounded-lg bg-card p-4 text-center">
+                  <p>{notice()}</p>
+                </div>
+              ) : undefined}
               bestCombo={
                 finished()?.result.presentation?.bestCombo ??
                 currentFeedback().bestCombo

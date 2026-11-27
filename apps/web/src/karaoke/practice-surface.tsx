@@ -1,14 +1,15 @@
 // Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import type { JSX } from "@solidjs/web";
-import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import {
-  Button,
   IconArrowCounterClockwise,
   IconMicrophoneStage,
   Spinner,
 } from "./ui.ts";
-import { ActivityProgressHeader } from "./activity-progress-header.tsx";
+import { ActivityProgressHeader } from "../ui/activity-progress-header.tsx";
 import { ActivityResults } from "./activity-results.tsx";
+import { ActivityFooter } from "../ui/activity-footer.tsx";
+import { LearningActivityFrame } from "../ui/learning-activity-frame.tsx";
 import { karaokeResultsView, type KaraokeResultsSummary } from "./results-model.ts";
 import { getLyricDurationMs } from "../../../../packages/karaoke/karaoke-timing.ts";
 import { KaraokeLyricStage } from "./lyric-stage.tsx";
@@ -46,6 +47,10 @@ export interface KaraokePracticeSurfaceProps {
   summary?: KaraokeResultsSummary | null;
   /** Longest run of well-sung lines, from the client's live feedback. */
   bestCombo?: number;
+  /** Start-screen feedback; result recovery notices belong to the page overlay. */
+  startError?: string;
+  /** Route-owned recovery status rendered above the activity actions. */
+  statusSlot?: JSX.Element;
 }
 
 interface AudioElementRef {
@@ -153,47 +158,105 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
   });
   onCleanup(() => { clearInterval(clockTimer); playbackRenewal?.dispose(); props.onPlaybackElement?.(null); disposed = true; playRequest += 1; audioRef.current?.pause(); });
 
+  const footerKind = createMemo(() => props.playbackInterrupted && props.singingStatus === "active"
+    ? "interrupted"
+    : playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active"
+      ? "issue"
+      : props.onStartSinging && props.singingStatus !== "active"
+        ? "start"
+        : undefined);
+  const startAction = () => {
+    pendingPlay = true;
+    if (!ended()) { props.onStartSinging?.(currentTimeMs()); return; }
+    // A finished take leaves the track at its end; another take starts from the top.
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    setCurrentTimeMs(0);
+    props.onStartSinging?.(0);
+  };
+  const startLabel = () => ended() ? "Sing again" : busy() ? "Start singing" : "Start karaoke";
+  const resultsFooter = () => Boolean(ended() && props.onExit);
+  const showHeader = createMemo(() => !ended());
+  const primaryFooterAction = () => {
+    const kind = footerKind();
+    if (kind === "interrupted") return resumeInterruptedPlayback();
+    if (kind === "issue") return playBackingTrack();
+    if (resultsFooter()) return props.onExit?.();
+    startAction();
+  };
+
   return (
-    <main aria-label={props.title} class="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <h1 class="sr-only">{props.title}</h1>
-      {/* A finished take needs no exit arrow or progress bar; Continue leaves. */}
-      <Show when={!ended()}>
-      <ActivityProgressHeader
-        exitLabel="Exit karaoke"
-        onExit={props.onExit}
-        progressMax={durationMs()}
-        progressValue={currentTimeMs()}
-        rewardLabel={props.rewardLabel}
-      />
-      </Show>
-      <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        <Show when={props.artworkSrc}>
+    <LearningActivityFrame
+      as="main"
+      ariaLabel={props.title}
+      background={props.artworkSrc ? (
+        <>
           <img alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-20 blur-2xl" src={props.artworkSrc} />
           <div aria-hidden="true" class="absolute inset-0 bg-gradient-to-b from-background/50 via-background/70 to-background" />
+        </>
+      ) : undefined}
+      contentLabel={ended() ? "Results" : undefined}
+      footer={footerKind() || props.statusSlot ? (
+        <ActivityFooter
+          error={footerKind() === "start" ? props.startError : undefined}
+          notice={footerKind() === "interrupted"
+            ? "Audio was interrupted. Tap to continue your take."
+            : footerKind() === "issue"
+              ? "The backing track could not start. Press play to continue."
+              : undefined}
+          onPrimaryAction={primaryFooterAction}
+          onSecondaryAction={startAction}
+          primaryDisabled={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
+          primaryIcon={footerKind() === "start" && !resultsFooter() ? <IconMicrophoneStage class="size-5" /> : undefined}
+          primaryLabel={footerKind() ? (footerKind() === "interrupted"
+            ? "Tap to continue"
+            : footerKind() === "issue"
+              ? "Start backing track"
+              : resultsFooter()
+                ? "Continue"
+                : startLabel()) : undefined}
+          primaryLoading={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
+          primaryVariant="default"
+          results={footerKind() === "start" && resultsFooter()}
+          secondaryDisabled={resultsFooter() && busy()}
+          secondaryIcon={resultsFooter() ? <IconArrowCounterClockwise class="size-5" /> : undefined}
+          secondaryLabel={footerKind() === "start" && resultsFooter() ? "Sing again" : undefined}
+          secondaryLoading={resultsFooter() && busy()}
+          topSlot={props.statusSlot}
+        />
+      ) : undefined}
+      header={showHeader() ? (
+        <ActivityProgressHeader
+          exitLabel="Exit karaoke"
+          onExit={props.onExit}
+          progressMax={durationMs()}
+          progressValue={currentTimeMs()}
+          rewardLabel={props.rewardLabel}
+        />
+      ) : undefined}
+    >
+      {/* A finished take needs no exit arrow or progress bar; Continue leaves. */}
+      <h1 class="sr-only">{props.title}</h1>
+      <div class="relative z-10 flex min-h-full w-full min-w-0 flex-1 flex-col">
+        <Show when={ended()}>
+          {(_) => {
+            const view = () => karaokeResultsView(props.summary ?? null, props.bestCombo ?? 0);
+            return (
+              <div class="flex min-h-full flex-1 flex-col">
+                <ActivityResults
+                  heading={view().heading}
+                  note={view().note}
+                  scoreLabel="Score"
+                  scorePercent={view().scorePercent}
+                  stats={view().stats}
+                />
+                <div class="mx-auto w-full max-w-md px-4 pb-6 empty:hidden">{props.rewardSlot}</div>
+              </div>
+            );
+          }}
         </Show>
-        <div class="relative z-10 size-full min-w-0">
-          <Show when={ended()}>
-            {(_) => {
-              const view = () => karaokeResultsView(props.summary ?? null, props.bestCombo ?? 0);
-              return (
-                // A scrollable region must be reachable by keyboard.
-                <div aria-label="Results" class="flex flex-col size-full overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" role="region" tabindex="0">
-                  <ActivityResults
-                    heading={view().heading}
-                    note={view().note}
-                    scoreLabel="Score"
-                    scorePercent={view().scorePercent}
-                    stats={view().stats}
-                  />
-                  <div class="mx-auto w-full max-w-md px-4 pb-6 empty:hidden">{props.rewardSlot}</div>
-                </div>
-              );
-            }}
-          </Show>
-          <Show when={!ended() && !isLoading()} fallback={<Show when={!ended()}><div class="grid size-full place-items-center"><Spinner class="size-8" /></div></Show>}>
-            <Show
-              when={props.lines.length > 0}
-            >
+        <Show when={!ended() && !isLoading()} fallback={<Show when={!ended()}><div class="grid flex-1 place-items-center"><Spinner class="size-8" /></div></Show>}>
+          <Show when={props.lines.length > 0}>
+            <div class="min-h-0 flex-1">
               <KaraokeLyricStage
                 currentTimeMs={currentTimeMs()}
                 lines={props.lines}
@@ -201,9 +264,9 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
                 rating={props.rating}
                 ratingPersistent={props.ratingPersistent}
               />
-            </Show>
+            </div>
           </Show>
-        </div>
+        </Show>
       </div>
       <audio
         ref={(element) => { audioRef.current = element; props.onPlaybackElement?.(element); }}
@@ -234,45 +297,6 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
         }}
         onTimeUpdate={syncTime}
       />
-      <Show when={props.playbackInterrupted && props.singingStatus === "active"}>
-        <footer class="border-t border-border-soft bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4">
-          <p role="status" class="mb-3 text-center text-sm text-muted-foreground">Audio was interrupted. Tap to continue your take.</p>
-          <Button class="h-13 w-full" disabled={resuming()} loading={resuming()} onClick={resumeInterruptedPlayback}>Tap to continue</Button>
-        </footer>
-      </Show>
-      <Show when={playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active"}>
-        <footer class="border-t border-border-soft bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4">
-          <p role="status" class="mb-3 text-center text-sm text-muted-foreground">The backing track could not start. Press play to continue.</p>
-          <Button class="h-13 w-full" onClick={playBackingTrack}>Start backing track</Button>
-        </footer>
-      </Show>
-      <Show when={props.onStartSinging && props.singingStatus !== "active"}>
-        <footer class="border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl sm:px-6">
-          {/* Results: "Sing again" and Continue side by side, Continue on the right. */}
-          <div class={ended() && props.onExit ? "mx-auto grid w-full max-w-3xl grid-cols-2 gap-3" : "mx-auto grid w-full max-w-3xl gap-3"}>
-            <Button
-              class="h-13 w-full"
-              disabled={busy()}
-              leadingIcon={ended() ? <IconArrowCounterClockwise class="size-5" /> : <IconMicrophoneStage class="size-5" />}
-              loading={busy()}
-              onClick={() => {
-                pendingPlay = true;
-                if (!ended()) { props.onStartSinging?.(currentTimeMs()); return; }
-                // A finished take leaves the track at its end; another take starts from the top.
-                if (audioRef.current) audioRef.current.currentTime = 0;
-                setCurrentTimeMs(0);
-                props.onStartSinging?.(0);
-              }}
-              variant={ended() && props.onExit ? "secondary" : "default"}
-            >
-              {ended() ? "Sing again" : busy() ? "Start singing" : "Start karaoke"}
-            </Button>
-            <Show when={ended() && props.onExit}>
-              <Button class="h-13 w-full" onClick={props.onExit} size="lg">Continue</Button>
-            </Show>
-          </div>
-        </footer>
-      </Show>
-    </main>
+    </LearningActivityFrame>
   );
 }

@@ -7,6 +7,7 @@ import type {
   OperatorKaraokePort,
   KaraokeAttemptView,
 } from "../src/karaoke/operator-karaoke-adapter.ts";
+import { KARAOKE_START_UNKNOWN_MESSAGE } from "../src/karaoke/operator-karaoke-adapter.ts";
 import type {
   UseKaraokeCaptureOptions,
   UseKaraokeCaptureResult,
@@ -18,6 +19,7 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
   cleanup.splice(0).forEach((dispose) => dispose());
   vi.restoreAllMocks();
+  vi.useRealTimers();
   document.body.replaceChildren();
 });
 const opened: KaraokeAttemptView = {
@@ -57,7 +59,7 @@ function port(): OperatorKaraokePort {
         {
           lineId: "line",
           ordinal: 0,
-          text: "I am going home",
+          text: "Meet me by the old harbor",
           startMs: 1000,
           endMs: 4000,
           words: [],
@@ -194,4 +196,92 @@ test("a new take consumes the actual flat operator ticket without replacing its 
   await vi.waitFor(() => expect(capture.started).toHaveBeenCalledOnce());
   expect(service.ticket).toHaveBeenCalledOnce();
   expect(host.textContent).not.toContain("could not be prepared");
+});
+
+test("an unknown Karaoke start checks itself and returns to the normal start screen when nothing opened", async () => {
+  const service = port();
+  vi.mocked(service.attempt).mockResolvedValue({ state: "none" });
+  vi.mocked(service.ticket).mockRejectedValue(
+    new Error(KARAOKE_START_UNKNOWN_MESSAGE),
+  );
+  const { host } = mount(service);
+  await vi.waitFor(() =>
+    expect(
+      [...host.querySelectorAll("button")].some(
+        (node) => node.textContent?.trim() === "Start karaoke",
+      ),
+    ).toBe(true),
+  );
+  const button = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Start karaoke",
+  )!;
+  vi.useFakeTimers();
+  button!.click();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(host.textContent).toContain("Starting karaoke…");
+  const status = host.querySelector('[role="status"]');
+  expect(status?.textContent).toContain("Starting karaoke…");
+  expect(status?.closest('[aria-busy="true"]')).not.toBeNull();
+  expect(host.textContent).not.toContain("Checking whether this take opened.");
+  expect(host.textContent).not.toContain("This can take a few seconds.");
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(host.textContent).toContain("Karaoke didn't start. Try again.");
+  expect(host.querySelector('footer [role="alert"]')?.textContent).toContain(
+    "Karaoke didn't start. Try again.",
+  );
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (node) => node.textContent?.trim() === "Check status",
+    ),
+  ).toBe(false);
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (node) => node.textContent?.trim() === "Start karaoke",
+    ),
+  ).toBe(true);
+  expect(service.ticket).toHaveBeenCalledOnce();
+});
+
+test("an unresolved Karaoke start offers Back after automatic checking and has no dead end", async () => {
+  const service = port();
+  vi.mocked(service.attempt)
+    .mockResolvedValueOnce({ state: "none" })
+    .mockRejectedValue(new Error("status unavailable"));
+  vi.mocked(service.ticket).mockRejectedValue(
+    new Error(KARAOKE_START_UNKNOWN_MESSAGE),
+  );
+  const { host } = mount(service);
+  await vi.waitFor(() =>
+    expect(
+      [...host.querySelectorAll("button")].some(
+        (node) => node.textContent?.trim() === "Start karaoke",
+      ),
+    ).toBe(true),
+  );
+  const button = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Start karaoke",
+  )!;
+  vi.useFakeTimers();
+  button!.click();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(host.textContent).toContain("Starting karaoke…");
+  const status = host.querySelector('[role="status"]');
+  expect(status?.textContent).toContain("Starting karaoke…");
+  expect(status?.closest('[aria-busy="true"]')).not.toBeNull();
+  expect(host.textContent).not.toContain("Checking whether this take opened.");
+  expect(host.textContent).not.toContain("This can take a few seconds.");
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(host.textContent).toContain("Couldn't start karaoke");
+  expect(host.textContent).toContain("Go back and try again in a minute.");
+  const back = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Back",
+  );
+  expect(back).toBeDefined();
+  back!.click();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (node) => node.textContent?.trim() === "Start karaoke",
+    ),
+  ).toBe(true);
 });

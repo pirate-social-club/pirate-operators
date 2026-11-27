@@ -1,0 +1,101 @@
+--- a/src/patterns/engagement/comment-pill/comment-pill.tsx
++++ b/src/patterns/engagement/comment-pill/comment-pill.tsx
+@@ -20,7 +20,7 @@
+ 
+   return (
+     <button
+-      aria-label={`Comments (${props.count})`}
++      aria-label={`Comments, ${props.count}`}
+       class={className()}
+       disabled={props.disabled}
+       onClick={props.onComment}
+--- a/src/patterns/engagement/comment-pill/comment-pill.stories.tsx
++++ b/src/patterns/engagement/comment-pill/comment-pill.stories.tsx
+@@ -32,7 +32,7 @@
+ export const Default: Story = {
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    const pill = canvas.getByRole("button", { name: "Comments (24)" });
++    const pill = canvas.getByRole("button", { name: "Comments, 24" });
+     await expect(pill).toBeVisible();
+     await userEvent.click(pill);
+     await expect(pill).toHaveFocus();
+--- a/src/patterns/engagement/comment-pill/comment-pill.test.tsx
++++ b/src/patterns/engagement/comment-pill/comment-pill.test.tsx
+@@ -9,7 +9,7 @@
+   it("renders the count inside an accessible name", () => {
+     const container = render(() => <CommentPill count={24} />);
+ 
+-    const pill = within(container).getByRole("button", { name: "Comments (24)" });
++    const pill = within(container).getByRole("button", { name: "Comments, 24" });
+     expect(pill).toBeVisible();
+     expect(within(pill).getByText("24")).toBeVisible();
+   });
+@@ -19,14 +19,14 @@
+     const onComment = vi.fn();
+     const container = render(() => <CommentPill count={3} onComment={onComment} />);
+ 
+-    await user.click(within(container).getByRole("button", { name: "Comments (3)" }));
++    await user.click(within(container).getByRole("button", { name: "Comments, 3" }));
+     expect(onComment).toHaveBeenCalledOnce();
+   });
+ 
+   it("renders zero counts", () => {
+     const container = render(() => <CommentPill count={0} />);
+ 
+-    expect(within(container).getByRole("button", { name: "Comments (0)" })).toBeVisible();
++    expect(within(container).getByRole("button", { name: "Comments, 0" })).toBeVisible();
+   });
+ 
+   it("has no axe violations", async () => {
+--- a/src/patterns/engagement/reward-pill/reward-pill.tsx
++++ b/src/patterns/engagement/reward-pill/reward-pill.tsx
+@@ -27,7 +27,7 @@
+       props.class,
+     ),
+   );
+-  const label = () => `Rewards (${props.activityCount} ${props.activityCount === 1 ? "activity" : "activities"})`;
++  const label = () => `Rewards, ${props.activityCount} ${props.activityCount === 1 ? "activity" : "activities"}`;
+ 
+   return (
+     <button
+--- a/src/patterns/engagement/reward-pill/reward-pill.stories.tsx
++++ b/src/patterns/engagement/reward-pill/reward-pill.stories.tsx
+@@ -33,7 +33,7 @@
+ export const Default: Story = {
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    const pill = canvas.getByRole("button", { name: "Rewards (3 activities)" });
++    const pill = canvas.getByRole("button", { name: "Rewards, 3 activities" });
+     await expect(pill).toBeVisible();
+     await userEvent.click(pill);
+     await expect(pill).toHaveFocus();
+--- a/src/patterns/engagement/reward-pill/reward-pill.test.tsx
++++ b/src/patterns/engagement/reward-pill/reward-pill.test.tsx
+@@ -9,7 +9,7 @@
+   it("names the activity count, not money or an earned reward", () => {
+     const container = render(() => <RewardPill activityCount={3} />);
+ 
+-    const pill = within(container).getByRole("button", { name: "Rewards (3 activities)" });
++    const pill = within(container).getByRole("button", { name: "Rewards, 3 activities" });
+     expect(pill).toBeVisible();
+     expect(within(pill).getByText("3")).toBeVisible();
+   });
+@@ -17,7 +17,7 @@
+   it("uses the singular for one activity", () => {
+     const container = render(() => <RewardPill activityCount={1} />);
+ 
+-    expect(within(container).getByRole("button", { name: "Rewards (1 activity)" })).toBeVisible();
++    expect(within(container).getByRole("button", { name: "Rewards, 1 activity" })).toBeVisible();
+   });
+ 
+   it("fires onOpen on click", async () => {
+@@ -25,7 +25,7 @@
+     const onOpen = vi.fn();
+     const container = render(() => <RewardPill activityCount={3} onOpen={onOpen} />);
+ 
+-    await user.click(within(container).getByRole("button", { name: "Rewards (3 activities)" }));
++    await user.click(within(container).getByRole("button", { name: "Rewards, 3 activities" }));
+     expect(onOpen).toHaveBeenCalledOnce();
+   });
+ 

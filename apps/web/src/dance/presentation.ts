@@ -56,12 +56,12 @@ export function danceStatus(r: DanceReview): { title: string; detail: string } {
 export function danceError(e: unknown) {
   const code = e instanceof Error ? e.message : "";
   if (/unknown|journal/.test(code))
-    return "We couldn’t confirm the response. Resume the original submission or decision before taking another action.";
+    return "The response couldn’t be confirmed. Resume the original submission or decision before taking another action.";
   if (code === "dance_original_command_recovered")
     return "The original command was recovered. Check its current result before continuing.";
   if (/account_changed|forbidden|unavailable|revoked/.test(code))
     return "This recording is unavailable with your current access.";
   if (/admission_held/.test(code))
     return "Community Dance admission is still pending.";
-  return "We couldn’t confirm the review status. Check again.";
+  return "The review status couldn’t be confirmed. Check again.";
 }

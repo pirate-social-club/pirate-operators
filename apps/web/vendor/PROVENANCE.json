@@ -4,8 +4,8 @@
   "packages": [
     {
       "name": "@pirate/web-solid-ui",
-      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.1.tgz",
-      "sha512": "sha512-eNMWpv8zb9KxV2XhHUCQcjVTteThyZaGao7pyGlxkR2/u/fG11pw5IooCKVuEk64hL1pl5jvn3FXk4SbP3enTQ==",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.16.tgz",
+      "sha512": "sha512-/yqPum+NeOxrVO/jCkjk1q/iZqYUoEOhHLbZT//4ZrVNNHzrqO1qzMGFKeIGkhwuJy9JuZimf9kFTOcQyJ71Sw==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -13,8 +13,23 @@
         "method": "git archive of tracked files at the commit"
       },
       "transformations": [
-        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.1 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
+        "package.json gains version 0.0.0-git.c7cb8783.solid2-rc21.16 and pins solid-js and @solidjs/web peers to 2.0.0-rc.21",
         "Apply vendor/patches/solid-ui-solid2-rc21.patch: add the native data-* attribute index to the internal dialog close-button part props; TypeScript declaration only",
+        "Apply vendor/patches/solid-ui-action-menu-rtl.patch: make the ActionMenu Open geometry assertion logical-direction aware and close the menu before axe even when an assertion fails",
+        "Apply vendor/patches/solid-ui-action-menu-open-accessibility.patch: add a catalog story that leaves ActionMenu open for the accessibility reporter and asserts focus inside the menu",
+        "Apply vendor/patches/solid-ui-action-menu-focus-restore.patch: assert Escape returns focus to the trigger and removes modal hiding from its ancestors",
+        "Apply vendor/patches/solid-ui-select-accessible-name.patch: label the select through Kobalte so the accessible name combines the field label with the visible selected value or placeholder",
+        "Apply vendor/patches/solid-ui-responsive-option-select-naming-viewports.patch: label mobile triggers from their visible content and exercise the desktop listbox and mobile sheet in their respective responsive paths",
+        "Apply vendor/patches/solid-ui-story-geometry-assertions.patch: measure the Sheet footer group, give the Tooltip placement fixture room to flip above, and compare the FormLayout counter and MultiCombobox caret at their logical end edges",
+        "Suppress GNU patch backup output so implementation backups such as action-menu.stories.tsx.orig are not packaged",
+        "Apply vendor/patches/solid-ui-dialog-initial-focus-wait.patch: Wait for initial Cancel focus in Dialog Default using the existing bounded wait while preserving the keyboard cycle and focus-return assertions.",
+        "Apply vendor/patches/solid-ui-vertical-feed-like-count-name.patch: Expose the visible formatted like count in the Like and Unlike button names while preserving pressed state and verifying missing, zero and singular counts.",
+        "Apply vendor/patches/solid-ui-pill-count-accessible-names.patch: expose pill counts outside parentheses in CommentPill and RewardPill accessible names so the visible count is part of the name computed by assistive technology and axe",
+        "Apply vendor/patches/solid-ui-app-header-naming.patch: include the visible PIRATE brand in the home control name, use capped visible unread counts in notification and chat names, and preserve exact capped totals as descriptions",
+        "Apply vendor/patches/solid-ui-app-header-chat-story-viewport.patch: keep the desktop overflow-chat fixture on the desktop header branch at narrow audit widths",
+        "Apply vendor/patches/solid-ui-story-frame-width-fixtures.patch: center fixed-width Scrubber, Waveform and CopyField story frames inside the fullscreen catalog viewport using the same one-rem gutter model as the board assertions",
+        "Apply vendor/patches/solid-ui-mobile-sheet-story-assertions.patch: exercise Sidebar phone sheets with Escape focus return and assert the visible VerticalFeed long caption",
+        "Apply vendor/patches/solid-ui-sidebar-focus-restore-wait.patch: wait boundedly for focus restoration after the mobile Sidebar sheet is removed",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "consumerRequirements": [
@@ -29,13 +44,83 @@
           "path": "vendor/patches/solid-ui-solid2-rc21.patch",
           "sha512": "sha512-j7rAJV1Aj1sUl67IMT0hdHhKPezD904wI0EiUE/Q6/QJCU2OZPgRJUm7WqU2bmiWotrty4uKk1rRPHWiJzWZqA==",
           "purpose": "Match Solid rc.21 DOM attribute typing for Dialog, AlertDialog and Sheet close controls without changing rendered markup."
+        },
+        {
+          "path": "vendor/patches/solid-ui-action-menu-rtl.patch",
+          "sha512": "sha512-iTH+66XEHcPyAa4humdlOj7IKnQUfDCQj5JosJOFY/Ue42kdTacBMEEyV8EX6UbgHtB3sP6t5IZosEcKdx+Trg==",
+          "purpose": "Keep the ActionMenu Open catalog story direction-aware and ensure its modal menu closes before the accessibility scan."
+        },
+        {
+          "path": "vendor/patches/solid-ui-action-menu-open-accessibility.patch",
+          "sha512": "sha512-YN19T2nURlGeQC4QLv7rWP0vLSU6AF2u+Vy+uf0OP3FYQ5RU5FZNYI7PdKoQGBbXcAnCiSZWL09hjgb7jF0sFQ==",
+          "purpose": "Give the open ActionMenu state its own accessibility audit instead of testing only the settled page."
+        },
+        {
+          "path": "vendor/patches/solid-ui-action-menu-focus-restore.patch",
+          "sha512": "sha512-42iqu90J52JfrCskRRhTvXLi7Wah6UMo6SXsTTOnOgQAY4lellSxdiftAikHJ+iACDgem120VFfLDnWvEOG1fg==",
+          "purpose": "Keep the settled-state ActionMenu test covering focus return and restoration of the page after modal hiding."
+        },
+        {
+          "path": "vendor/patches/solid-ui-select-accessible-name.patch",
+          "sha512": "sha512-GBSsTDlrPzOnjovTZaDvutjpgun8BE/cMbvlk/jYWw6u+IO47pgXtIigLye3jZFnRXQCKhtmJru2xfp+WB1C0Q==",
+          "purpose": "Expose the selected value or placeholder in the select accessible name while supporting a visible field label."
+        },
+        {
+          "path": "vendor/patches/solid-ui-responsive-option-select-naming-viewports.patch",
+          "sha512": "sha512-JoSJOuvbsZ5aFQcO+Uy/c4+/ytpb8B0KvA/HrsRTqZTi/48950qhWKJgqDKQrrTlUVFJjMHeZn5m/ZW3uDGPkw==",
+          "purpose": "Name mobile option-select triggers from their visible content and align interaction assertions with the responsive control that is actually visible."
+        },
+        {
+          "path": "vendor/patches/solid-ui-story-geometry-assertions.patch",
+          "sha512": "sha512-NCly2XljTrWaHhMI+kmYelzrzUYQaQzlqzYaD4C7FCElm28FED2gL2JkkokjJP1MqTJEVsnB2YHR/lKp7Mgydg==",
+          "purpose": "Correct story-only geometry and direction assertions for Sheet, Tooltip, FormLayout and MultiCombobox."
+        },
+        {
+          "path": "vendor/patches/solid-ui-dialog-initial-focus-wait.patch",
+          "sha512": "sha512-pmEKpfc9dE9tfs39hCawhY2dX+RzPogos0cMOrh/vb+GQSjsQqJ7VT+5w2ZpV2wTwIsuC4vPOtpWFnm9kmP6+w==",
+          "purpose": "Wait for initial Cancel focus in Dialog Default using the existing bounded wait while preserving the keyboard cycle and focus-return assertions."
+        },
+        {
+          "path": "vendor/patches/solid-ui-vertical-feed-like-count-name.patch",
+          "sha512": "sha512-DQyad6G4BcEiR6KFO+03mNJ4COfrNyK1mP6MKhjq34MdehEKaV6Tt36kGAAUG4xhbe+DtI8tnrIbmCV2LQvuig==",
+          "purpose": "Expose the visible formatted like count in the Like and Unlike button names while preserving pressed state and verifying missing, zero and singular counts."
+        },
+        {
+          "path": "vendor/patches/solid-ui-pill-count-accessible-names.patch",
+          "sha512": "sha512-fjw+aQthch4LNBMuvPBtWoXG0MvYuqy2jGHD4v91bQomW9D7GzvEuy7zSBHniu5twOTGx8HZlwNufZ1AZX/ReA==",
+          "purpose": "Expose CommentPill and RewardPill visible counts outside parentheses in accessible names while preserving singular activity copy."
+        },
+        {
+          "path": "vendor/patches/solid-ui-app-header-naming.patch",
+          "sha512": "sha512-UqCDVANstnXOlx8NbKapEkyqGi49MZ1CQo9uvmGA4af6jozQt7FLbkSARKyzQH5qMJ62I3562eFbgETCUBQEpQ==",
+          "purpose": "Include the visible PIRATE brand in the home control name and align notification and chat accessible names with their capped visible badges while retaining exact totals as descriptions."
+        },
+        {
+          "path": "vendor/patches/solid-ui-app-header-chat-story-viewport.patch",
+          "sha512": "sha512-HWv+QI1N3OWnCzr5dQ2Qs+C/kD6hlMLZUbMFzTxLRp1cwhyohVWUx48heXzzafftN2xHKkb/5Z2YU4CACOkKQA==",
+          "purpose": "Keep the desktop overflow-chat fixture on the desktop header branch at narrow audit widths."
+        },
+        {
+          "path": "vendor/patches/solid-ui-story-frame-width-fixtures.patch",
+          "sha512": "sha512-qq4Pxhd2V51YA4US0vpCKpUkppZGgWcqDjW128oEzDHCKvIg3drkcgucbvcSPObxZ5gP+dWqcx0SaZG/XUvoRQ==",
+          "purpose": "Center fixed-width Scrubber, Waveform and CopyField story frames inside the fullscreen catalog viewport using the same one-rem gutter model as the board assertions."
+        },
+        {
+          "path": "vendor/patches/solid-ui-mobile-sheet-story-assertions.patch",
+          "sha512": "sha512-Oaw5O0h/jTPl8pUil2lR57QeNBiRYdLsmzUzA31SMrJor8j/R0QWsXxK5LfmscgnW9kAqxbh4OMf63EThhFo9A==",
+          "purpose": "Keep desktop Sidebar assertions intact while phone stories open the sheet, verify Escape focus return, and assert the visible VerticalFeed caption copy."
+        },
+        {
+          "path": "vendor/patches/solid-ui-sidebar-focus-restore-wait.patch",
+          "sha512": "sha512-VOsx4xEyK0RoQWAAaUCSbBlsEsc9uBSjvM5g8GkGmt4RvdaRZXwmsmYax9yg4Arr22wga66XIGQYvif/XOU0NQ==",
+          "purpose": "Account for the focus trap restoring focus after the sheet leaves the document rather than in the same frame."
         }
       ]
     },
     {
       "name": "@kobalte/core",
-      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
-      "sha512": "sha512-GGuAbIgmPmcr2t5OSsLRypgkuIgZtMgwdFKMObUwKatCDcGae8Ef0zIv8mWP0Ir/7V+70i2A16C7ahTCXXYLIg==",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.5.tgz",
+      "sha512": "sha512-B+RYp9ZxjYBAe3/SFZ854k1ZbRIc2HsAS9mVtqbn6bSne69jph9qn8q36eysZyODvErLUlQYW2IBN6lFJ13dDQ==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -44,6 +129,10 @@
       },
       "transformations": [
         "Apply vendor/patches/kobalte-solid2-rc21.patch to JSX and compiled JS exports: register dismissable layers reactively when their DOM ref arrives and clean up using the captured node",
+        "Apply vendor/patches/kobalte-menu-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal menus, using the consumer-pinned @solid-primitives/interaction release that supports it",
+        "Apply vendor/patches/kobalte-dialog-inert.patch to JSX and compiled JS exports: pass inert to createHideOutside for modal dialogs",
+        "Apply vendor/patches/kobalte-slider-thumb-editability.patch to JSX and compiled JS exports: mark slider thumbs editable reactively after DOM collection registration instead of relying on a one-time settled index",
+        "Apply vendor/patches/kobalte-dialog-focus-fallback.patch to JSX and compiled JS exports: when a modal dialog has no connected Kobalte trigger, allow the focus trap to restore its original focused element instead of suppressing the fallback",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "patches": [
@@ -51,6 +140,26 @@
           "path": "vendor/patches/kobalte-solid2-rc21.patch",
           "sha512": "sha512-863EGYfsu9DbIeMSQGn4GSATuZUyfmuy2nQk7KHPEkhnoAQ+OtyNV9I1h4hNvmcJ+XnfSZhQwxeHHIohUVzzjQ==",
           "purpose": "Preserve Escape dismissal and focus return when rc.21 attaches a dialog ref after onSettled."
+        },
+        {
+          "path": "vendor/patches/kobalte-menu-inert.patch",
+          "sha512": "sha512-0f9xaNhSTfjTEXniuDbRMvBuylLCmSvMov7a8l+MgybMu1ElmF4daZIbCVMJepzRc7S3jxIiv38Tid7jFJhPiA==",
+          "purpose": "Make modal menu backgrounds inert as well as aria-hidden so hidden focusable controls leave keyboard and assistive-technology reach."
+        },
+        {
+          "path": "vendor/patches/kobalte-dialog-inert.patch",
+          "sha512": "sha512-FN9HccLvFULf03Bj3PNNZhpEfYPyl5l/4et5OUttY4/BPo8QPeTB7fY+AjXm4UvSSbDjwlGRgrRUdHisiSJz/A==",
+          "purpose": "Make modal dialog and sheet backgrounds inert so hidden controls cannot receive programmatic focus."
+        },
+        {
+          "path": "vendor/patches/kobalte-slider-thumb-editability.patch",
+          "sha512": "sha512-vaEciS8Z2lECsD4kA5BKxWZvt8KbNn3i0UC7m/LA2qqGJ8oSggG71U0U1i+ghZlDYW5fdeu4I5CVNpspTeW2jA==",
+          "purpose": "Allow slider keyboard and pointer input after Solid 2 registers thumbs in the DOM collection; the previous one-time settled read could retain index -1 and leave thumbs uneditable."
+        },
+        {
+          "path": "vendor/patches/kobalte-dialog-focus-fallback.patch",
+          "sha512": "sha512-X+VpzedwkmkRrN2QN1I5WnEs6TjoMXhRGjMtrAHKptiWzrikJIw9713w/rHaMPB8D61ibe9n93r+ZLdFcQUlMg==",
+          "purpose": "Return focus to the original opener for externally controlled modal sheets that do not render a Kobalte Dialog.Trigger."
         }
       ],
       "originalArchive": {
@@ -64,5 +173,26 @@
     "tool": "scripts/align-upstream-lock.ts remains an original-source comparison diagnostic; its write mode is not the runtime upgrade path",
     "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; retained Kobalte patch series plus the rc.21 dialog layer fix; other design-system dependencies unchanged",
     "reason": "The consumer upgrades its runtime independently of the imported source commit. Explicit Solid peer overrides select one rc.21 runtime, including the derived Kobalte package. The vite-plugin-solid entry is an npm alias for the same renamed compiler package needed by the Storybook peer. Other existing dependency pins stay unchanged unless required by this upgrade."
+  },
+  "catalogFixtures": {
+    "source": {
+      "repository": "https://github.com/pirate-social-club/pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "public/storybook",
+      "method": "exact bytes read with git show at the pinned commit"
+    },
+    "reason": "Vendored catalog stories use absolute /storybook fixture URLs. These copies are served only by the Storybook staticDirs entry and are not product runtime assets.",
+    "files": [
+      {
+        "path": ".storybook/public/storybook/avatar-ghost.svg",
+        "sourcePath": "public/storybook/avatar-ghost.svg",
+        "sha256": "2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee"
+      },
+      {
+        "path": ".storybook/public/storybook/karaoke-artwork.svg",
+        "sourcePath": "public/storybook/karaoke-artwork.svg",
+        "sha256": "afbf8593e0b4fbce26198430de29c811b1142e82f6119fc5623abf3280fd2eb3"
+      }
+    ]
   }
 }

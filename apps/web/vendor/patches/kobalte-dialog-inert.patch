@@ -1,0 +1,24 @@
+--- a/dist/dialog/DZMZsnbW.js
++++ b/dist/dialog/DZMZsnbW.js
+@@ -91,7 +91,8 @@
+ 			const el = context.contentRef();
+ 			return el ? [el] : [];
+ 		},
+-		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]"
++		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]",
++		inert: true
+ 	});
+ 	createPreventScroll({
+ 		element: ref,
+--- a/dist/dialog/C9YDO9vc.jsx
++++ b/dist/dialog/C9YDO9vc.jsx
+@@ -86,7 +86,8 @@
+ 			const el = context.contentRef();
+ 			return el ? [el] : [];
+ 		},
+-		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]"
++		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]",
++		inert: true
+ 	});
+ 	createPreventScroll({
+ 		element: ref,

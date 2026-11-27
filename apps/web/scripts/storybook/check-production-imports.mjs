@@ -12,8 +12,10 @@ const codePattern = /\.[cm]?[jt]sx?$/u;
 const supportPaths = [
   "src/study/studying-story-fixtures.ts",
   "src/karaoke/story-fixtures.ts",
+  "src/test-support/activity-frame-geometry.ts",
   "src/shell/community-shell-story-client.ts",
   "src/wallet/wallet-story-fixtures.ts",
+  "src/wallet/reward-operator-story-fixtures.ts",
   "test/dance-story-fixtures.tsx",
   "test/dance-repair-story-fixtures.tsx",
   "test/dance-async-resize-story-fixtures.tsx",

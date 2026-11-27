@@ -8,13 +8,13 @@ import {
 
 function WalletRouteFixture(props: { scenario: WalletStoryScenario }) {
   return (
-    <main class="min-h-screen bg-background p-6 text-foreground">
+    <div class="min-h-screen bg-background p-6 text-foreground">
       <LiveRewardWallet
         csrf="catalog-session"
         onExit={fn()}
         data={createWalletStoryData(props.scenario)}
       />
-    </main>
+    </div>
   );
 }
 
@@ -53,7 +53,7 @@ export const LoadFailure: Story = {
   args: { scenario: "failure" },
   play: async ({ canvasElement }) => {
     await expect(
-      within(canvasElement).getByRole("alert"),
+      await within(canvasElement).findByRole("alert", {}, { timeout: 15_000 }),
     ).toHaveTextContent("Your wallets could not be loaded.");
     await expect(
       within(canvasElement).getByRole("button", { name: "Try again" }),

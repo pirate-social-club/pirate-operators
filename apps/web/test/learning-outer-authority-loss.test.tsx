@@ -307,7 +307,7 @@ function studyMasked(app: ReturnType<typeof study>) {
   expect(app.node.querySelector("audio")).toBeNull();
   expect(
     [...app.node.querySelectorAll("button")].some((button) =>
-      /^(Record|Stop|Study again)$/.test(button.textContent?.trim() ?? ""),
+      /^(Record|Stop|Study again|New lesson)$/.test(button.textContent?.trim() ?? ""),
     ),
   ).toBe(false);
   expect(app.action()).toBeNull();

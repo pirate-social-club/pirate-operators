@@ -192,7 +192,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
       setError(
         error instanceof Error
           ? error.message
-          : "We couldn't load this study session.",
+          : "This study session couldn't be loaded.",
       );
     }
   }

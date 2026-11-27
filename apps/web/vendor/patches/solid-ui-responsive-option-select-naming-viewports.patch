@@ -1,0 +1,144 @@
+--- a/src/patterns/forms/responsive-option-select/responsive-option-select.test.tsx
++++ b/src/patterns/forms/responsive-option-select/responsive-option-select.test.tsx
+@@ -56,7 +56,7 @@
+       />
+     ));
+
+-    const triggers = within(container).getAllByRole("button", { name: "Sort" });
++    const triggers = within(container).getAllByRole("button", { name: "Sort Best" });
+     const sheetTrigger = triggers.find(
+       (trigger) => trigger.getAttribute("aria-haspopup") === "dialog",
+     );
+@@ -85,9 +85,9 @@
+       />
+     ));
+
+-    const trigger = container.querySelector<HTMLButtonElement>("button");
+-    expect(trigger?.getAttribute("aria-label")).toBe("Sort");
+-    expect(trigger?.textContent).toContain("Custom trigger");
++    const trigger = within(container).getByRole("button", { name: "Sort Custom trigger" });
++    expect(trigger.getAttribute("aria-label")).toBeNull();
++    expect(trigger.textContent).toContain("Custom trigger");
+     expect(container.querySelector("button > button")).toBeNull();
+   });
+
+--- a/src/patterns/forms/responsive-option-select/responsive-option-select.stories.tsx
++++ b/src/patterns/forms/responsive-option-select/responsive-option-select.stories.tsx
+@@ -83,13 +83,18 @@
+   },
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    // Desktop viewport: the pill select is the visible control.
+-    const trigger = canvas.getByRole("button", { name: "Sort feed" });
++    // Use the listbox on desktop and the sheet below md.
++    const trigger = canvas.getByRole("button", { name: "Sort feed Best" });
+     await expect(trigger).toBeVisible();
+     await userEvent.click(trigger);
+-    const listbox = await within(document.body).findByRole("listbox");
+-    await expect(listbox).toBeVisible();
+-    await userEvent.click(within(listbox).getByRole("option", { name: "New" }));
++    if (window.innerWidth < 768) {
++      const sheet = await within(document.body).findByRole("dialog");
++      await userEvent.click(within(sheet).getByRole("button", { name: "New" }));
++    } else {
++      const listbox = await within(document.body).findByRole("listbox");
++      await expect(listbox).toBeVisible();
++      await userEvent.click(within(listbox).getByRole("option", { name: "New" }));
++    }
+     await waitFor(() => expect(trigger).toHaveTextContent("New"));
+   },
+ };
+@@ -97,9 +102,10 @@
+ /** Paper's desktop popup: the pill opens a list with the current option checked. */
+ export const DesktopOpen: Story = {
+   name: "Desktop open",
++  globals: { viewport: { value: "desktop", isRotated: false } },
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    const trigger = canvas.getByRole("button", { name: "Sort options" });
++    const trigger = canvas.getByRole("button", { name: "Sort options Best" });
+     await userEvent.click(trigger);
+     const listbox = await within(document.body).findByRole("listbox");
+     await expect(listbox).toBeVisible();
+@@ -133,7 +139,7 @@
+     const canvas = within(canvasElement);
+     // The sheet trigger only renders below md, so wait for the phone canvas.
+     await untilViewportBelow(768);
+-    const trigger = canvas.getByRole("button", { name: "Sort options" });
++    const trigger = canvas.getByRole("button", { name: "Sort options Best" });
+     await expect(trigger).toBeVisible();
+     await expect(Math.round(trigger.getBoundingClientRect().width)).toBe(
+       Math.round(canvas.getByTestId("phone-frame").getBoundingClientRect().width),
+@@ -153,7 +159,7 @@
+   play: async ({ canvasElement }) => {
+     await untilViewportBelow(768);
+     const canvas = within(canvasElement);
+-    await userEvent.click(canvas.getByRole("button", { name: "Sort options" }));
++    await userEvent.click(canvas.getByRole("button", { name: "Sort options Best" }));
+     const sheet = await within(document.body).findByRole("dialog");
+     await expect(within(sheet).getByText("Sort")).toBeVisible();
+     const group = within(sheet).getByRole("group", { name: "Sort" });
+--- a/src/patterns/forms/responsive-option-select/responsive-option-select.tsx
++++ b/src/patterns/forms/responsive-option-select/responsive-option-select.tsx
+@@ -1,5 +1,5 @@
+ import type { JSX } from "@solidjs/web";
+-import { createSignal, For, Show } from "solid-js";
++import { createSignal, createUniqueId, For, Show } from "solid-js";
+
+ import { Button } from "@/components/actions/button/button";
+ import { pillButtonVariants } from "@/components/actions/pill-button/pill-button";
+@@ -73,6 +73,9 @@
+  */
+ export function ResponsiveOptionSelect(props: ResponsiveOptionSelectProps) {
+   const [drawerOpen, setDrawerOpen] = createSignal(false);
++  const mobileLabelId = createUniqueId();
++  const mobileValueId = createUniqueId();
++  const mobileTriggerLabelledBy = `${mobileLabelId} ${mobileValueId}`;
+
+   const activeOption = () =>
+     props.options.find((option) => option.value === props.value);
+@@ -100,7 +103,7 @@
+               when={props.mobileTriggerContent}
+               fallback={
+                 <SheetTrigger
+-                  aria-label={props.ariaLabel}
++                  aria-labelledby={mobileTriggerLabelledBy}
+                   class={cn(
+                     pillButtonVariants({ tone: "default" }),
+                     triggerSizeClass(),
+@@ -108,14 +111,19 @@
+                     props.triggerClass,
+                   )}
+                 >
+-                  {props.triggerContent ?? <span class="truncate">{activeLabel()}</span>}
++                  <span id={mobileLabelId} class="sr-only">
++                    {props.ariaLabel}
++                  </span>
++                  <span id={mobileValueId} class="contents">
++                    {props.triggerContent ?? <span class="truncate">{activeLabel()}</span>}
++                  </span>
+                   <IconCaretDown class="size-4 shrink-0" />
+                 </SheetTrigger>
+               }
+             >
+               {(customTrigger) => (
+                 <SheetTrigger
+-                  aria-label={props.ariaLabel}
++                  aria-labelledby={mobileTriggerLabelledBy}
+                   class={cn(
+                     pillButtonVariants({ tone: "default" }),
+                     triggerSizeClass(),
+@@ -123,7 +131,12 @@
+                     props.triggerClass,
+                   )}
+                 >
+-                  {customTrigger()}
++                  <span id={mobileLabelId} class="sr-only">
++                    {props.ariaLabel}
++                  </span>
++                  <span id={mobileValueId} class="contents">
++                    {customTrigger()}
++                  </span>
+                 </SheetTrigger>
+               )}
+             </Show>

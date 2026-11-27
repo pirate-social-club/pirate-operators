@@ -17,7 +17,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Locked error-state composite. Copy says what happened, distinguishes blocked from resumable, and ranks recovery before exit. Paused is reserved for resumable states; a disabled button is never used as a status message.",
+          "Content-only error state. Route shells own the page header, exit control and footer actions; inline pages such as Wallet may render the actions here.",
       },
     },
   },

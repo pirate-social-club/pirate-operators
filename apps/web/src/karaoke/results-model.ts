@@ -37,7 +37,7 @@ export function karaokeResultsView(summary: KaraokeResultsSummary | null, bestCo
       heading: "No lines scored",
       scorePercent: null,
       stats: [],
-      note: "We couldn't hear the lyrics this time. Check your microphone and try again.",
+      note: "No lyrics were detected this time. Check your microphone and try again.",
     };
   }
   const score = clampResultPercent(summary.finalScore * 100);

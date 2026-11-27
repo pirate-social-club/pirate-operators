@@ -1,5 +1,7 @@
 // Adapted from pirate-web-solid c7cb8783 storybook-a11y-sweep.mjs.
 // Pure result checks; importing this module launches no browser.
+import { countUndispositionedViolations } from "./audit-dispositions.mjs";
+
 export const DEFAULT_SIZES = [
   { name: "phone", width: 390, height: 844 },
   { name: "desktop", width: 1440, height: 1000 },
@@ -25,6 +27,13 @@ export function parseIndex(index) {
     ids.add(story.id);
   }
   return stories.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function selectStories(stories, requestedIds) {
+  const indexed = new Set(stories.map((story) => story.id));
+  const unknown = [...requestedIds].filter((id) => !indexed.has(id));
+  if (unknown.length) throw new Error("Unknown Storybook IDs: " + unknown.join(", "));
+  return stories.filter((story) => requestedIds.has(story.id));
 }
 
 export function sizesFor(metadata, presets) {
@@ -124,7 +133,7 @@ export function matrixFor(metadata, presets, matrixName) {
     })));
 }
 
-export function classify(id, state, size, errors = []) {
+export function classify(id, state, size, errors = [], reviewedAvatars = []) {
   const events = (state?.events ?? []).filter((event) => event.storyId === id);
   const finishes = events.filter((event) =>
     event.name === "storyFinished" && event.payload?.storyId === id);
@@ -156,21 +165,31 @@ export function classify(id, state, size, errors = []) {
   const axeReporters = reporters.filter((reporter) => reporter?.type === "a11y");
   const axe = axeReporters[0];
   const result = axe?.result;
+  let reviewedViolations = [];
+  let allAxeFailuresReviewed = false;
   if (axeReporters.length !== 1 || !result ||
     !["violations", "passes", "incomplete"].every((key) => Array.isArray(result[key])) ||
     "error" in result) {
     failures.push("missing_or_malformed_a11y");
   } else {
-    if (result.violations.length || axe.status !== "passed") failures.push("a11y_failure");
+    const { reviewed, undispositioned } = countUndispositionedViolations(result.violations, reviewedAvatars);
+    reviewedViolations = reviewed;
+    allAxeFailuresReviewed = axe.status === "failed" && reviewed.length > 0 && undispositioned === 0;
+    if (!allAxeFailuresReviewed && (result.violations.length || axe.status !== "passed")) {
+      failures.push("a11y_failure");
+    }
     if (!result.passes.length) failures.push("no_a11y_checks_passed");
   }
   if (reporters.some((reporter) => reporter?.type !== "a11y" && reporter?.status === "failed")) {
     failures.push("reporter_failure");
   }
-  if (finish?.status !== "success") failures.push("unsuccessful_story_status");
+  if (finish?.status !== "success" && !(finish?.status === "error" && allAxeFailuresReviewed)) {
+    failures.push("unsuccessful_story_status");
+  }
   return {
     passed: failures.length === 0,
     failures,
+    reviewedViolations,
     axe: result && {
       violations: Array.isArray(result.violations) ? result.violations.length : null,
       passes: Array.isArray(result.passes) ? result.passes.length : null,
@@ -211,9 +230,15 @@ export function summarizeAccessibilityRules(results) {
   return groups;
 }
 
+export function auditReceipt(run) {
+  const { results, ...metadata } = run;
+  return { ...metadata, summary: run.summary };
+}
+
 export function summarize(run) {
   const expected = run.expected ?? [];
   const results = run.results ?? [];
+  const rules = summarizeAccessibilityRules(results);
   const keys = results.map((result) => result.key);
   const complete = expected.length > 0 &&
     new Set(expected).size === expected.length &&
@@ -238,13 +263,16 @@ export function summarize(run) {
     expected: expected.length,
     recorded: results.length,
     failed: results.filter((result) => result.passed !== true).length,
+    rawFailed: results.filter((result) => !result.passed || result.reviewedViolations?.length).length,
+    reviewedViolationNodes: results.reduce((sum, result) => sum + (result.reviewedViolations?.length ?? 0), 0),
     incompleteChecks: results.reduce((sum, result) => sum + (result.axe?.incomplete ?? 0), 0),
+    incompleteNodeObservations: Object.values(rules.incomplete).reduce((sum, rule) => sum + rule.nodes, 0),
     byMode: groupBy((result) => result.review?.name ?? result.size?.name),
     byTheme: groupBy((result) => result.review
       ? (result.review.theme === "system" ? "system-" + result.review.colorScheme : result.review.theme)
       : "viewport"),
     byDirection: groupBy((result) => result.review?.direction),
     byLocale: groupBy((result) => result.review?.locale),
-    rules: summarizeAccessibilityRules(results),
+    rules,
   };
 }

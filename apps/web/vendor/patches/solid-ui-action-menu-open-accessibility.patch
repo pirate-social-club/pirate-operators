@@ -1,0 +1,28 @@
+--- a/src/patterns/overlays/action-menu/action-menu.stories.tsx
++++ b/src/patterns/overlays/action-menu/action-menu.stories.tsx
+@@ -112,6 +112,25 @@
+   },
+ };
+ 
++export const OpenAccessibility: Story = {
++  args: {
++    label: "Song actions",
++    items: [{ key: "boost", label: "Boost" }],
++    triggerVariant: "outline",
++    placement: "bottom-end",
++  },
++  play: async ({ canvasElement }) => {
++    const canvas = within(canvasElement);
++    const body = within(document.body);
++
++    await userEvent.click(canvas.getByRole("button", { name: "Song actions" }));
++    const menu = await body.findByRole("menu");
++    await expect(menu).toBeVisible();
++    await expect(within(menu).getByRole("menuitem", { name: "Boost" })).toBeVisible();
++    await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
++  },
++};
++
+ export const Variants: Story = {
+   render: (args) => (
+     <StoryStack>

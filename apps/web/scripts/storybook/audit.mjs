@@ -8,7 +8,8 @@ import { chromium } from "@playwright/test";
 import { MINIMAL_VIEWPORTS } from "storybook/viewport";
 import { installAuditChannel } from "./audit-channel.mjs";
 import { bindBrowser, verifyBrowserUnchanged } from "./audit-browser.mjs";
-import { matrixFor, parseIndex, reviewModesFor, summarize } from "./audit-results.mjs";
+import { observeReviewedAvatars, reviewedAvatarsFor } from "./audit-dispositions.mjs";
+import { auditReceipt, matrixFor, parseIndex, reviewModesFor, selectStories, summarize } from "./audit-results.mjs";
 import { captureAndClassify, createHostEvidence } from "./audit-observation.mjs";
 
 export function parseOptions(argv) {
@@ -121,7 +122,7 @@ async function readMetadata(browser, options, stories) {
   }
 }
 
-async function runStory(browser, options, story, size, ordinal) {
+async function runStory(browser, options, story, size, ordinal, avatarReviews) {
   const host = createHostEvidence();
   const context = await isolatedContext(browser, options, size,
     (entry) => host.record("blocked", entry));
@@ -166,14 +167,21 @@ async function runStory(browser, options, story, size, ordinal) {
         };
       },
       closeWindow: async () => {
-        // This evaluate is ordered after screenshot capture and file hashing.
+        // Inspect reviewed targets in the same window as the raw axe result.
+        let reviewedAvatars = [];
+        if (avatarReviews.length) {
+          reviewedAvatars = await page.evaluate(observeReviewedAvatars, avatarReviews).catch((error) => {
+            host.record("errors", error.message);
+            return [];
+          });
+        }
         // Seal the browser collector, then synchronously close host buffers.
         const raw = await page.evaluate(() =>
           globalThis.__PIRATE_STORY_AUDIT__?.seal() ?? null).catch((error) => {
           host.record("errors", error.message);
           return null;
         });
-        const final = host.close(raw, page.viewportSize());
+        const final = host.close(raw, page.viewportSize(), reviewedAvatars);
         page.off("pageerror", onPageError);
         page.off("console", onConsole);
         return final;
@@ -195,6 +203,13 @@ export async function runAudit(options) {
   await mkdir(options.out);
   let browser;
   try {
+    const ledgerBytes = await readFile(new URL("./avatar-dispositions.json", import.meta.url));
+    const avatarDispositions = JSON.parse(ledgerBytes);
+    run.avatarDispositions = {
+      sha256: createHash("sha256").update(ledgerBytes).digest("hex"),
+      reviewBefore: avatarDispositions.reviewBefore,
+      evidence: avatarDispositions.evidence,
+    };
     run.browserBinding = await bindBrowser(options.browserExecutable, options.browserSha256);
     const response = await fetch(options.baseUrl + "/index.json", {
       signal: AbortSignal.timeout(options.timeout), redirect: "error",
@@ -204,10 +219,7 @@ export async function runAudit(options) {
     run.indexSha256 = createHash("sha256").update(JSON.stringify(index)).digest("hex");
     await writeFile(path.join(options.out, "index.json"), JSON.stringify(index, null, 2) + "\n");
     let stories = parseIndex(index);
-    if (options.storyIds) {
-      stories = stories.filter((story) => options.storyIds.has(story.id));
-      if (!stories.length) throw new Error("No requested Storybook IDs matched the index");
-    }
+    if (options.storyIds) stories = selectStories(stories, options.storyIds);
     if (options.limit !== undefined) stories = stories.slice(0, options.limit);
     run.catalog = stories;
     run.matrix = options.matrix;
@@ -219,7 +231,24 @@ export async function runAudit(options) {
       matrixFor(metadata[story.id], MINIMAL_VIEWPORTS, options.matrix).map((size) => ({ story, size })));
     run.expected = matrix.map(({ story, size }) => story.id + "@" + size.name);
     for (const [index, { story, size }] of matrix.entries()) {
-      const result = await runStory(browser, options, story, size, index + 1);
+      let result;
+      try {
+        const avatarReviews = reviewedAvatarsFor(avatarDispositions, story.id, run.startedAt);
+        result = await runStory(browser, options, story, size, index + 1, avatarReviews);
+      } catch (error) {
+        result = {
+          key: story.id + "@" + size.name,
+          id: story.id,
+          importPath: story.importPath,
+          size,
+          review: size.review ?? null,
+          globals: size.globals ?? null,
+          passed: false,
+          failures: ["audit_story_exception"],
+          errors: [String(error?.message ?? error)],
+          axe: null,
+        };
+      }
       run.results.push(result);
       await writeFile(
         path.join(options.out, "results.jsonl"),
@@ -241,7 +270,7 @@ export async function runAudit(options) {
   }
   run.finishedAt = new Date().toISOString();
   run.summary = summarize(run);
-  await writeFile(path.join(options.out, "run.json"), JSON.stringify(run, null, 2) + "\n");
+  await writeFile(path.join(options.out, "run.json"), JSON.stringify(auditReceipt(run), null, 2) + "\n");
   return run;
 }
 

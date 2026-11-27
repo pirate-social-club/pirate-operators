@@ -317,7 +317,7 @@ function masked(app: ReturnType<typeof mount>) {
   ).toBeNull();
   expect(
     [...app.host.querySelectorAll("button")].some((node) =>
-      /^(Record|Stop|Study again|Start new lesson)$/.test(
+      /^(Record|Stop|Study again|New lesson)$/.test(
         node.textContent?.trim() ?? "",
       ),
     ),
@@ -336,7 +336,7 @@ for (const mode of ["completed", "expired"] as const)
       expect(api.readBody).not.toHaveBeenCalled();
       await press(
         app.host,
-        mode === "completed" ? "Study again" : "Start new lesson",
+        mode === "completed" ? "Study again" : "New lesson",
       );
       await vi.waitFor(() => masked(app));
       expect(api.starts).toHaveLength(1);

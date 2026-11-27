@@ -275,7 +275,7 @@ test("lost ticket response recovers same ticket; subsequent retries do not creat
   port.dispose();
 });
 
-test("unresolved ticket creation never treats an early empty read as authority to charge again", async () => {
+test("an unresolved start blocks automatic retry but allows a deliberate later ticket request", async () => {
   let writes = 0;
   const port = createOperatorKaraokePort({
     account: "fixture-account",
@@ -284,14 +284,21 @@ test("unresolved ticket creation never treats an early empty read as authority t
     request: async <T>(_path: string, body?: unknown): Promise<T> => {
       if (body !== undefined) {
         writes++;
-        throw new Error("unknown dispatch");
+        if (writes === 1) throw new Error("unknown dispatch");
+        return open as T;
       }
       return { state: "none" } as T;
     },
   });
-  await assert.rejects(port.ticket(), /confirm this take/);
-  await assert.rejects(port.ticket(), /confirm this take/);
-  assert.equal(writes, 1);
+  await assert.rejects(port.ticket(), /karaoke_start_outcome_unknown/);
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 10_001;
+  try {
+    assert.equal((await port.ticket()).ticketId, "same-ticket");
+  } finally {
+    Date.now = originalNow;
+  }
+  assert.equal(writes, 2);
   port.dispose();
 });
 

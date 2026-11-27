@@ -497,7 +497,7 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
         : record()?.pending === "withdraw"
           ? "This video is being withdrawn. Playback is unavailable."
           : record()?.pending
-            ? "We couldn’t confirm this upload yet. Your video is saved here. Try again to resume the same upload."
+            ? "This upload couldn’t be confirmed yet. Your video is saved here. Try again to resume the same upload."
             : ["withdrawn", "revoked", "expired"].includes(
                   record()?.status?.state ?? "",
                 )

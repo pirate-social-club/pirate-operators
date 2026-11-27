@@ -1,0 +1,136 @@
+--- a/src/components/forms/select/select.tsx
++++ b/src/components/forms/select/select.tsx
+@@ -25,6 +25,10 @@
+   onChange?: (value: string | null) => void;
+   /** Rendered in the trigger when no value is selected. */
+   placeholder?: JSX.Element;
++  /** Visible field label. Prefer this over aria-label when the field is visible. */
++  label?: JSX.Element;
++  /** Extra classes for the visible field label. */
++  labelClass?: string;
+   disabled?: boolean;
+   class?: string;
+   /** Extra classes for the trigger button. */
+@@ -113,8 +117,17 @@
+
+   return (
+     <KSelect {...rootProps()} class={className()}>
++      <Show when={props.label ?? props["aria-label"]}>
++        <KSelect.Label
++          class={cn(
++            props.label == null ? "sr-only" : "text-base font-medium text-foreground",
++            props.labelClass,
++          )}
++        >
++          {props.label ?? props["aria-label"]}
++        </KSelect.Label>
++      </Show>
+       <KSelect.Trigger
+-        aria-label={props["aria-label"]}
+         class={cn(
+           "flex h-11 w-full cursor-pointer items-center justify-between rounded-[var(--radius-lg)] border border-input bg-background px-4 py-2 text-base shadow-sm transition-[color,box-shadow,border-color] data-disabled:cursor-not-allowed data-disabled:opacity-50 data-expanded:border-border data-expanded:ring-1 data-expanded:ring-border-soft data-[placeholder-shown]:text-muted-foreground",
+           props.triggerClass,
+--- a/src/components/forms/select/select.stories.tsx
++++ b/src/components/forms/select/select.stories.tsx
+@@ -30,7 +30,7 @@
+       <div class="w-80">
+         <Select
+           {...args}
+-          aria-label="Sort order"
++          label="Sort order"
+           value={value()}
+           onChange={(next) => {
+             setValue(next);
+@@ -76,7 +76,7 @@
+ export const Default: Story = {
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    const trigger = canvas.getByRole("button", { name: "Sort order" });
++    const trigger = canvas.getByRole("button", { name: "Sort order Pick one" });
+     await expect(trigger).toHaveTextContent("Pick one");
+     await expect(trigger).toHaveAttribute("aria-expanded", "false");
+     await expect(trigger).not.toHaveFocus();
+@@ -90,7 +90,7 @@
+   },
+   play: async ({ canvasElement }) => {
+     const canvas = within(canvasElement);
+-    const trigger = canvas.getByRole("button", { name: "Sort order" });
++    const trigger = canvas.getByRole("button", { name: "Sort order Top rated" });
+     await expect(trigger).toHaveTextContent("Top rated");
+
+     await userEvent.click(trigger);
+@@ -108,7 +108,7 @@
+ export const Interaction: Story = {
+   play: async ({ canvasElement, args }) => {
+     const canvas = within(canvasElement);
+-    const trigger = canvas.getByRole("button", { name: "Sort order" });
++    const trigger = canvas.getByRole("button", { name: "Sort order Pick one" });
+
+     await userEvent.click(trigger);
+     const option = await within(document.body).findByRole("option", {
+@@ -138,7 +138,7 @@
+   },
+   render: (args) => (
+     <div class="w-96">
+-      <Select {...args} aria-label="Sort order" />
++      <Select {...args} label="Sort order" />
+     </div>
+   ),
+ };
+@@ -146,7 +146,7 @@
+ /** Paper: the option list opens 4px below the field. */
+ export const ListGap: Story = {
+   play: async ({ canvasElement }) => {
+-    const trigger = within(canvasElement).getByRole("button", { name: "Sort order" });
++    const trigger = within(canvasElement).getByRole("button", { name: "Sort order Pick one" });
+     await userEvent.click(trigger);
+     const listbox = await within(document.body).findByRole("listbox");
+     const positioner = listbox.closest("[data-popper-positioner]");
+--- a/src/components/forms/select/select.test.tsx
++++ b/src/components/forms/select/select.test.tsx
+@@ -21,7 +21,7 @@
+   it("renders a combobox trigger and a hidden select for form submission", () => {
+     const container = render(() => (
+       <Select
+-        aria-label="Sort order"
++        label="Sort order"
+         name="sort"
+         options={sortOptions}
+         optionValue={optionValue}
+@@ -31,7 +31,8 @@
+     ));
+
+     const view = within(container);
+-    expect(view.getByRole("button", { name: "Sort order" })).toBeInTheDocument();
++    expect(view.getByText("Sort order")).toBeInTheDocument();
++    expect(view.getByRole("button", { name: "Sort order Pick one" })).toBeInTheDocument();
+     expect(container.querySelector('select[name="sort"]')).toBeInTheDocument();
+   });
+
+@@ -63,7 +64,7 @@
+       />
+     ));
+
+-    await user.click(within(container).getByRole("button", { name: "Sort order" }));
++    await user.click(within(container).getByRole("button", { name: "Sort order Pick one" }));
+     const option = await screen.findByRole("option", { name: "Top rated" });
+     await user.click(option);
+
+@@ -85,7 +86,7 @@
+     ));
+     flush();
+
+-    const trigger = within(container).getByRole("button", { name: "Sort order" });
++    const trigger = within(container).getByRole("button", { name: "Sort order Top rated" });
+     expect(trigger).toHaveTextContent("Top rated");
+   });
+
+@@ -104,7 +105,7 @@
+       />
+     ));
+
+-    await user.click(within(container).getByRole("button", { name: "Sort order" }));
++    await user.click(within(container).getByRole("button", { name: "Sort order Pick one" }));
+     const option = await screen.findByRole("option", { name: "Oldest" });
+     expect(option).toHaveAttribute("aria-disabled", "true");
+     await user.click(option);

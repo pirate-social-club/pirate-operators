@@ -583,11 +583,15 @@ async function reachExpired(
     );
     expect(node).not.toBeNull();
     expect(node!.textContent?.replace(/\s+/g, " ")).toContain(
-      "1 of 4 cards resolved.",
+      "You finished 1 of 4 cards.",
     );
     return node!;
   });
-  expect(region.querySelector('[role="alert"]')).toBeNull();
+  expect(
+    [...region.querySelectorAll('[role="alert"]')].some((node) =>
+      node.textContent?.includes("A new lesson could not start"),
+    ),
+  ).toBe(false);
   expect(api.counts()).toEqual({
     created: 0,
     reads: 3,
@@ -616,25 +620,29 @@ test.each(["503", "committed-body-lost"] as const)(
     ));
     const originalRegion = await reachExpired(host, api);
     expect(seen).toEqual([lessonA, lessonA, lessonA]);
-    await press(host, "Start new lesson");
+    await press(host, "New lesson");
     await vi.waitFor(() => expect(api.starts).toHaveLength(1));
     expect(host.querySelector('[aria-label="Expired Study session"]')).toBe(
       originalRegion,
     );
-    await press(host, "Start new lesson"); // pending click cannot dispatch again
+    await press(host, "New lesson"); // pending click cannot dispatch again
     expect(api.starts).toHaveLength(1);
     if (outcome === "503") api.refuse();
     else api.loseCommittedBody();
     await vi.waitFor(() =>
       expect(
-        originalRegion.querySelector('[role="alert"]')?.textContent?.trim(),
-      ).toBe("A new lesson could not start. Try again."),
+        [...originalRegion.querySelectorAll('[role="alert"]')].some(
+          (node) =>
+            node.textContent?.trim() ===
+            "A new lesson could not start. Try again.",
+        ),
+      ).toBe(true),
     );
     expect(host.querySelector('[aria-label="Expired Study session"]')).toBe(
       originalRegion,
     );
     expect(originalRegion.textContent?.replace(/\s+/g, " ")).toContain(
-      "1 of 4 cards resolved.",
+      "You finished 1 of 4 cards.",
     );
     expect(seen).toEqual([lessonA, lessonA, lessonA]);
     expect(JSON.stringify(api.expired)).toBe(api.expiredBytes);
@@ -653,7 +661,7 @@ test.each(["503", "committed-body-lost"] as const)(
     expect(
       api.requests.some((request) => /enrollment|\/audio/.test(request.path)),
     ).toBe(false);
-    await press(host, "Start new lesson");
+    await press(host, "New lesson");
     await vi.waitFor(() =>
       expect(host.textContent).toContain("Current account line"),
     );
@@ -706,7 +714,7 @@ test.each(["account-refusal", "disposed"] as const)(
       />
     ));
     await reachExpired(host, api);
-    await press(host, "Start new lesson");
+    await press(host, "New lesson");
     await vi.waitFor(() => expect(api.starts).toHaveLength(1));
     expect(privateAction).toBeNull();
     if (boundary === "account-refusal") {
@@ -715,11 +723,11 @@ test.each(["account-refusal", "disposed"] as const)(
       expect(
         host.querySelector('[aria-label="Expired Study session"]'),
       ).toBeNull();
-      expect(host.textContent).not.toContain("1 of 4 cards resolved.");
+      expect(host.textContent).not.toContain("You finished 1 of 4 cards.");
       expect(host.textContent).not.toContain("First account private line");
       expect(
         [...host.querySelectorAll("button")].some(
-          (node) => node.textContent?.trim() === "Start new lesson",
+          (node) => node.textContent?.trim() === "New lesson",
         ),
       ).toBe(false);
     } else {

@@ -1,6 +1,6 @@
 # App-owned Storybook catalog
 
-This app owns its catalog, configuration and audits. Stories import the same production components the app imports; the app never depends on story files. Fixtures supply presentation state and simulated boundary responses without replacing component markup, and screen stories render the real route with data mocked at the data boundary so the catalog stays perfectly representative of production.
+This app owns its catalog, configuration and audits. Stories import the same production components the app imports; the app never depends on story files. Fixtures supply presentation state and simulated boundary responses without replacing component markup, and screen stories should render the real route with data mocked at the data boundary so the catalog stays representative of production.
 
 ## Sidebar: feature-first
 
@@ -17,7 +17,7 @@ The design system's shared tiers follow the features, since those are not tied t
 
 The sidebar position carries no discipline; the metadata does. Every story file declares exactly one tier tag, and `npm run check:ui:stories` fails the build on violations:
 
-- `screen`: a route-level view or a shell a router renders. A screen owns the page structure, so it must not disable the two page-level axe rules; if it needs them off, it is a fragment and belongs to flow or part.
+- `screen`: a route-level view or a shell a router renders. A screen owns the page structure, so it must not disable the three page-level axe rules (`landmark-one-main`, `page-has-heading-one` and `region`); if it needs them off, it is a fragment and belongs to flow or part.
 - `flow`: a multi-step journey. A flow-tagged file must carry at least one interactive play through the happy path plus a failure state.
 - `part`: a feature-scoped component below screen level.
 
@@ -25,7 +25,7 @@ Pick the tier by asking what the story is, then name the feature, then the compo
 
 ## Review modes
 
-The toolbars review everything the lock requires: theme (dark, light, system), direction (auto, LTR, RTL) and locale (English, Arabic, Chinese, pseudo). A component is not locked until every state has a story reviewed in both themes and both directions. The vendored package's Foundations pages document the token sheet: colors, typography, spacing and sizing, radius and elevation, icons and motion.
+The toolbars review everything the lock requires: theme (dark, light, system), direction (auto, LTR, RTL) and document locale (English, Arabic, Chinese, pseudo). Locale is a document-language and direction smoke check, not proof of translated product copy. A component is not locked until every state has a story reviewed in both themes and both directions. The vendored package's Foundations pages document the token sheet: colors, typography, spacing and sizing, radius and elevation, icons and motion.
 
 ## Existing tooling
 

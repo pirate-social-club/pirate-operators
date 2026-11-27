@@ -59,7 +59,7 @@ export function buildWalletReceiveSheetView(
 
   return {
     address,
-    // Paper: the full address, never cut in the middle; it wraps.
+    // Keep the complete address here. The sheet shortens the visible label.
     addressLabel: address ?? "",
     selectedChainId: resolvedChainId,
     selectedTitle: props.chainSections.find(

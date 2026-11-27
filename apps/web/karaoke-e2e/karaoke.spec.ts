@@ -11,7 +11,7 @@ const snapshot = (page: Page) =>
     return {
       songMs: audio.currentTime * 1000,
       paused: audio.paused,
-      line: line?.getAttribute("aria-label") ?? null,
+      line: line?.querySelector(".sr-only")?.textContent ?? null,
       tokens: [...(line?.querySelectorAll(".karaoke-token") ?? [])].map(
         (token) => ({
           text: token.firstElementChild?.textContent ?? "",
@@ -28,7 +28,7 @@ test("words light up in order on the backing track's clock, then results show", 
   await expect(
     page.getByRole("button", { name: "Start karaoke" }),
   ).toBeVisible();
-  await expect(activeLine(page)).toHaveAttribute("aria-label", "Hello, world!");
+  await expect(activeLine(page).locator(".sr-only")).toHaveText("Hello, world!");
   // Provider words carry no punctuation; the canonical line text restores it.
   await expect(activeLine(page).locator(".karaoke-token").first()).toHaveText(
     "Hello, ",

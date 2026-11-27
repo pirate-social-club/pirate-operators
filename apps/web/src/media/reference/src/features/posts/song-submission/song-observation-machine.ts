@@ -320,7 +320,7 @@ export function createSongObservationMachine(
             target: "reading",
             actions: assign({
               originalError:
-                "We couldn't confirm that original song. Check its link and whether this song can use it, then try again.",
+                "That original song couldn’t be confirmed. Check its link and whether this song can use it, then try again.",
             }),
           },
         },

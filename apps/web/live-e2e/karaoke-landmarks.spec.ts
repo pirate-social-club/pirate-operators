@@ -1,4 +1,4 @@
-// UNRUN. Actual built App -> LearningPageMount -> KaraokePage. Reuses the
+// Actual built App -> LearningPageMount -> KaraokePage. Reuses the
 // account harness's explicit session/SDK simulation; adds only narrow GETs.
 // No take, signature, provider connection, recording or scoring is fabricated.
 import { expect, test, type Locator, type Page } from "@playwright/test";
@@ -8,6 +8,7 @@ import {
   origin,
   serveAccounts,
 } from "./account-fixture.ts";
+import { expectInsideLearningActivityColumn, expectLearningActivityFrame, learningActivityMetrics } from "../test/activity-frame-playwright.ts";
 
 const unavailable = { name: "Karaoke unavailable", level: 1, exact: true } as const;
 const overlay = (page: Page) => page.locator(".live-karaoke-overlay");
@@ -15,11 +16,10 @@ const overlay = (page: Page) => page.locator(".live-karaoke-overlay");
 async function failureMain(page: Page, description: string) {
   const activity = overlay(page);
   await expect(activity).toBeVisible();
-  await expect(
-    activity.getByLabel("Karaoke: Fixture song", { exact: true }),
-  ).toBeVisible();
-  const main = activity.getByRole("main");
-  await expect(main).toHaveCount(1);
+  await expect(activity.getByRole("main")).toHaveCount(1);
+  const main = activity.getByRole("main", { name: "Karaoke: Fixture song", exact: true });
+  await expect(main).toBeVisible();
+  await expectLearningActivityFrame(main);
   await expect(main.getByRole("heading", unavailable)).toBeVisible();
   await expect(main.getByText(description, { exact: true })).toBeVisible();
 
@@ -34,19 +34,14 @@ async function failureMain(page: Page, description: string) {
   ] as const) {
     await expect(page.getByRole(role).filter({ has: failure })).toHaveCount(0);
   }
-  await expect(main.getByRole("button", { name: "Try Again", exact: true })).toBeEnabled();
-  await expect(main.getByRole("button", { name: "Go Home", exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
+  await expect(main.getByRole("button", { name: "Back", exact: true })).toBeVisible();
   return main;
 }
 
 async function retryByKeyboard(page: Page, main: Locator) {
-  const retry = main.getByRole("button", { name: "Try Again", exact: true });
-  const home = main.getByRole("button", { name: "Go Home", exact: true });
+  const retry = main.getByRole("button", { name: "Try again", exact: true });
   await retry.focus();
-  await expect(retry).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(home).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
   await expect(retry).toBeFocused();
   await page.keyboard.press("Enter");
 }
@@ -190,9 +185,9 @@ for (const viewport of [
 
       // Real failure control invokes App.closeStudy and disposes the source
       // page/port; no fake onExit or alternate App entry is injected.
-      const home = main.getByRole("button", { name: "Go Home", exact: true });
-      await home.focus();
-      await expect(home).toBeFocused();
+      const back = main.getByRole("button", { name: "Back", exact: true });
+      await back.focus();
+      await expect(back).toBeFocused();
       await page.keyboard.press("Enter");
       await expectClosed(page);
 
@@ -216,13 +211,49 @@ for (const viewport of [
       const practice = overlay(page).getByRole("main", { name: "Fixture song", exact: true });
       await expect(practice).toBeVisible();
       await expect(practice.getByRole("heading", { name: "Fixture song", level: 1, exact: true })).toHaveCount(1);
-      await expect(practice.getByLabel("Fixture timing", { exact: true })).toBeVisible();
-      await expect(practice.getByRole("button", { name: "Start karaoke", exact: true })).toBeEnabled();
+      const lyric = practice.getByRole("paragraph").filter({ hasText: "Fixture timing" });
+      await expect(lyric).toBeVisible();
+      await expectLearningActivityFrame(practice);
+      await expectInsideLearningActivityColumn(practice, lyric);
+      const startAction = practice.getByRole("button", { name: "Start karaoke", exact: true });
+      await expectInsideLearningActivityColumn(practice, startAction);
+      await expect(lyric).toMatchAriaSnapshot("- paragraph: Fixture timing");
+      await expect(startAction).toBeEnabled();
       expect(attemptReads).toEqual([`${origin}/api/karaoke/attempt?postId=${postId}`]);
       expect(new URL(page.url()).searchParams.get("sing")).toBe(postId);
       await expectAccount(page, accounts.first, state.privateIds.first);
 
       const exit = practice.getByRole("button", { name: "Exit karaoke", exact: true });
+      await page.evaluate(() => { document.documentElement.dir = "rtl"; });
+      await expectLearningActivityFrame(practice);
+      const mirrored = await exit.locator("svg").first().evaluate((element) => {
+        const style = getComputedStyle(element);
+        return style.transform.includes("matrix(-1") || style.scale.trim().startsWith("-1");
+      });
+      expect(mirrored).toBe(true);
+      await page.evaluate(() => { document.documentElement.dir = "ltr"; });
+
+      await page.setViewportSize({ width: viewport.width, height: 420 });
+      const beforeScroll = await learningActivityMetrics(practice);
+      const scroller = practice.locator('[data-activity-frame-slot="content"]');
+      await scroller.focus();
+      await page.keyboard.press("End");
+      await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      const afterScroll = await learningActivityMetrics(practice);
+      expect(afterScroll.header?.top).toBe(beforeScroll.header?.top);
+      expect(afterScroll.footer?.top).toBe(beforeScroll.footer?.top);
+      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+      const lyricVisible = await practice.evaluate((root) => {
+        const content = root.querySelector('[data-activity-frame-slot="content"]');
+        const line = root.querySelector(".karaoke-line");
+        if (!content || !line) return false;
+        const contentRect = content.getBoundingClientRect();
+        const lineRect = line.getBoundingClientRect();
+        return lineRect.bottom > contentRect.top && lineRect.top < contentRect.bottom;
+      });
+      expect(lyricVisible).toBe(true);
+      await page.setViewportSize(viewport);
+
       await exit.focus();
       await page.keyboard.press("Enter");
       await expectClosed(page);

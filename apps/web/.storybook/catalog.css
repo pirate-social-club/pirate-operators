@@ -1,0 +1,4 @@
+@import "../src/live/style.css";
+@source "../node_modules/@pirate/web-solid-ui/src/patterns/engagement/vertical-feed/";
+@source "../node_modules/@pirate/web-solid-ui/src/patterns/forms/copy-field/";
+@source "../node_modules/@pirate/web-solid-ui/src/patterns/layout/layout-shell/";

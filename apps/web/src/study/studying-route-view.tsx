@@ -26,6 +26,7 @@ import {
   type StudyingRecorder,
 } from "./studying-route-model";
 import { StudyingSurface } from "./presentation/studying-surface.tsx";
+import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
 import {
   STUDY_MIN_RECORDING_DURATION_MS,
   STUDY_PROVIDER_REVIEW_MESSAGE,
@@ -571,46 +572,76 @@ function LoadedStudyingLesson(
       : undefined;
   };
 
+  const recordingUnknown = () => {
+    const surface = lesson().surface;
+    return surface.kind === "say_it_back" && surface.phase === "blocked";
+  };
+
   return (
     <>
       <Show
-        when={completed()}
+        when={recordingUnknown()}
         fallback={
-          <StudyingSurface
-            lessonProgress={lessonProgressOf(lesson())}
-            onExit={props.onExit}
-            onKaraoke={props.onKaraoke}
-            onOptionSelect={handleOptionSelect}
-            onPrimaryAction={handlePrimaryAction}
-            onStudyAgain={props.onStudyAgain}
-            rewardLabel={props.payload.reward_label}
-            rewardSlot={
-              <>
-                <Show when={props.restartError}>
-                  <Type
-                    as="p"
-                    class="text-destructive-text"
-                    role="alert"
-                    variant="caption"
-                  >
-                    {props.restartError}
-                  </Type>
-                </Show>
-                {props.rewardSlot}
-              </>
+          <Show
+            when={completed()}
+            fallback={
+              <StudyingSurface
+                lessonProgress={lessonProgressOf(lesson())}
+                onExit={props.onExit}
+                onKaraoke={props.onKaraoke}
+                onOptionSelect={handleOptionSelect}
+                onPrimaryAction={handlePrimaryAction}
+                onStudyAgain={props.onStudyAgain}
+                rewardLabel={props.payload.reward_label}
+                rewardSlot={
+                  <>
+                    <Show when={props.restartError}>
+                      <Type
+                        as="p"
+                        class="text-destructive-text"
+                        role="alert"
+                        variant="caption"
+                      >
+                        {props.restartError}
+                      </Type>
+                    </Show>
+                    {props.rewardSlot}
+                  </>
+                }
+                state={lesson().surface}
+              />
             }
-            state={lesson().surface}
-          />
+          >
+            {(result) =>
+              props.renderComplete!(result(), {
+                studyAgain: () => props.onStudyAgain?.(),
+                get restartError() {
+                  return props.restartError;
+                },
+              })
+            }
+          </Show>
         }
       >
-        {(result) =>
-          props.renderComplete!(result(), {
-            studyAgain: () => props.onStudyAgain?.(),
-            get restartError() {
-              return props.restartError;
-            },
-          })
-        }
+        <ActivityStatusShell
+          title="Couldn't get your result"
+          description={STUDY_PROVIDER_REVIEW_MESSAGE}
+          tone="blocked"
+          exitIcon="close"
+          exitLabel="Exit study"
+          onExit={props.onExit}
+          progressMax={lessonProgressOf(lesson()).totalCount}
+          progressValue={lessonProgressOf(lesson()).resolvedCount}
+          progressTone="success"
+          rewardLabel={props.payload.reward_label}
+          rewardPresentation="badge"
+          primaryAction={
+            props.onStudyAgain
+              ? { label: "New lesson", onClick: props.onStudyAgain }
+              : undefined
+          }
+          notice={props.restartError}
+        />
       </Show>
     </>
   );
@@ -733,14 +764,14 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
             when={!loading()}
             fallback={
               props.loadingSlot ?? (
-                <StudyRouteLoadingState label="Loading study" />
+                <StudyRouteLoadingState label="Loading study" onExit={props.onExit} />
               )
             }
           >
             <StudyRouteLoadFailureState
               description={errorMessage(
                 loadError(),
-                "We couldn't load this study session.",
+                "This study session couldn't be loaded.",
               )}
               onGoHome={props.onExit}
               onRetry={() => load()}
@@ -764,44 +795,27 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
             <Show
               when={!loaded.expired}
               fallback={
-                <section
-                  class="mx-auto flex min-h-dvh w-full max-w-xl flex-col gap-6 px-5 py-8"
-                  aria-label="Expired Study session"
-                >
-                  <Type as="h2" variant="h2">
-                    Study session expired
-                  </Type>
-                  <Type as="p" variant="body">
-                    Your progress is saved. Start a new lesson when you're
-                    ready.
-                  </Type>
-                  <Type as="p" variant="body">
-                    {loaded.resolved_count ?? 0} of {loaded.served_count ?? 0}{" "}
-                    cards resolved.
-                  </Type>
-                  <Show when={restartError()}>
-                    <Type
-                      as="p"
-                      class="text-destructive-text"
-                      role="alert"
-                      variant="caption"
-                    >
-                      {restartError()}
-                    </Type>
-                  </Show>
-                  <div class="mt-auto flex gap-3">
-                    <Button
-                      class="flex-1"
-                      onClick={props.onExit}
-                      variant="secondary"
-                    >
-                      Exit
-                    </Button>
-                    <Button class="flex-1" onClick={() => load(true)}>
-                      Start new lesson
-                    </Button>
-                  </div>
-                </section>
+                <ActivityStatusShell
+                  title="This lesson has ended"
+                  label="Expired Study session"
+                  description={
+                    loaded.resolved_count !== undefined &&
+                    loaded.served_count !== undefined
+                      ? `You finished ${loaded.resolved_count} of ${loaded.served_count} cards.`
+                      : "This lesson is no longer available."
+                  }
+                  tone="blocked"
+                  exitIcon="close"
+                  exitLabel="Exit study"
+                  onExit={props.onExit}
+                  progressMax={loaded.served_count}
+                  progressValue={loaded.resolved_count}
+                  progressTone="success"
+                  rewardLabel={loaded.reward_label}
+                  rewardPresentation="badge"
+                  primaryAction={{ label: "New lesson", onClick: () => load(true) }}
+                  notice={restartError()}
+                />
               }
             >
               <LoadedStudyingLesson

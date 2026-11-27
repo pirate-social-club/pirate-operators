@@ -13,8 +13,12 @@ test("parseMeta reads title, tier tag, play presence and page-rule disabling", (
   assert.equal(meta.tag, "flow");
   assert.equal(meta.hasPlay, false);
 
-  const withPlay = parseMeta(`title: "X", tags: ["flow"], play: async () => {}`);
-  assert.equal(withPlay.hasPlay, true);
+  const inlineOnly = parseMeta(`title: "X", tags: ["flow"], play: async () => {}`);
+  assert.equal(inlineOnly.hasPlay, false);
+
+  const exported = parseMeta(`title: "X", tags: ["flow"]
+export const Ready = { play: async () => {} }`);
+  assert.equal(exported.hasPlay, true);
 
   const fragment = parseMeta(`title: "X", tags: ["part"], rules: [
     { id: "landmark-one-main", enabled: false },
@@ -28,17 +32,37 @@ test("a flow without a play function is a violation", () => {
   assert.match(findings[0], /play function/);
 });
 
-test("a screen disabling page-level rules is a violation", () => {
+test("a screen disabling any page-level rule is a violation", () => {
+  for (const rule of ["landmark-one-main", "page-has-heading-one", "region"]) {
+    const findings = scanSources({
+      "a.stories.tsx": `title: "X/Screens/Y", tags: ["screen"], rules: [{ id: "${rule}", enabled: false }]`,
+    });
+    assert.match(findings[0], /fragment/);
+  }
+});
+
+test("comments, prose, null and unrelated play properties do not count as play evidence", () => {
   const findings = scanSources({
-    "a.stories.tsx": 'title: "X/Screens/Y", tags: ["screen"], rules: [{ id: "landmark-one-main", enabled: false }, { id: "page-has-heading-one", enabled: false }]',
+    "comment.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\n// play: async () => {}',
+    "prose.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"], note: "play: async () => {}"',
+    "null.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\nexport const Ready = { play: null }',
+    "unrelated.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\nconst helper = { play: async () => {} }',
   });
-  assert.match(findings[0], /fragment/);
+  assert.equal(findings.length, 4);
+  for (const finding of findings) assert.match(finding, /play function/);
+});
+
+test("an exported story may use a named callable play handler", () => {
+  const findings = scanSources({
+    "named.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\nconst interact = async () => {}\nexport const Ready = { play: interact }',
+  });
+  assert.deepEqual(findings, []);
 });
 
 test("a flow with a play function and a part pass clean", () => {
   assert.deepEqual(
     scanSources({
-      "flow.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"], play: async () => {}',
+      "flow.stories.tsx": 'title: "X/Flows/Y", tags: ["flow"]\nexport const Ready = { play: async () => {} }',
       "part.stories.tsx": 'title: "X/Parts/Y", tags: ["part"]',
     }),
     [],

@@ -6,7 +6,7 @@ export const STUDY_MIN_RECORDING_DURATION_MS = 1_000;
 export const STUDY_SHORT_RECORDING_MESSAGE =
   "Record for at least one second, then try again.";
 export const STUDY_PROVIDER_REVIEW_MESSAGE =
-  "We couldn't confirm the recording's outcome. Recording is paused for this lesson. Choose Study again to start over with a new lesson, or leave Study.";
+  "This lesson can't continue. Start a new one.";
 
 /** Handle declared recovery details before the generic 400/409 reload path. */
 export function studyingRecordingFailure(

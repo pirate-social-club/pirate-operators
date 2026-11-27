@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "@pirate/web-solid-ui/styles/tokens.css";
+@import "../styles/accessible-tokens.css";
 @source "./";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/icon-button";

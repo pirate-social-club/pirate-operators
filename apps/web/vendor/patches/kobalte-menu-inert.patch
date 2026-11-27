@@ -1,0 +1,24 @@
+--- a/dist/menu-sub-trigger/CUZ7UcrE.js
++++ b/dist/menu-sub-trigger/CUZ7UcrE.js
+@@ -192,7 +192,8 @@
+ 	createHideOutside({
+ 		disabled: () => !(parentMenuContext == null && disclosureState.isOpen() && rootContext.isModal()),
+ 		targets: () => [contentRef(), ...nestedMenus()].filter(Boolean),
+-		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]"
++		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]",
++		inert: true
+ 	});
+ 	createEffect(() => contentRef(), (contentEl) => {
+ 		if (!contentEl || !parentMenuContext) return;
+--- a/dist/menu-sub-trigger/Cj4RVVP4.jsx
++++ b/dist/menu-sub-trigger/Cj4RVVP4.jsx
+@@ -192,7 +192,8 @@
+ 	createHideOutside({
+ 		disabled: () => !(parentMenuContext == null && disclosureState.isOpen() && rootContext.isModal()),
+ 		targets: () => [contentRef(), ...nestedMenus()].filter(Boolean),
+-		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]"
++		alwaysVisibleSelector: "[data-kb-top-layer], [data-live-announcer]",
++		inert: true
+ 	});
+ 	createEffect(() => contentRef(), (contentEl) => {
+ 		if (!contentEl || !parentMenuContext) return;
