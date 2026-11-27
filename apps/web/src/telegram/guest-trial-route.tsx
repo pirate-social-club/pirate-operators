@@ -537,7 +537,7 @@ export function TelegramGuestTrialRoute(props: {
           data-telegram-voice
         >
           <AudioControl src={boundary.mediaUrl("voice", event.songId)} label="Your fixture voice recording" />
-          <p class="mt-1 text-right text-xs opacity-80">{event.durationLabel}</p>
+          <p class="mt-1 text-right text-xs">{event.durationLabel}</p>
         </div>
       );
     if (event.kind === "checking")
@@ -653,7 +653,7 @@ export function TelegramGuestTrialRoute(props: {
 
   function TelegramPhone() {
     return (
-      <div class="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-background text-foreground shadow-xl sm:min-h-[844px] sm:border-x sm:border-border-soft">
+      <div class="mx-auto flex h-dvh w-full max-w-[430px] flex-col bg-background text-foreground shadow-xl sm:h-[844px] sm:border-x sm:border-border-soft">
         <div class="flex items-center justify-between px-6 pb-2 pt-5 text-sm font-semibold" aria-hidden="true">
           <span>9:41</span>
           <span class="flex items-center gap-1.5">
@@ -766,7 +766,7 @@ export function TelegramGuestTrialRoute(props: {
       return current.kind === "checking" || current.kind === "failed" ? current : null;
     };
     return (
-      <div class="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-background text-foreground shadow-xl sm:min-h-[844px] sm:border-x sm:border-border-soft">
+      <div class="mx-auto flex h-dvh w-full max-w-[430px] flex-col bg-background text-foreground shadow-xl sm:h-[844px] sm:border-x sm:border-border-soft">
         <div class="flex items-center justify-between px-6 pb-2 pt-5 text-sm font-semibold" aria-hidden="true">
           <span>9:41</span>
           <span class="inline-block h-2.5 w-4 rounded-sm border border-current" />
