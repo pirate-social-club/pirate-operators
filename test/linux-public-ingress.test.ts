@@ -356,3 +356,39 @@ test("Web2 ingress bounds cleanup when the actual owned child cannot handle SIGT
     }
   }
 });
+
+test("Web2 readiness keeps the final authorization inside the same sixty-second deadline", async (t) => {
+  const f = await ingressFixture(), communityId = "0x" + "a".repeat(64);
+  try {
+    f.setCommunityResponse(200, communityId);
+    const timeout = t.mock.method(AbortSignal, "timeout", () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+      ), 50);
+      timer.unref();
+      return controller.signal;
+    });
+    t.after(() => timeout.mock.restore());
+    let finalStarted!: () => void, finishFinal!: () => void;
+    const started = new Promise<void>((resolve) => { finalStarted = resolve; });
+    const finish = new Promise<void>((resolve) => { finishFinal = resolve; });
+    let pollingAuthorization = 0;
+    const work = waitForCommunityIngress(
+      f.ingress,
+      communityId,
+      async () => { pollingAuthorization++; },
+      async () => { finalStarted(); await finish; },
+    );
+    await started;
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    finishFinal();
+    await assert.rejects(work, /aborted|timeout/i);
+    assert(pollingAuthorization >= 1, "the ordinary polling authorization did not run");
+    await mkdir(".local/linux-web2-installation", { recursive: true });
+    await writeFile(".local/linux-web2-installation/readiness-final-deadline.json", JSON.stringify({ finalAuthorizationInsideDeadline: true, controlledTimeoutMilliseconds: 50, ordinaryPollingAuthorizationObserved: true, scope: "actual HTTPS probe with substituted controlled timeout clock" }) + "\n");
+    t.diagnostic("final authorization remained inside the readiness deadline");
+  } finally {
+    await f.close();
+  }
+});

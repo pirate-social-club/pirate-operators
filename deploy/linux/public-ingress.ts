@@ -422,6 +422,7 @@ export async function waitForCommunityIngress(
   ingress: PublicIngress,
   expectedCommunityId: string,
   assertCurrent: () => Promise<void>,
+  assertReady: () => Promise<void> = assertCurrent,
 ) {
   const signal = AbortSignal.timeout(60000);
   for (;;) {
@@ -437,7 +438,7 @@ export async function waitForCommunityIngress(
       await delay(250, undefined, { signal });
       continue;
     }
-    await assertCurrent();
+    await assertReady();
     signal.throwIfAborted();
     return;
   }

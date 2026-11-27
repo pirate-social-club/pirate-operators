@@ -347,6 +347,7 @@ export async function createWeb2Installation(
     planId?: string,
     retainedGeneration = selected.minimumGeneration,
     retained?: { record: SignedRecord<Web2InstallPlan>; starting: boolean },
+    verifyRelease = true,
   ) {
     await open();
     assert(
@@ -355,7 +356,7 @@ export async function createWeb2Installation(
           canonicalDigest(JSON.parse(release.graph.directoryRuntimeBinding)),
       "installed_web2_deployment_changed",
     );
-    await verifyInstalledRelease(selected.release, selected.trust);
+    if (verifyRelease) await verifyInstalledRelease(selected.release, selected.trust);
     const host = () => currentHostAdmission(draft, planId, retainedGeneration);
     await host();
     const useExpansion = retained && graph.publicationExpansion &&
@@ -760,6 +761,14 @@ export async function createWeb2Installation(
             sameTrustedDance(observed.trustedDance, admitted.trustedDance),
             "native_expanded_publication_selection_changed");
         });
+        const currentReadiness = () => applyObserved("reauthorize", async () => {
+          const observed = await authorize(body.draft, body.planId, body.generation, retained, false);
+          assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256 &&
+            (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256) &&
+            observed.trustedPublication?.raw === admitted.trustedPublication?.raw &&
+            sameTrustedDance(observed.trustedDance, admitted.trustedDance),
+            "native_expanded_publication_selection_changed");
+        });
         const intent = web2OriginalStartIntent(body);
         const prior = await applyObserved("read-start-intent", async () => {
           const priorIntent = await optionalRecord(join(selected.planDirectory, "web2-start-intent.json"));
@@ -851,9 +860,9 @@ export async function createWeb2Installation(
         await applyObserved("ingress-wait", () => waitForCommunityIngress(
           ingress,
           body.draft.enrollment.communityId,
+          currentReadiness,
           current,
         ));
-        await current();
         if (admitted.trustedPublication) {
           await inspectTrustedSelection(admitted.trustedPublication, expectedDanceBoot(admitted.trustedDance));
           await current();
