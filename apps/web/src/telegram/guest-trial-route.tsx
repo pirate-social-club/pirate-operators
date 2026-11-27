@@ -738,7 +738,7 @@ export function TelegramGuestTrialRoute(props: {
           >
             Menu
           </button>
-          <div class="min-h-10 flex-1 rounded-full bg-input/40 px-4 py-2 text-sm text-muted-foreground" aria-hidden="true">
+          <div class="min-h-10 flex-1 rounded-full bg-input/40 px-4 py-2 text-sm text-foreground" aria-hidden="true">
             Message
           </div>
           <button
