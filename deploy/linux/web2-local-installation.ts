@@ -38,6 +38,7 @@ import {
 } from "./local-target-controller.ts";
 import {
   authenticateWeb2Enrollment,
+  authenticateWeb2InstallationAuthorization,
   ownWeb2ChainAuthority,
   readWeb2HostAdmission,
   type Web2ChainAuthority,
@@ -224,7 +225,16 @@ export async function createWeb2Installation(
         ...(planId ? { planId } : {}),
       });
     await host();
-    const evidence = await authenticateWeb2Enrollment(chain, draft);
+    const original = draft.enrollment.operations.find(
+      (op) => op.kind === "registration",
+    );
+    const evidence =
+      original &&
+      original.state === "consumed" &&
+      original.transactionHash &&
+      original.receipt !== null
+        ? await authenticateWeb2Enrollment(chain, draft)
+        : await authenticateWeb2InstallationAuthorization(chain, draft);
     const admission = await host();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(
@@ -280,7 +290,10 @@ export async function createWeb2Installation(
         communityId: p.draft.enrollment.communityId,
         controller: p.draft.configuration.controller,
         publisher: p.draft.configuration.publisher,
-        registrationTransaction: p.enrollment.transactionHash,
+        registrationTransaction:
+          p.enrollment.schema === "pirate.linux-web2-enrollment-evidence/1"
+            ? p.enrollment.transactionHash
+            : null,
         verifiedListing: false,
         namesEnabled: false,
         learningEnabled: false,

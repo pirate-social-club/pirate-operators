@@ -23,6 +23,12 @@ import {
   observeWeb2Registration,
   prepareWeb2Registration,
 } from "../../packages/community/web2-registration-chain.ts";
+import {
+  enrollmentDocument,
+  enrollmentTypedData,
+  parseEnrollment,
+} from "../../packages/community/hosted-enrollment.ts";
+import { verifyAccountTypedData } from "../../packages/community/account-signature-verifier.ts";
 import type { IpfsTransport } from "../../packages/community/ipfs.ts";
 import {
   linuxWeb2DraftFrom,
@@ -75,6 +81,24 @@ export interface Web2EnrollmentEvidence {
   configurationRevision: number;
   configurationSha256: string;
 }
+/** Controller-authorized pre-registration installation authority. The genuine
+ * enrollment document and its controller signature live in the draft; this
+ * evidence records the verification outcome at one explicit safe block. */
+export interface Web2InstallationAuthorizationEvidence {
+  schema: "pirate.linux-web2-installation-authorization/1";
+  enrollmentId: Hex;
+  controller: Address;
+  enrollmentSha256: string;
+  expiresAt: string;
+  safeBlock: string;
+  safeBlockHash: Hex;
+  observedAt: string;
+  configurationRevision: number;
+  configurationSha256: string;
+}
+export type Web2InstallEnrollment =
+  | Web2EnrollmentEvidence
+  | Web2InstallationAuthorizationEvidence;
 export interface Web2InstallPlan {
   schema: "pirate.linux-web2-install-plan/1";
   planId: string;
@@ -88,7 +112,7 @@ export interface Web2InstallPlan {
   publishingAttachmentDigest?: Hex;
   targetDigest: string;
   hostFingerprint: string;
-  enrollment: Web2EnrollmentEvidence;
+  enrollment: Web2InstallEnrollment;
   registrationAuthority: {
     registrar: Address;
     registrarRevision: string;
@@ -142,8 +166,15 @@ export async function authenticateWeb2Enrollment(
   );
   const original = draft.enrollment.operations.find(
     (op) => op.kind === "registration",
-  )!;
-  const expectedHash = original.transactionHash!;
+  );
+  insist(
+    original &&
+      original.state === "consumed" &&
+      original.transactionHash &&
+      original.receipt !== null,
+    "registration_not_confirmed",
+  );
+  const expectedHash = original.transactionHash;
   const tx = await authority.client.getTransaction({ hash: expectedHash });
   insist(
     tx.type === "eip1559" &&
@@ -258,6 +289,108 @@ export async function authenticateWeb2Enrollment(
     observedAt: String(now),
     configurationRevision: c.configurationRevision,
     configurationSha256: canonicalDigest(c),
+  };
+}
+
+/** Pre-registration installation authority: the controller's genuine signature
+ * over the exact enrollment the operator approved. The enrollment commits to
+ * the same registration plan the draft carries, so installing before the
+ * receipt exists never changes what registration will later bind on-chain.
+ * This never replaces chain evidence; once registration is consumed the
+ * original transaction path in authenticateWeb2Enrollment remains authoritative. */
+export async function authenticateWeb2InstallationAuthorization(
+  input: Web2ChainAuthority,
+  value: unknown,
+): Promise<Web2InstallationAuthorizationEvidence> {
+  const authority = ownWeb2ChainAuthority(input),
+    draft = linuxWeb2DraftFrom(value);
+  insist(draft.authorization !== undefined, "registration_not_confirmed");
+  const enrollment = parseEnrollment(draft.authorization.enrollment);
+  const p = parseWeb2ProfileDocument(draft.enrollment.profile);
+  const {
+    communityId: _community,
+    communityKey: _key,
+    installationId: _install,
+    ...deployment
+  } = draft.enrollment.profile;
+  insist(
+    canonical(deployment) === canonical(authority.deployment),
+    "unadmitted_install_deployment",
+    503,
+  );
+  const plan = prepareWeb2Registration(
+    p,
+    draft.configuration,
+    draft.enrollment.configurationUri,
+    authority.registrar,
+    authority.registrarRevision,
+  );
+  insist(
+    enrollment.id === draft.enrollment.enrollmentId &&
+      enrollment.plan.commitment === plan.commitment &&
+      enrollment.plan.registrar === authority.registrar &&
+      enrollment.plan.registrarRevision === authority.registrarRevision &&
+      canonical(enrollment.plan.config) === canonical(draft.configuration) &&
+      enrollment.plan.uri === draft.enrollment.configurationUri,
+    "install_enrollment_authorization_changed",
+    409,
+  );
+  const controller = address(draft.configuration.controller);
+  insist(
+    enrollment.plan.config.controller === controller,
+    "install_enrollment_authorization_changed",
+    409,
+  );
+  const block = await authority.client.getBlock({ blockTag: "safe" });
+  const now = authority.now();
+  insist(
+    block.number !== null &&
+      block.hash !== null &&
+      block.timestamp <= now &&
+      now - block.timestamp <= authority.maxSafeBlockAgeSeconds,
+    "install_safe_view_unavailable",
+    503,
+  );
+  insist(
+    BigInt(enrollment.expiresAt) > now,
+    "install_enrollment_authorization_expired",
+    503,
+  );
+  const code = await authority.client.getCode({
+    address: draft.deployment.posts.address,
+    blockNumber: block.number,
+  });
+  insist(
+    code &&
+      keccak256(code) === draft.deployment.posts.runtimeCodeHash &&
+      block.number >= BigInt(draft.deployment.posts.deploymentBlock),
+    "install_posts_source_changed",
+    503,
+  );
+  const valid = await verifyAccountTypedData(authority.client, {
+    data: enrollmentTypedData(enrollment),
+    address: controller,
+    signature: draft.authorization.controllerSignature,
+    blockNumber: block.number,
+  });
+  insist(
+    (await authority.client.getBlock({ blockNumber: block.number })).hash ===
+      block.hash,
+    "install_chain_reorganized",
+    503,
+  );
+  insist(valid, "controller_proof_invalid", 403);
+  return {
+    schema: "pirate.linux-web2-installation-authorization/1",
+    enrollmentId: enrollment.id,
+    controller,
+    enrollmentSha256: canonicalDigest(enrollmentDocument(enrollment)),
+    expiresAt: String(enrollment.expiresAt),
+    safeBlock: String(block.number),
+    safeBlockHash: block.hash,
+    observedAt: String(now),
+    configurationRevision: draft.configuration.configurationRevision,
+    configurationSha256: canonicalDigest(draft.configuration),
   };
 }
 

@@ -11,6 +11,11 @@ import {
   type Web2CommunityConfig,
 } from "../community/web2-config-manifest.ts";
 import {
+  enrollmentDocument,
+  parseEnrollment,
+  signature,
+} from "../community/hosted-enrollment.ts";
+import {
   isWeb2Deployment,
   validateCommunityDeploymentProfile,
   type Web2CommunityDeploymentProfile,
@@ -39,6 +44,14 @@ export interface LinuxWeb2Draft {
   deployment: Web2CommunityDeploymentProfile;
   enrollment: HostedEnrollmentStatus;
   configuration: Web2CommunityConfig;
+  /** Controller-authorized enrollment evidence for pre-registration installation.
+   * Carries the full enrollment document and the controller's signature over its
+   * typed data. Absent on the original chain-first flow; required when no
+   * registration operation is consumed yet. Never grants authority by itself. */
+  authorization?: {
+    enrollment: unknown;
+    controllerSignature: Hex;
+  };
 }
 export interface LinuxWeb2PlanSelection {
   planId: string;
@@ -52,7 +65,9 @@ export interface LinuxWeb2PlanSummary extends LinuxWeb2PlanSelection {
     name: string;
     controller: string;
     publisher: string;
-    registrationTransaction: Hex;
+    /** Null while installation precedes registration; exact registration
+     * transaction hash once the original operation is consumed. */
+    registrationTransaction: Hex | null;
     verifiedListing: false;
     namesEnabled: false;
     learningEnabled: false;
@@ -146,14 +161,16 @@ export function hostedEnrollmentStatusFrom(
 /** Closed owned values, before any await. This decoder grants no authority. */
 export function linuxWeb2DraftFrom(value: unknown): LinuxWeb2Draft {
   const row = object(structuredClone(value));
-  exact(row, [
+  const keys = [
     "schema",
     "name",
     "origin",
     "deployment",
     "enrollment",
     "configuration",
-  ]);
+  ];
+  if (Object.hasOwn(row, "authorization")) keys.push("authorization");
+  exact(row, keys);
   insist(
     row.schema === "pirate.linux-web2-draft/1",
     "explicit_web2_installation_required",
@@ -184,16 +201,20 @@ export function linuxWeb2DraftFrom(value: unknown): LinuxWeb2Draft {
       "0x0000000000000000000000000000000000000000",
     "first_song_learning_disabled",
   );
-  const original = enrollment.operations.find(
-    (op) => op.kind === "registration",
-  );
-  insist(
-    original &&
-      original.state === "consumed" &&
-      original.transactionHash &&
-      original.receipt !== null,
-    "registration_not_confirmed",
-  );
+  let authorization: LinuxWeb2Draft["authorization"];
+  if (Object.hasOwn(row, "authorization")) {
+    const proof = object(row.authorization);
+    exact(proof, ["enrollment", "controllerSignature"]);
+    const document = parseEnrollment(proof.enrollment);
+    insist(
+      document.id === enrollment.enrollmentId,
+      "enrollment_deployment_changed",
+    );
+    authorization = {
+      enrollment: enrollmentDocument(document),
+      controllerSignature: signature(proof.controllerSignature),
+    };
+  }
   return {
     schema: row.schema,
     name,
@@ -201,5 +222,6 @@ export function linuxWeb2DraftFrom(value: unknown): LinuxWeb2Draft {
     deployment,
     enrollment,
     configuration,
+    ...(authorization ? { authorization } : {}),
   };
 }

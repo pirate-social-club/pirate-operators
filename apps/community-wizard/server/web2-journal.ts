@@ -395,14 +395,16 @@ export async function createWeb2Journal(
     ]);
     const s = p.summary,
       c = draft.configuration,
-      r = draft.enrollment.operations.find((op) => op.kind === "registration");
+      r = draft.enrollment.operations.find(
+        (op) => op.kind === "registration" && op.state === "consumed",
+      );
     insist(
       s.communityId === c.communityId &&
         s.origin === c.app.origin &&
         s.name === c.app.label &&
         s.controller === c.controller &&
         s.publisher === c.publisher &&
-        s.registrationTransaction === r?.transactionHash &&
+        s.registrationTransaction === (r?.transactionHash ?? null) &&
         s.verifiedListing === false &&
         s.namesEnabled === false &&
         s.learningEnabled === false &&
