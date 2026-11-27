@@ -68,6 +68,7 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
                     title="Wallet unavailable"
                     description="Your wallets could not be loaded."
                     tone={wallet.authorityLost() ? "blocked" : "retryable"}
+                    error
                     primaryAction={wallet.authorityLost()
                       ? {
                           label: "Sign in again",

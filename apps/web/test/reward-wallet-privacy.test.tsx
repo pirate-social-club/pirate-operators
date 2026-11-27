@@ -211,6 +211,21 @@ const waitReady = async (x: ReturnType<typeof mount>) => {
     expect(x.controller().view()?.balanceAtomic).toBe("30000000000000000"),
   );
 };
+for (const status of [401, 503]) {
+  test(`initial Wallet unavailable at ${status} announces the failure`, async () => {
+    const f = http();
+    f.deny(status);
+    const x = mount(true);
+    f.releaseErrorBody();
+    await vi.waitFor(() =>
+      expect(x.host.textContent).toContain("Wallet unavailable"),
+    );
+    expect(x.host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Wallet unavailable",
+    );
+  });
+}
+
 for (const status of [401, 403]) {
   test(`actual portfolio masks amounts, winnings and action portals at ${status} headers`, async () => {
     const f = http(),
