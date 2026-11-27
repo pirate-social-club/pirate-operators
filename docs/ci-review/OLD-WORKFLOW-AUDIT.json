@@ -137,7 +137,7 @@
       "runId": "45950111918",
       "wizardInstallRefusal": null
     },
-    "verificationScope": "Disposable offline pilot on 4096 MiB using the r24 fixture. Main behavior on this exact tree is represented by the pull_request checks on evidenceHead. Fluence foreground-to-Pair and all live Lane 6 actions remain unqualified."
+    "verificationScope": "Disposable offline pilot on 4096 MiB using the r24 fixture. General CI exercised the pull-request merge checkout. The VM journey exercised the pinned pilot product and image in currentReview.fixture. Whole-system behavior of a release built from main requires its own qualification. Fluence foreground-to-Pair and all live Lane 6 actions remain unqualified."
   },
   "earlierFinalAcceptanceRun": {
     "baseSha": "cf03e0b57fbf4321cdbf896fdf8364683209ea01",
