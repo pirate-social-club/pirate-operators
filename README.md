@@ -28,12 +28,27 @@ npm ci --ignore-scripts
 npm ci --ignore-scripts --prefix apps/web
 npm ci --ignore-scripts --prefix apps/community-wizard
 forge build
-TMPDIR="$(mktemp -d)" \
-PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)" \
-PIRATE_CADDY_BINARY=/path/to/caddy \
-PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
-npm run check
+(
+  set -eu
+  runtime_dir=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}
+  case $runtime_dir in
+    /run/*) ;;
+    *) echo "XDG_RUNTIME_DIR must be under /run" >&2; exit 1 ;;
+  esac
+  if [ ! -d "$runtime_dir" ] || [ ! -O "$runtime_dir" ] || [ ! -w "$runtime_dir" ]; then
+    echo "XDG_RUNTIME_DIR must be a writable user-owned directory" >&2
+    exit 1
+  fi
+  TMPDIR="$(mktemp -d)"
+  PIRATE_TEST_RUN_PARENT="$(mktemp -d "$runtime_dir/pirate-root-tests.XXXXXXXX")"
+  export TMPDIR PIRATE_TEST_RUN_PARENT
+  PIRATE_CADDY_BINARY=/path/to/caddy \
+  PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
+  npm run check
+)
 ```
+
+If `XDG_RUNTIME_DIR` is absent, provision a user-owned mode-0700 directory under `/run` and use that path in place of `$runtime_dir`. Do not use a root-owned parent for the ordinary local check.
 
 Hosted CI does not run that unsharded command in its network namespace. It runs four root-test shards through `harness/ci/run-root-tests.mjs`; each shard creates both private scratch directories inside the namespace. The CI-shaped command for one shard is:
 
