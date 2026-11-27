@@ -229,11 +229,22 @@ export function parsePlan(value: unknown): Web2RegistrationPlan {
   insist(p.commitment === v.commitment, "saved_plan_changed");
   return p;
 }
+export const HOSTED_NO_INVITE_ID =
+  `0x${"0".repeat(64)}` as Hex;
+export function hostedOptionalId(value: unknown): Hex | null {
+  if (value === null) return null;
+  const id = sharedBytes32(value);
+  insist(id !== HOSTED_NO_INVITE_ID, "invalid_hosted_identifier");
+  return id;
+}
+export function hostedWireId(value: Hex | null): Hex {
+  return value ?? HOSTED_NO_INVITE_ID;
+}
 export interface Enrollment {
   schema: "pirate.hosted-enrollment/1";
   id: Hex;
-  inviteId: Hex;
-  allowanceId: Hex;
+  inviteId: Hex | null;
+  allowanceId: Hex | null;
   expiresAt: number;
   policyHash: Hex;
   noticeSha256: Hex;
@@ -261,8 +272,8 @@ export function parseEnrollment(value: unknown): Enrollment {
   return Object.freeze({
     schema: v.schema,
     id: sharedBytes32(v.id),
-    inviteId: sharedBytes32(v.inviteId),
-    allowanceId: sharedBytes32(v.allowanceId),
+    inviteId: hostedOptionalId(v.inviteId),
+    allowanceId: hostedOptionalId(v.allowanceId),
     expiresAt: integer(v.expiresAt, 1, Number.MAX_SAFE_INTEGER),
     policyHash: sharedBytes32(v.policyHash),
     noticeSha256: sharedBytes32(v.noticeSha256),
@@ -319,8 +330,8 @@ export function enrollmentTypedData(e: Enrollment) {
     },
     message: {
       enrollmentId: e.id,
-      inviteId: e.inviteId,
-      allowanceId: e.allowanceId,
+      inviteId: hostedWireId(e.inviteId),
+      allowanceId: hostedWireId(e.allowanceId),
       communityKey: p.profile.communityKey,
       installationId: p.profile.installationId,
       controller: p.config.controller,

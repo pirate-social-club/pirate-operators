@@ -18,6 +18,49 @@ import {
 
 // Failure plan is in the admitted doc. These invoke real HTTP handlers, D1,
 // local chain, signatures and compiled contracts; no successful RPC is mocked.
+test("permissionless enrollment registers once without an invite and admits no top-up", async () => {
+  const f = await hostedFixture();
+  try {
+    const input = await f.permissionless(),
+      prepared = await f.prepare(input);
+    assert.equal(prepared.e.inviteId, null);
+    assert.equal(prepared.e.allowanceId, null);
+    const repeat = await f.post("/prepare", input.body);
+    assert.equal(repeat.status, 200, JSON.stringify(repeat));
+    assert.equal(repeat.body.enrollmentId, prepared.e.id);
+    assert.equal((await f.post("/redeem", prepared.auth)).status, 200);
+    await f.mine();
+    const status = await f.post("/status", prepared.auth);
+    assert.equal(status.status, 200, JSON.stringify(status));
+    assert.deepEqual(
+      (status.body.operations as { kind: string; state: string }[]).map((op) => op.kind),
+      ["registration"],
+    );
+    assert.equal(
+      (status.body.operations as { state: string }[])[0]!.state,
+      "consumed",
+    );
+    const sent = f.state.sendCount;
+    assert.equal((await f.post("/redeem", prepared.auth)).status, 200);
+    assert.equal(f.state.sendCount, sent);
+    const topup = await f.post("/initial-topup", {
+      ...prepared.auth,
+      recipientProofs: [],
+    });
+    assert.equal(topup.status, 409);
+    assert.equal(topup.body.error, "hosted_topup_allowance_required");
+    assert.equal((await allOperations(f.db, prepared.e.id)).length, 1);
+    const budgets = await f.db
+      .prepare("SELECT scope FROM spending_budgets ORDER BY scope")
+      .all<{ scope: string }>();
+    assert.deepEqual(
+      budgets.results.map((row) => row.scope),
+      [`hosted:${f.policy.pilotId}:global`],
+    );
+  } finally {
+    await f.close();
+  }
+});
 test("hosted controller enrollment registers once, stays unlisted and exposes no private original", async () => {
   const f = await hostedFixture();
   try {

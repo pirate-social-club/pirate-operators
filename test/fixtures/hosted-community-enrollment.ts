@@ -503,31 +503,14 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
         body: (await response.json()) as Record<string, unknown>,
       };
     };
-    const invite = async (
+    const registrationInput = async (
       opts: {
         controller?: Address;
         publisher?: Address;
-        allowanceId?: Hex;
-        ttl?: number;
       } = {},
     ) => {
-      const id = publicId(),
-        secret = token(),
-        allowanceId = opts.allowanceId ?? publicId(),
-        key = publicId(),
+      const key = publicId(),
         installationId = publicId();
-      await provisionHostedInvite(
-        db,
-        policy,
-        {
-          id,
-          token: secret,
-          allowanceId,
-          expiresAt: state.clock + (opts.ttl ?? 3600),
-        },
-        state.clock,
-        pkg?.profile.configuration.schemaContext,
-      );
       const profile = validateWeb2Profile({
         ...policy.deployment,
         communityKey: key,
@@ -564,17 +547,58 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const bytes = new TextEncoder().encode(canonical(config)),
         pin = await preparePin(bytes, "application/json");
       pins.set(pin.uri, bytes);
-      const body = {
-        inviteToken: secret,
-        profile: web2ProfileDocument(profile),
+      return {
+        profile,
         config,
-        uri: pin.uri,
-        noticeSha256: policy.noticeSha256,
+        body: {
+          profile: web2ProfileDocument(profile),
+          config,
+          uri: pin.uri,
+          noticeSha256: policy.noticeSha256,
+        },
       };
-      return { id, secret, allowanceId, profile, config, body };
+    };
+    const invite = async (
+      opts: {
+        controller?: Address;
+        publisher?: Address;
+        allowanceId?: Hex;
+        ttl?: number;
+      } = {},
+    ) => {
+      const id = publicId(),
+        secret = token(),
+        allowanceId = opts.allowanceId ?? publicId();
+      await provisionHostedInvite(
+        db,
+        policy,
+        {
+          id,
+          token: secret,
+          allowanceId,
+          expiresAt: state.clock + (opts.ttl ?? 3600),
+        },
+        state.clock,
+        pkg?.profile.configuration.schemaContext,
+      );
+      const selected = await registrationInput(opts);
+      const body = {
+        ...selected.body,
+        inviteToken: secret,
+      };
+      return { id, secret, allowanceId, profile: selected.profile, config: selected.config, body };
+    };
+    const permissionless = async (
+      opts: {
+        controller?: Address;
+        publisher?: Address;
+      } = {},
+    ) => {
+      const selected = await registrationInput(opts);
+      return { profile: selected.profile, config: selected.config, body: selected.body };
     };
     const prepare = async (
-      i: Awaited<ReturnType<typeof invite>>,
+      i: { body: unknown },
       signerAccount = controller,
     ) => {
       const response = await post("/prepare", i.body);
@@ -600,6 +624,7 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       mine,
       post,
       invite,
+      permissionless,
       prepare,
       pins,
       compiled,

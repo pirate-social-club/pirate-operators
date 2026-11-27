@@ -8,6 +8,7 @@ import {
 } from "./budgets.ts";
 import {
   enrollmentDocument,
+  HOSTED_NO_INVITE_ID,
   parseEnrollment,
   parsePolicyDocument,
   policyDocument,
@@ -21,7 +22,7 @@ import type { Hex } from "viem";
 // SHA-256 of canonical ordered sqlite_master name/type/normalized SQL, generated
 // from the exact unapplied schema. Runtime never repairs or initializes a DB.
 export const HOSTED_SCHEMA_SHA256 =
-  "0x5298bcc8f828f30bdbe9fb856625918085dfcb72b33f8256ff0f41b3579f8db4";
+  "0xc8cd02e64c342f7daedc0a26b8a86ce9801f9aaeffac604de4589c81b2655a61";
 /** Private package context; never part of policy or an HTTP/signature envelope. */
 export interface HostedSchemaContext {
   readonly schema: "pirate.hosted-schema-alchemy/1";
@@ -93,24 +94,7 @@ export interface Invite {
   expires_at: number;
   revoked: number;
 }
-export async function provisionHostedInvite(
-  db: D1Database,
-  p: HostedPolicy,
-  input: { id: Hex; token: string; allowanceId: Hex; expiresAt: number },
-  now: number,
-  context?: HostedSchemaContext,
-) {
-  const { id, token: secret, allowanceId, expiresAt } = input;
-  sharedBytes32(id);
-  sharedBytes32(allowanceId);
-  insist(/^[0-9a-f]{64}(?![\s\S])/.test(secret), "invalid_invite_token");
-  insist(
-    Number.isSafeInteger(expiresAt) &&
-      expiresAt > now &&
-      expiresAt - now <= p.inviteMaxSeconds,
-    "invalid_invite_expiry",
-  );
-  await assertHostedSchema(db, context);
+async function initializeBudgetNamespace(db: D1Database, p: HostedPolicy) {
   const g = token();
   await db.batch([
     db
@@ -123,13 +107,50 @@ export async function provisionHostedInvite(
         "INSERT INTO transaction_guards(guard_id,valid) VALUES(?,CASE WHEN EXISTS(SELECT 1 FROM hosted_schema WHERE version=1 AND budget_namespace=?) THEN 1 ELSE 0 END)",
       )
       .bind(g, p.pilotId),
-    db
-      .prepare(
-        "INSERT INTO hosted_invites(id,token_hash,allowance_id,policy_hash,expires_at) VALUES(?,?,?,?,?)",
-      )
-      .bind(id, hashText(secret), allowanceId, policyHash(p), expiresAt),
     db.prepare("DELETE FROM transaction_guards WHERE guard_id=?").bind(g),
   ]);
+}
+export async function ensureBudgetNamespace(db: D1Database, p: HostedPolicy) {
+  const row = await db
+    .prepare("SELECT budget_namespace FROM hosted_schema WHERE version=1")
+    .first<{ budget_namespace: string | null }>();
+  if (row?.budget_namespace === null)
+    await db
+      .prepare(
+        "UPDATE hosted_schema SET budget_namespace=? WHERE version=1 AND budget_namespace IS NULL",
+      )
+      .bind(p.pilotId)
+      .run();
+  await assertBudgetNamespace(db, p);
+}
+export async function provisionHostedInvite(
+  db: D1Database,
+  p: HostedPolicy,
+  input: { id: Hex; token: string; allowanceId: Hex; expiresAt: number },
+  now: number,
+  context?: HostedSchemaContext,
+) {
+  const { id, token: secret, allowanceId, expiresAt } = input;
+  insist(
+    sharedBytes32(id) !== HOSTED_NO_INVITE_ID &&
+      sharedBytes32(allowanceId) !== HOSTED_NO_INVITE_ID,
+    "invalid_invite_identifier",
+  );
+  insist(/^[0-9a-f]{64}(?![\s\S])/.test(secret), "invalid_invite_token");
+  insist(
+    Number.isSafeInteger(expiresAt) &&
+      expiresAt > now &&
+      expiresAt - now <= p.inviteMaxSeconds,
+    "invalid_invite_expiry",
+  );
+  await assertHostedSchema(db, context);
+  await initializeBudgetNamespace(db, p);
+  await db
+    .prepare(
+      "INSERT INTO hosted_invites(id,token_hash,allowance_id,policy_hash,expires_at) VALUES(?,?,?,?,?)",
+    )
+    .bind(id, hashText(secret), allowanceId, policyHash(p), expiresAt)
+    .run();
 }
 export async function assertBudgetNamespace(db: D1Database, p: HostedPolicy) {
   const row = await db
@@ -202,14 +223,20 @@ export async function savePreparation(
     .run();
   const row = await db
     .prepare(
-      "SELECT request_hash,body FROM hosted_preparations WHERE invite_id=?",
+      "SELECT request_hash,body FROM hosted_preparations WHERE id=?",
     )
-    .bind(e.inviteId)
+    .bind(e.id)
     .first<{ request_hash: string; body: string }>();
   insist(row?.request_hash === requestHash, "invite_preparation_conflict", 409);
   return parseEnrollment(JSON.parse(row.body));
 }
 export function activeCondition(e: Enrollment, now: number) {
+  if (e.inviteId === null)
+    return {
+      clause: "? > ?",
+      binds: [e.expiresAt, now],
+      code: "enrollment_inactive",
+    };
   return {
     clause:
       "EXISTS(SELECT 1 FROM hosted_invites WHERE id=? AND revoked=0 AND expires_at>? AND policy_hash=?) AND ? > ?",
@@ -394,12 +421,22 @@ export async function createOperation(
 export function operationBudgetKeys(
   p: HostedPolicy,
   e: Enrollment,
+  kind: HostedOperation["kind"],
   recipient: string,
 ): BudgetKey[] {
   const period = "lifetime",
-    asset = `native:${e.plan.profile.chainId}`;
+    asset = `native:${e.plan.profile.chainId}`,
+    global = `hosted:${p.pilotId}:global`;
+  if (kind === "registration")
+    return [
+      global,
+      ...(e.allowanceId === null
+        ? []
+        : [`hosted:${p.pilotId}:community:${e.allowanceId}`]),
+    ].map((scope) => ({ scope, period, asset }));
+  insist(e.allowanceId !== null, "hosted_topup_allowance_required", 409);
   return [
-    `hosted:${p.pilotId}:global`,
+    global,
     `hosted:${p.pilotId}:community:${e.allowanceId}`,
     `hosted:${p.pilotId}:recipient:${recipient}`,
   ].map((scope) => ({ scope, period, asset }));
@@ -412,8 +449,11 @@ export async function reserveOperation(
   recipient: string,
   now: number,
 ) {
-  const keys = operationBudgetKeys(p, e, recipient),
-    caps = [p.globalCeiling, p.communityCeiling, p.recipientCeiling];
+  const keys = operationBudgetKeys(p, e, op.kind, recipient),
+    caps =
+      op.kind === "registration"
+        ? [p.globalCeiling, ...(keys.length === 1 ? [] : [p.communityCeiling])]
+        : [p.globalCeiling, p.communityCeiling, p.recipientCeiling];
   for (let i = 0; i < keys.length; i++)
     await configureBudget(db, keys[i]!, caps[i]!);
   await reserveBudget(
@@ -501,7 +541,7 @@ export async function settleOperation(
   await settleBudget(
     db,
     op.id,
-    operationBudgetKeys(p, e, recipient),
+    operationBudgetKeys(p, e, op.kind, recipient),
     op.reservation,
   );
 }

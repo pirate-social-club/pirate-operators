@@ -14,6 +14,7 @@ import {
   assertDeployment,
   enrollmentDocument,
   enrollmentTypedData,
+  HOSTED_NO_INVITE_ID,
   ownPolicy,
   parseEnrollment,
   parsePlan,
@@ -67,11 +68,21 @@ export function checkedHostedPreparation(
   const typed = object(v.typedData),
     message = object(typed.message);
   const id = sharedBytes32(v.enrollmentId),
-    inviteId = sharedBytes32(message.inviteId);
+    wireInviteId = sharedBytes32(message.inviteId),
+    wireAllowanceId = sharedBytes32(message.allowanceId);
+  const inviteId = wireInviteId === HOSTED_NO_INVITE_ID ? null : wireInviteId,
+    allowanceId =
+      wireAllowanceId === HOSTED_NO_INVITE_ID ? null : wireAllowanceId;
   const expiresAt = integer(v.expiresAt, 1, Number.MAX_SAFE_INTEGER);
   insist(
-    v.schema === "pirate.hosted-enrollment/1" &&
-      id === hashText(`hosted-enrollment:${inviteId}`) &&
+    (inviteId === null) === (allowanceId === null) &&
+      v.schema === "pirate.hosted-enrollment/1" &&
+      id ===
+        hashText(
+          inviteId
+            ? `hosted-enrollment:${inviteId}`
+            : `hosted-enrollment:${plan.commitment}`,
+        ) &&
       expiresAt > now &&
       expiresAt <= now + policy.challengeSeconds,
     "hosted_signing_request_changed",
@@ -81,7 +92,7 @@ export function checkedHostedPreparation(
     schema: "pirate.hosted-enrollment/1" as const,
     id,
     inviteId,
-    allowanceId: sharedBytes32(message.allowanceId),
+    allowanceId,
     expiresAt,
     policyHash: policyHash(policy),
     noticeSha256: policy.noticeSha256,
@@ -234,15 +245,16 @@ export function createHostedEnrollmentClient(
     return status;
   }
   return {
-    async prepare(planInput: Web2RegistrationPlan, inviteToken: string) {
+    async prepare(planInput: Web2RegistrationPlan, inviteToken?: string) {
       const plan = parsePlan(planDocument(planInput));
       assertDeployment(policy, plan);
-      insist(
-        typeof inviteToken === "string" && /^[a-f0-9]{64}$/.test(inviteToken),
-        "invalid_invite",
-      );
+      if (inviteToken !== undefined)
+        insist(
+          typeof inviteToken === "string" && /^[a-f0-9]{64}$/.test(inviteToken),
+          "invalid_invite",
+        );
       const value = await post("/prepare", {
-        inviteToken,
+        ...(inviteToken === undefined ? {} : { inviteToken }),
         profile: web2ProfileDocument(plan.profile),
         config: plan.config,
         uri: plan.uri,

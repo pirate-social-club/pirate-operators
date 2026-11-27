@@ -29,7 +29,7 @@ import {
   allOperations,
   ownHostedSchemaContext,
   assertHostedSchema,
-  assertBudgetNamespace,
+  ensureBudgetNamespace,
   findInvite,
   loadEnrollment,
   loadOriginalPolicy,
@@ -62,7 +62,7 @@ export async function readHostedRequest(r: HostedRuntime, request: Request) {
   // No cookies or ambient authority; proofs are required on every action.
   insist(!request.headers.has("cookie"), "cookie_authority_not_supported", 403);
   await assertHostedSchema(r.db, r.schemaContext);
-  await assertBudgetNamespace(r.db, r.policy);
+  await ensureBudgetNamespace(r.db, r.policy);
   return jsonBody(request, 128 * 1024);
 }
 export function hostedResponse(value: unknown, status = 200) {
@@ -162,23 +162,29 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
       const body = await readHostedRequest(r, request);
       if (path === "/prepare") {
         exact(body, [
-          "inviteToken",
           "profile",
           "config",
           "uri",
           "noticeSha256",
+          ...(Object.hasOwn(body, "inviteToken") ? ["inviteToken"] : []),
         ]);
-        insist(
-          typeof body.inviteToken === "string" && typeof body.uri === "string",
-          "invalid_prepare",
-        );
+        insist(typeof body.uri === "string", "invalid_prepare");
         insist(
           body.noticeSha256 === r.policy.noticeSha256,
           "pilot_notice_required",
           403,
         );
+        insist(
+          body.inviteToken === undefined ||
+            body.inviteToken === null ||
+            typeof body.inviteToken === "string",
+          "invalid_invite",
+        );
         const now = r.now(),
-          invite = await findInvite(r.db, body.inviteToken, r.policy, now);
+          invite =
+            body.inviteToken === undefined || body.inviteToken === null
+              ? null
+              : await findInvite(r.db, body.inviteToken, r.policy, now);
         const plan = prepareWeb2Registration(
           parseWeb2ProfileDocument(body.profile),
           body.config,
@@ -214,11 +220,15 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           );
         const candidate: Enrollment = {
           schema: "pirate.hosted-enrollment/1",
-          id: hashText(`hosted-enrollment:${invite.id}`),
-          inviteId: invite.id,
-          allowanceId: invite.allowance_id,
+          id: hashText(
+            invite
+              ? `hosted-enrollment:${invite.id}`
+              : `hosted-enrollment:${plan.commitment}`,
+          ),
+          inviteId: invite?.id ?? null,
+          allowanceId: invite?.allowance_id ?? null,
           expiresAt: Math.min(
-            invite.expires_at,
+            invite?.expires_at ?? Number.MAX_SAFE_INTEGER,
             now + r.policy.challengeSeconds,
           ),
           policyHash: ph,
