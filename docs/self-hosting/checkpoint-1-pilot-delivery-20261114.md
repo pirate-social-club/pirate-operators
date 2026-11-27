@@ -23,10 +23,17 @@ The first-song application/runtime source is merged and CI-qualified in
 [PR61](https://github.com/pirate-social-club/pirate-operators/pull/61) at
 `7515931`. Invited enrollment and capped initial-gas service source is merged
 and CI-qualified in [PR60](https://github.com/pirate-social-club/pirate-operators/pull/60)
-at `0510f77`. Selected-host acceptance remains unqualified; these source checks
-do not establish actual provisioning, native installation or external services.
+at `0510f77`. Live Fluence staging acceptance remains open; these source checks do not establish actual provisioning, native installation or external services.
 Required CI and authorization checks remain. Publication of this plan authorizes
 no deployment, signing, funding or credential operation.
+
+## First-song acceptance status
+
+Status reviewed 2026-11-27. This is the single volatile acceptance-status entry for the first-song Web2 pilot; other documents link here instead of repeating partial results.
+
+A pinned 4 GiB VM run passed at product successor `299ebfe5ccb0371f7b2b0c6e8ef3fe2cf5ffce21` with image SHA-256 `3088dd47364de4878a76dc50047089612fcbec2b885124d9fa70bdd568428565`. The run covered installation, publication, HTTPS playback, restart on the same store, replay with zero duplicate effects, and clean shutdown. It is controlled VM evidence, not live staging acceptance.
+
+Live Fluence staging acceptance remains open. Public DNS/ACME issuance, external providers, real-device readiness, backup/restore, upgrades, expanded activities/rewards and production use remain unqualified by the VM pass.
 
 ## Checkpoints and dependencies
 
@@ -36,9 +43,9 @@ no deployment, signing, funding or credential operation.
 | 1b. Optional HNS contracts       | Qualified naming registry and constrained gateway, size limit, proof vectors and real admission/refresh integration.                                                                                                                                           | Can proceed alongside Web2 delivery against 1a's agreed attachment interface. Blocks HNS activation only.                                                                                                                                                                      |
 | 1c. Separate publication consent | Separate login from learning/Dance publication authorization, including stable community identity, address changes, revocation, replay protection and Dance adapter compatibility.                                                                             | Source merged and CI-qualified in [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59) at `c6c98cb`; [V5/Dance V2](../contracts/publication-consent-v1.md) remain inactive pending application/policy gates. Does not block checkpoint 3.                    |
 | 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Source merged and CI-qualified in [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58) at `9374f4c`. The combined first-song runtime is source-qualified in PR61; installed-host acceptance remains separate.                                                |
-| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Host journey unqualified. PR60/61 qualify service/application source; the real Wizard/bootstrap/install/services join remains. HNS, names, learning-results and Dance remain disabled.                                                                                         |
+| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | PR60/61 qualify service/application source. Acceptance status is recorded in [First-song acceptance status](#first-song-acceptance-status). HNS, names, learning-results and Dance remain disabled.                                                                                         |
 | 4a. Activities and shared feed   | V5 Study/Karaoke with private practice independent of publication grants; V2 Dance capture/review and separately consented public videos; canonical song references; aggregate indexing/playback; delisting, retention and deletion.                           | Requires the consent/Dance foundation, actual normal-route/media/source/profile and HTTP/queue/scheduler/Linux joins, and a green baseline. First-song acceptance remains separately useful.                                                                                   |
-| 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
+| 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../deferred/manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
 | 5. Release and handback          | Qualify the expanded Web2 scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                                  | Requires checkpoints 3, 4a and 4b. An invited first-song staging milestone may precede them; it is not completion of the expanded release. HNS remains independent.                                                                                                            |
 
 Checkpoint 2 fixes known failures without waiting for final contracts. Integrate
@@ -268,7 +275,7 @@ submission receipt. Identical retries preserve that deadline. Sources are
 [retention constants](../../packages/community-media/validation.ts),
 [reservation](../../services/community-media.ts),
 [submission](../../packages/community-media/submission.ts) and the
-[producer specification](../v1-video-dance-producer.md).
+[producer specification](../archive/lanes/v1/v1-video-dance-producer.md).
 
 Expiration or withdrawal denies subsequent private access. The
 [maintenance service](../../services/community-media-maintenance.ts) erases
@@ -330,9 +337,7 @@ attribute every minute or establish that required testing should be removed.
 
 Advance checkpoints on concrete outputs and evidence, with no invented dates.
 The contract foundations, repaired baseline, first-song runtime and invited
-hosted enrollment service are merged and CI-qualified source. Current work joins
-the hosted Wizard consumer to fresh Linux bootstrap and its real installation
-producer. Selected-host acceptance remains open. Defer further plan-review loops unless a concrete
+hosted enrollment service are merged and CI-qualified source. Acceptance status is recorded in [First-song acceptance status](#first-song-acceptance-status). Defer further plan-review loops unless a concrete
 implementation finding changes an accepted boundary.
 
 ## Additional addresses (deferred, after the Web2 pilot)
@@ -441,7 +446,7 @@ source is [Posts V1](../../contracts/community/CommunityPostsV1.sol),
 
 The [earlier delivery graph](linux-compose-delivery-contract-v1.json) describes
 its pinned historical source and broader acceptance; this checkpoint governs
-pilot scope where they conflict. The [ordered onboarding contract](../v1-onboarding-linux-wizard.md)
+pilot scope where they conflict. The [ordered onboarding contract](../web2-onboarding-linux-wizard.md)
 still describes unimplemented joins. The [application review note](../review-checkpoint-20261114/README.md)
 retains actual prior qualification and limitations. Publishing this document
 adds no runtime capability and converts no failed or unrun check into a pass.

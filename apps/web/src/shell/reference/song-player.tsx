@@ -1,6 +1,6 @@
 // Independently owned source copy. src/features/posts/song-player/song-player.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Adapter differences: docs/v1-shell-owner-correction-20261111.md.
-// Central controls/captured identity: docs/v1-shell-player-controls-20261111.md.
+// Adapter differences: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
+// Central controls/captured identity: docs/archive/lanes/v1/v1-shell-player-controls-20261111.md.
 import { Show, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { Button, Type } from "../../design-system.ts";
 import { SongPlaybackControls } from "../player/playback-controls.tsx";

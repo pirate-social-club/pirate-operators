@@ -60,7 +60,7 @@
       "apps/web/src/media/MediaUpload.tsx": "Recorder processing/review journey and actual submission callback, no second recorder",
       "apps/web/src/media/dance-review-surface.tsx": "Actual DanceReviewPage pure review branch: compact header, flexible private preview and submit/resume action; private Back preserves recording"
     },
-    "departures": "docs/v1-video-ui-reference.md",
+    "departures": "docs/archive/lanes/v1/v1-video-ui-reference.md",
     "visualGate": "Not rerun in repair 1; no heavy slot granted. Earlier bespoke UI screenshot does not establish repaired UI acceptance.",
     "comparisonEvidence": ".local/media-owner-ui-comparison.json"
   }

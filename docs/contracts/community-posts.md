@@ -98,7 +98,7 @@ event and verify the exact retrieved manifest bytes against its digest.
 
 The contract checks publisher authority, revision and reference shape. It
 cannot run ACRCloud, fetch IPFS or establish that a gate approved the content.
-The publisher must pass the real [operator publication gate](../operator-protocol.md)
+The publisher must pass the historical [operator publication gate](../archive/design/operator-protocol.md)
 over sealed current inputs, retaining the evidence. A pin receipt alone cannot
 authorize publication. Source edits re-evaluate the gate; a terms-only edit
 may reuse evidence under the existing protocol. Historical revisions persist.

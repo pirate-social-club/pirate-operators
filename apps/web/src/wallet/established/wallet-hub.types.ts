@@ -1,4 +1,4 @@
-// Independently ported 2026-11-11; exact source/blob and adaptations: docs/v1-wallet-owner-parity-20261111.md.
+// Independently ported 2026-11-11; exact source/blob and adaptations: docs/archive/lanes/v1/v1-wallet-owner-parity-20261111.md.
 import type { JSX } from "@solidjs/web";
 
 export type WalletHubChainId =

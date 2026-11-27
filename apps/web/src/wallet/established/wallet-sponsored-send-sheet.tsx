@@ -1,4 +1,4 @@
-// Ported from pinned Flows/Wallet/Send; provenance and service departures: docs/v1-wallet-owner-parity-20261111.md.
+// Ported from pinned Flows/Wallet/Send; provenance and service departures: docs/archive/lanes/v1/v1-wallet-owner-parity-20261111.md.
 import {
   createEffect,
   createSignal,

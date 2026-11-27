@@ -7,7 +7,7 @@
 // operator's timer ended it, until the payment deadline. Learners cannot send
 // recognized words or failure marks once audio is wired. Text frames other
 // than the audio controls go to the existing handler unchanged.
-// See docs/karaoke-capture-handoff.md.
+// See docs/archive/handoffs/karaoke-capture-handoff.md.
 import { decodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
 import { admittedKaraokeAdapter } from "./karaoke-speech-adapter.ts";
 import {

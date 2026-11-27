@@ -42,8 +42,7 @@ does not become the community publisher. The runtime gaps below remain open.
 This is the required onboarding contract. The application/runtime and standalone
 hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
 The hosted Wizard client/server/UI source has scoped local qualification below.
-It does not establish a supported installed host. Acceptance of the complete fresh-host journey
-is UNRUN; no public DNS/ACME, external provider or real-device readiness is inferred.
+It does not establish a supported installed host. Current acceptance evidence is recorded in [First-song acceptance status](self-hosting/checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status); the controlled VM pass does not qualify live staging.
 
 Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
 context and private host-only paths, without a prebound community identity.
@@ -167,13 +166,30 @@ This ownership check precedes provisioning approval. It is distinct from the
 later routing, certificate and application checks. Failed or expired control
 requires a new valid challenge or supported reconciliation, not an override.
 
-### 3. Review and provision one complete installation
+### 3. Register and enroll automatically
 
-Set a neutral human community title and the chosen canonical HTTPS origin.
-Generate technical identifiers and keep their details under Advanced. Preserve
-the portable community key, chain-specific community identity, installation and
-resource IDs, selected source/ABI/artifact digests and explicit installation
-mapping. A requested TLD and a hosting address do not generate these identities.
+Before registration, collect every input the registration prepare call binds: the neutral human community title, canonical HTTPS origin, controller and publisher addresses, invitation token and required pilot notice acceptance. The HTTPS control proof establishes the selected origin; it does not defer choosing that origin until installation review. These values become part of the original registration draft and cannot be silently changed later.
+
+Before installation preparation begins, the scoped automatic registrar registers or reconciles the same community and configuration, then hosted enrollment produces its required evidence.
+Use the original idempotency key and retain the canonical receipt/checkpoint.
+There is no manual Pirate approval queue. A missing registrar implementation is
+an implementation gap, not a new operator instruction to contact staff.
+
+The registrar may create only the admitted neutral HTTPS community binding for
+the exact authorized installation/source/profile. Its credentials cannot grant
+namespace issuance, registry administration or HNS attester authority. Directory
+registration is not verified namespace discovery. Read back the actual accepted
+community/configuration through the selected reader before reporting its success.
+
+The Wizard must retain the registration receipt/readback and enrollment evidence required by the selected profile before it prepares installation. Do not fabricate a receipt or infer registration from a running website. HNS verification is not an appReady condition. Show distinct website, registration and naming statuses.
+
+### 4. Review and provision one complete installation
+
+Use the community title and canonical HTTPS origin already bound by registration.
+Use the portable community key, chain-specific community identity and installation
+identifier generated during registration; keep their details under Advanced.
+Preserve those identities, resource IDs, selected source/ABI/artifact digests
+and explicit installation mapping. A requested TLD and a hosting address do not generate these identities.
 
 The operator may start separate HNS preparation now or later. Until verification,
 the Wizard omits the requested TLD from public community profiles, titles,
@@ -209,7 +225,7 @@ before effects. One approving operation wins concurrent submissions. Dirty
 settings invalidate unstarted approval. Provision through the genuine owning
 backend; a setup page, empty callback or a capability declaration is insufficient.
 
-### 4. Configure routing and TLS, then verify the installation
+### 5. Configure routing and TLS, verify the installation, and open the actual site
 
 After provisioning yields the real ingress, show the actual routing records
 needed for the selected host. Ownership and routing records have separate check
@@ -236,27 +252,8 @@ authentication, media/publication and jobs under the selected profile. Private
 checks must use their real authentication; public checks must reach the public
 origin. Neither provider control nor an HNS ceremony result supplies this proof.
 
-### 5. Register automatically and open the actual site
 
-When the required hosting, control and installation checks pass, the scoped
-automatic registrar registers or reconciles the same community and configuration.
-Use the original idempotency key and retain the canonical receipt/checkpoint.
-There is no manual Pirate approval queue. A missing registrar implementation is
-an implementation gap, not a new operator instruction to contact staff.
-
-The registrar may create only the admitted neutral HTTPS community binding for
-the exact authorized installation/source/profile. Its credentials cannot grant
-namespace issuance, registry administration or HNS attester authority. Directory
-registration is not verified namespace discovery. Read back the actual accepted
-community/configuration through the selected reader before reporting its success.
-
-Report appReady only from actual HTTPS/full-app checks and any registration
-receipt/readback required by the selected profile. HNS verification is not an
-appReady condition. If registration is pending or uncertain, label it separately;
-do not fabricate a receipt or infer overall completion from a running website.
-Expose Open actual site only for the verified provisioned origin, never the setup
-listener. Show distinct website, registration and naming statuses.
-
+Report appReady only from actual HTTPS/full-app checks plus the already retained registration and enrollment evidence. Expose Open actual site only for the verified provisioned origin, never the setup listener.
 ### 6. Use the community and survive an ordinary restart
 
 Prove real member authentication and a different operator-published first song
@@ -370,37 +367,25 @@ successor is separate from ordinary HTTPS v1 and requires its own explicit revie
 
 ## Current implementation gaps and ownership
 
-The inspected W6 create milestone is commit `417862b` on base `bb9aee0`. Its
-linux-create-profile.ts still requires settings.namespace.tld and a full proof;
-linux-plan.ts requires verified unexpired namespace authority before prepare/apply.
-shared-directory.ts and config-manifest.ts require the namespace-bound tuple;
-the current origin cannot change. Therefore pending-Web2 creation and attachment
-are not implemented by this document or that milestone.
+The merged Wizard source implements pending-Web2 registration preparation,
+hosted enrollment evidence, immutable original-draft reconciliation, and the
+installation-preparation handoff described above. Do not reimplement automatic
+registration or reinterpret the old strict create profile as the current Web2
+profile. Strict verified-proof decoders remain correct for verified namespace
+listing, grant creation and member issuance, but they are not the pending-Web2
+registration path.
 
-The HNS service's static bounded access-profile selection is not automatic
-enrollment of a new installation. Its actual admitted server policy/registrar
-join and unavailable admission/installation-proof producer remain implementation
-work. The existing namespace-proof callback alone cannot bootstrap a fresh TLD
-because its observer already requires admitted current authority. The ceremony
-adapter must run before that proof path, without substituting ceremony progress.
+The remaining implementation and acceptance joins are the supported fresh-host
+package/bootstrap producers, genuine hosting control and DNS/TLS observations,
+installation nonce/readback, member authentication, optional name UI, first-song
+publication/playback, ordinary restart/retry behavior, and live Fluence staging
+acceptance. HNS attachment remains a separate versioned operation with genuine
+namespace authority; it does not block ordinary HTTPS use. Naming, Core/Directory,
+Storage, the member application and the contract owners retain their existing
+component responsibilities.
 
-W6 owns the create codec/UI, ceremony transport/journal and exact caller mapping.
-Storage owns real host/bootstrap, managed credential/key inputs, signed profile
-production, full-app lifecycle, installation nonce/readback and ordinary restart.
-HNS owns its protocol, consent/observation deadlines and real admission/proof
-capabilities. Naming owns genuine proof/store/current-scope and member-claim SDK
-joins. Core/Directory owns pending representation, automatic registrar, attach
-transition and accepted ABI/cache versions. The member-app owner connects actual
-authentication, optional name UI and the eligible funded sender. The P0 contract
-actor separately owns Registry56 scope validity. No lane replaces another's
-producer or turns unimplemented capability into approval.
-
-Required joint work is finite: accept the pending profile/Directory/configuration
-contract; implement its real producers and scoped automatic registration; mount
-the existing ceremony wire and genuine authority path; qualify supported hosting
-control, DNS/TLS and installation readbacks; then execute the one-host browser,
-member/name, first-song and restart/retry journeys. All runtime acceptance for
-this revised flow is UNRUN. Existing component results do not establish it.
+Existing component results do not establish the full journey by themselves.
+Use the acceptance status linked above before assigning remaining host or staging work.
 
 ## Retained historical boundaries
 

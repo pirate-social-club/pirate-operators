@@ -2,7 +2,7 @@
 // media-providers/elevenlabs-alignment-response.ts. No runtime source dependency.
 // The character fallback adapts api-next a5c63b8db01d4359344d33c31d294a00fbeadb20
 // (same files at f017e80) elevenlabs-alignment-response.ts parseProviderTimings
-// and karaoke-readiness-repository.ts timedWords; see docs/song-alignment.md.
+// and karaoke-readiness-repository.ts timedWords; see docs/deferred/song-alignment.md.
 import { exact, insist, object } from "../community/common.ts";
 import {
   validateLyrics,

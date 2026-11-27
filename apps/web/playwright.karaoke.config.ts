@@ -5,7 +5,7 @@ export default defineConfig({
   testMatch: "*.spec.ts",
   timeout: 60000,
   // Timing-flake quarantine, expires 2026-12-05: the learning-recovery
-  // audio predicate (docs/karaoke-audio-timing-flake-learning-recovery-20261121.md)
+  // audio predicate (docs/archive/incidents/karaoke-audio-timing-flake-learning-recovery-20261121.md)
   // gets one retry; the owner owes a timing-margin review before the expiry.
   retries: 1,
   workers: 1,

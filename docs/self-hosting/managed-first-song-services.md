@@ -7,15 +7,14 @@ original UNRUN status. No Alchemy provider apply or deployment is authorized by
 these local checks.
 The installed native first-song qualification is historical evidence for its
 own immutable release; it does not qualify this service composition.
-Both product PR merges are held until owner morning, including changes to
-Alchemy/deployment settings even if later gates pass. Physical MOSS and live
-inputs also wait morning. This source packet authorizes no deployment or merge.
+This source packet authorizes no deployment, merge, credential use or live
+provider input.
 
 This profile is the managed Web2 first-song service subset: a per-community
 Pirate grant admission service, existing owner pins-only release handlers and
 the existing shared recognition runtime. It supports MegaETH testnet 6343,
 with disposable local chains for integration. It does not claim full protocol
-revision 5 or M1 conformance. Learning publication, Dance, naming, HNS, Spaces,
+revision 5 or M1 conformance. Learning publication, Dance, naming, HNS,
 backup/restore and automatic upgrades are outside this profile.
 
 ## Authority and provisioned inputs
@@ -415,8 +414,7 @@ Other qualified profile dates remain unchanged. Real MOSS, cloud Plan/apply, pub
 actual provider/Infisical/key/admission provisioning, public-chain contracts,
 transactions/funds and complete required CI remain separate unqualified gates.
 Local real-MOSS component testing can precede a public domain/full backend; no
-browser/prompt/passkey action is performed by this qualification. Both product
-merges remain held for owner morning. Backup/restore/upgrades remain deferred.
+browser/prompt/passkey action is performed by this qualification. Backup/restore/upgrades remain deferred.
 
 
 Fresh package constructors may take an explicit verified dependency input. Their

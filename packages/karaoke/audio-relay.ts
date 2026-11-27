@@ -1,7 +1,7 @@
 // Operator-side relay for one Karaoke take: learner audio frames in, the
 // realtime provider's committed song-timed words out. The reconnect, buffer,
 // commit-ack and seek rules follow api-next a5c63b8 karaoke-runtime
-// session-host.ts and session.ts; see docs/karaoke-capture-handoff.md.
+// session-host.ts and session.ts; see docs/archive/handoffs/karaoke-capture-handoff.md.
 import type { KaraokeRecognizedWord } from "../scoring/scoring.ts";
 import type {
   KaraokeStreamingSttAdapter,

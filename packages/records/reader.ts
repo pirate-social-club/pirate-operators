@@ -1,5 +1,5 @@
 // An independent reader of a learner's published grades
-// (docs/learning-records-contract.md section 8). Its only inputs are the
+// (docs/deferred/learning-records-contract.md section 8). Its only inputs are the
 // LearningRecords event logs, read over JSON-RPC, and public manifests
 // resolved by content revision. It never calls a community or operator API,
 // and it recomputes every completion summary instead of trusting the claim.

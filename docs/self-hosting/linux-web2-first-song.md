@@ -144,8 +144,7 @@ safe-state checks and mutation during a read; paired HTTP setup; and immutable
 D1 initialization with actual login/session binding. The paired close case also
 passed after adding recovery from an interrupted cleanup phase. Root TypeScript
 passed. These are component and integration checks on the current host. Later
-source changes require appropriate requalification. The installed
-service/application/browser and full restart journey remain UNRUN. The W1 Web2
+source changes require appropriate requalification. Current acceptance evidence is recorded in [First-song acceptance status](checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status); the controlled VM pass does not qualify live staging. The W1 Web2
 application profile and consumer are explicit source dependencies; validators
 are imported from their owner, never copied into this installer.
 

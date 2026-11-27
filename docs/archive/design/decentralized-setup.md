@@ -8,7 +8,7 @@ app.tld/browser acceptance are later gates. Sponsored customer names, HNS browse
 access and karaoke remain outside this milestone.
 
 Launch applicability, November 8: the owner-only launch profile follows
-[owner-only MegaETH song publication](megaeth-song-publication.md). It requires
+[owner-only MegaETH song publication](../../megaeth-song-publication.md). It requires
 media storage and pinning, ACRCloud recognition and MegaETH publication
 readiness. It does not require Sui or Ika inventory, a creator wallet, a
 registration service or registration readiness, and it adds no new wizard. The
@@ -68,9 +68,9 @@ wizard must show the reviewed amounts and verify balances before the relevant
 transactions. Existing balances may suffice; any transfer still needs approval.
 
 The operator journey has six steps. The
-[wizard acceptance matrix](../apps/community-wizard/README.md#next-community-packaged-wizard-acceptance)
+[wizard acceptance matrix](../../../apps/community-wizard/README.md)
 and web-client D3/D8-D10 checks define its evidence, alongside creator-wallet
-C1-C13 and the [funding checks](creator-wallet-payments.md#first-song-acceptance).
+C1-C13 and the [funding checks](../../deferred/creator-wallet-payments.md#first-song-acceptance).
 
 1. Open a versioned setup package on its supported OS/architecture. The package
    prepares its pinned runtime, Alchemy and authentication helpers, opens the
@@ -98,7 +98,7 @@ C1-C13 and the [funding checks](creator-wallet-payments.md#first-song-acceptance
    register/configure it in the selected directory. Fund the community publisher
    only through an explicitly approved transfer and verify receipt/balance.
    Pair Pirate's creator service under its own accepted-signer policy and
-   [bounded second-community grant](creator-wallet-payments.md#second-community-sponsor-admission).
+   [bounded second-community grant](../../deferred/creator-wallet-payments.md#second-community-sponsor-admission).
 6. Deploy and verify application, storage, processing and delivery. Show
    infrastructure, provider checks, creator connection, allowance, publication
    and playback readiness separately. Complete an actual admitted release with
@@ -190,7 +190,7 @@ HNS delegation is unnecessary for this unverified direct-feed test.
 An ordinary EOA may bootstrap as registry admin/controller for disposable
 acceptance. A later MOSS controller handoff needs an explicit proposal and the
 receiving account's acceptance; account execution and recovery are separate
-checks. See the [directory bootstrap boundary](contracts/community-directory.md).
+checks. See the [directory bootstrap boundary](../../contracts/community-directory.md).
 
 Keep c22 independent for storage/job acceptance. Its provider placeholders are
 not a managed-service configuration or evidence of real checks. Do not switch
@@ -277,7 +277,7 @@ first-song test. It stays permanently unlisted and cannot later enable Pirate
 discovery. Real governance accounts and automated verification are required for
 the first listing-capable deployment, not this disposable one. The later posts
 address changes song keys; no automatic migration of test history is promised.
-See the [profile and receipt requirements](contracts/disposable-first-song.md).
+See the [profile and receipt requirements](../../contracts/disposable-first-song.md).
 
 The first-song path explicitly includes MOSS-to-Ika creator activation and
 capped operator-funded setup before upload, followed by sealing, real admission,
@@ -333,7 +333,7 @@ secure-origin/session behavior. Keep an ordinary HTTPS origin available for
 ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
 proves navigation only; it must not be reported as same-origin app.tld operation.
 For later native-address acceptance, start with the
-[HIP-5 client and transport proof](hns-community-ingress.md). These checks do
+[HIP-5 client and transport proof](../../deferred/hns-community-ingress.md). These checks do
 not gate ordinary-HTTPS first-song acceptance.
 The contract holds app records; a compatible resolver must read the custom
 `._evm` delegation before any transport can use them. Current typed resolver
@@ -430,8 +430,8 @@ operator-first implementation order or requests a new general decision.
 
 This integration merges main 4aaf76e into guidance ba36312 without rewriting
 published history. Main includes payment PR 14, learning-record PR 18 and
-account-design PR 20. The [payment document](operator-payments.md) matches the
-merged baseline with exact [source provenance](payment-specification-source.json).
+account-design PR 20. The [payment document](../../operator-payments.md) matches the
+merged baseline with exact [source provenance](../../payment-specification-source.json).
 The restored protocol's encoding, evidence and publication-gate sections remain
 byte-identical to their recorded recovery hashes. Joining follows reviewed
 PR 12's Very-only rule; publishing an admitted song does not require membership

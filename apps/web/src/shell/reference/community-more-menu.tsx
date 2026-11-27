@@ -1,5 +1,5 @@
 // Independently owned presentation from src/features/community/page-shell/community-more-menu.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
-// Exact extraction/adapter boundaries: docs/v1-shell-owner-correction-20261111.md.
+// Exact extraction/adapter boundaries: docs/archive/lanes/v1/v1-shell-owner-correction-20261111.md.
 /** @jsxImportSource @solidjs/web */
 import { createEffect, createSignal, For } from "solid-js";
 import {

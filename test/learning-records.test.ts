@@ -1,5 +1,5 @@
 // Publication of learning records by the operator and their reconstruction by
-// the independent reader (docs/learning-records-contract.md), on local anvil.
+// the independent reader (docs/deferred/learning-records-contract.md), on local anvil.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";

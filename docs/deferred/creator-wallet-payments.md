@@ -2,7 +2,7 @@
 
 Launch applicability, November 8: deferred integration material. Under the
 adopted launch ruling the workspace owner is the only song publisher and
-publishes through [owner-only MegaETH song publication](megaeth-song-publication.md)
+publishes through [owner-only MegaETH song publication](../megaeth-song-publication.md)
 with no creator wallet, funding, registration or Royalties step. This document
 keeps the registered first-song journey and the preserved wallet and connection
 code accurate; it is not a launch requirement and implies no further wallet,
@@ -82,7 +82,7 @@ and runtime server bindings, never raw secrets in public manifests, browser
 configuration or resumable wizard state. Creator passkey private keys and
 plaintext Ika seeds never enter Infisical. Alchemy owns wizard provisioning;
 cf remains diagnostic tooling. Ordinary HTTPS comes first, HNS is separate,
-and Spaces is deferred. None of these choices changes the wallet RP ID.
+and Spaces/Nostr are outside product scope. None of these choices changes the wallet RP ID.
 
 Suggested copy is: “Pirate handles wallet setup. Test fees are covered within
 the operator allowance shown here. You do not need SUI or IKA.” Independent

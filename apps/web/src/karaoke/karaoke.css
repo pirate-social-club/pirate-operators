@@ -1,4 +1,4 @@
-/* Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke.css; see docs/karaoke-learner-handoff.md. */
+/* Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke.css; see docs/archive/handoffs/karaoke-learner-handoff.md. */
 .karaoke-stage { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 24rem; overflow: hidden; }
 .karaoke-stage-lines { position: absolute; inset: 50% 0 auto; display: flex; box-sizing: border-box; width: 100%; max-width: 56rem; margin: auto; transform: translateY(-50%); flex-direction: column; gap: 2rem; padding: 1rem; text-align: center; }
 /* width:100% is load-bearing. `margin: 0 auto` on a column flex item stops it

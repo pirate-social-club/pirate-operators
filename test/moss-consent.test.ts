@@ -1,5 +1,5 @@
 // Consent from a learner whose smart account has no code yet
-// (docs/learning-records-contract.md section 9), on local anvil. The MOSS
+// (docs/deferred/learning-records-contract.md section 9), on local anvil. The MOSS
 // account is stood in for by contracts/test/MockAccount.sol: an EIP-7702
 // delegate with one signing key in place of a passkey, and an initializer that
 // can be made to fail.

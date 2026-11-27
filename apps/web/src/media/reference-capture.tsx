@@ -1,6 +1,6 @@
 // Independently adopted pure UI from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db.
 // Source: src/features/posts/post-composer/video-original-audio-surface.tsx.
-// Adapter-only changes are recorded in docs/v1-video-ui-reference.md.
+// Adapter-only changes are recorded in docs/archive/lanes/v1/v1-video-ui-reference.md.
 import type { JSX } from "@solidjs/web";
 import { Match, Show, Switch } from "solid-js";
 

@@ -2,7 +2,11 @@
 
 This isolated app tests MOSS sign-in, Release a song, Ika wallet activation,
 then reopening and signing with the same creator address. It does not upload,
-publish or register a song. It has no runtime dependency on the fixture app or
+publish or register a song.
+
+Status: isolated deferred test spike. It is not a first-song pilot dependency,
+not a production wallet service, and not part of the owner-only publication path.
+It has no runtime dependency on the fixture app or
 the production application. The workspace_owner selected these testnet steps
 and authorized a dedicated funded operator on November 4, 2026.
 

@@ -8,10 +8,7 @@ changes use named branches and pull requests under the workspace lifecycle.
 The workspace_owner's November 14 delivery decision selects a single Linux
 profile and the [Web2 release plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md).
 Web2 and HNS communities use the same on-chain identity, publications and
-discovery policy. Implement Web2 foundation contracts (1a) and repair PR58 (2)
-in parallel. Start separate publication-consent design (1c) immediately; naming
-registry/gateway completion (1b) does not block Web2. Freeze their attachment
-interface before dependent integration.
+discovery policy. The Web2 foundation contracts, PR58 repair, and separate publication-consent design are merged source. Naming registry/gateway completion does not block Web2. Preserve the frozen attachment interface before dependent integration.
 
 The first-song pilot omits learning-results and V4 sign-in configuration and
 uses plain origin-bound sign-in. Learning publication, Dance and names remain
@@ -49,12 +46,7 @@ Refuse mainnet chain IDs and public local fixture keys. Public-chain scripts
 are manual opt-in, use test tokens only and never run in default CI. Mainnet
 activity and managed production-key exports remain excluded.
 
-Spaces support is deferred beyond the decentralized community MVP. Wizard v1
-starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.
-The wizard may show Spaces only as disabled Coming soon
-information; do not implement or provision Spaces or generalize the directory
-for it as an MVP gate. Cloudflare Containers are a later candidate to qualify,
-not an accepted deployment target for the current Spaces stack.
+Spaces support is deferred beyond the decentralized-community MVP. The wizard may show Spaces only as disabled Coming soon information; do not implement or provision Spaces or generalize the directory for it as an MVP gate. Nostr is not product scope.
 
 Keep provider simulations explicit and run the actual handlers, cryptography,
 WebSockets, storage and pool locally. The local protocol subset must be named;

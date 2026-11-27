@@ -2,7 +2,7 @@
 
 This document covers local contract/provider experiments. External Megapot is
 on Base; it does not authorize Pirate contracts there. The reward funding and
-production payout route remain undecided. See the [current setup overview](decentralized-setup.md).
+production payout route remain undecided. See the [superseded setup design](../archive/design/decentralized-setup.md).
 
 The local immutable RewardPool models one drawing's tickets and winnings.
 The community verifier commits the qualifying entries. The configured Very

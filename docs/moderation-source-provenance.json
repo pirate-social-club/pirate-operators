@@ -38,7 +38,7 @@
       "selectedBoundaries": "Fixed moderation endpoint/model, closed category/score/applied-input schemas and response bounds. Lyrics language/explicitness use a separately bounded structured-response classification."
     }
   ],
-  "evidenceContract": "docs/operator-protocol.md sections 3 through 5, EIP712 Pirate Operators version 1",
+  "evidenceContract": "docs/archive/design/operator-protocol.md sections 3 through 5, EIP712 Pirate Operators version 1",
   "officialProviderReferences": [
     "https://developers.openai.com/api/reference/resources/moderations/methods/create",
     "https://developers.openai.com/api/docs/models/omni-moderation-latest",
