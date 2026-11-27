@@ -22,6 +22,7 @@ import { YourSongsPage } from "./reference/your-songs-page.tsx";
 import { projectSongPosts, songLibrary } from "./decentralized-adapter.ts";
 import type { ShellFeatureContext, ShellIntegrations } from "./interfaces.ts";
 import type { AppView } from "./routing.ts";
+import { TelegramGuestTrialRoute } from "../telegram/guest-trial-route.tsx";
 
 export interface CommunityPagesProps {
   view: AppView;
@@ -116,6 +117,9 @@ export function CommunityPages(props: CommunityPagesProps) {
       : null;
   return (
     <>
+      <Show when={props.view === "telegram"}>
+        <TelegramGuestTrialRoute />
+      </Show>
       <Show when={props.view === "home" || props.view === "publish"}>
         <CommunityPageShell
           community={community()}

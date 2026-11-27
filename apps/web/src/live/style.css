@@ -5,6 +5,7 @@
 @import "./app-shell.css";
 @source "./app-shell.tsx";
 @source "../shell/";
+@source "../telegram/";
 @source "../media/";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/";
 @source "../wallet/";

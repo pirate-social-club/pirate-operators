@@ -12,7 +12,8 @@ export function communityChrome(
 ) {
   if (pathname.startsWith("/operator"))
     return resolveApplicationChrome("/c/current/settings/rewards");
-  if (practiceOpen) return resolveApplicationChrome("/posts/current/study");
+  if (practiceOpen || view === "telegram")
+    return resolveApplicationChrome("/posts/current/study");
   if (pathname.startsWith("/verify")) return resolveApplicationChrome(pathname);
   if (pathname === "/wallet") return resolveApplicationChrome("/wallet");
   if (publicAuthor)
