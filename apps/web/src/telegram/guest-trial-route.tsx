@@ -533,7 +533,7 @@ export function TelegramGuestTrialRoute(props: {
     if (event.kind === "voice")
       return (
         <div
-          class="w-full max-w-[260px] self-end rounded-2xl rounded-br-md bg-primary/80 p-2 text-primary-foreground"
+          class="w-full max-w-[260px] self-end rounded-2xl rounded-br-md bg-primary p-2 text-primary-foreground"
           data-telegram-voice
         >
           <AudioControl src={boundary.mediaUrl("voice", event.songId)} label="Your fixture voice recording" />
@@ -686,7 +686,7 @@ export function TelegramGuestTrialRoute(props: {
             /start
           </div>
           <Show when={unfinishedLessons().length > 0}>
-            <span class="self-center rounded-full border border-border px-3 py-0.5 text-xs text-muted-foreground">Today</span>
+            <span class="self-center rounded-full border border-border bg-background px-3 py-0.5 text-xs text-muted-foreground">Today</span>
           </Show>
           <SongPicker />
           <For each={events()}>{(event) => <EventView event={event} />}</For>
