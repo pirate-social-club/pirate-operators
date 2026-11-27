@@ -13,7 +13,7 @@ import { expectInsideLearningActivityColumn, expectLearningActivityFrame, learni
 const unavailable = { name: "Karaoke unavailable", level: 1, exact: true } as const;
 const overlay = (page: Page) => page.locator(".live-karaoke-overlay");
 
-async function failureMain(page: Page, description: string) {
+async function failureMain(page: Page) {
   const activity = overlay(page);
   await expect(activity).toBeVisible();
   await expect(activity.getByRole("main")).toHaveCount(1);
@@ -21,7 +21,10 @@ async function failureMain(page: Page, description: string) {
   await expect(main).toBeVisible();
   await expectLearningActivityFrame(main);
   await expect(main.getByRole("heading", unavailable)).toBeVisible();
-  await expect(main.getByText(description, { exact: true })).toBeVisible();
+  await expect(main.getByRole("alert")).toHaveText("Karaoke unavailable");
+  await expect(
+    main.getByText(/scorable lyrics|could not complete/),
+  ).toHaveCount(0);
 
   // Inspect semantic ancestors of this failure main, not a document-wide main
   // count: an inactive background shell is not this route's page landmark.
@@ -169,17 +172,14 @@ for (const viewport of [
       url.searchParams.delete("study");
       url.searchParams.set("sing", postId);
       await page.goto(url.href);
-      const description = mode === "empty"
-        ? "This song does not have scorable lyrics yet."
-        : "This step could not complete. Retry the same step.";
-      let main = await failureMain(page, description);
+      let main = await failureMain(page);
       expect(songReads).toEqual([songPath]);
       expect(attemptReads).toEqual([]);
       await expectAccount(page, accounts.first, state.privateIds.first);
 
       await retryByKeyboard(page, main);
       await expect.poll(() => songReads.length).toBe(2);
-      main = await failureMain(page, description);
+      main = await failureMain(page);
       expect(songReads).toEqual([songPath, songPath]);
       expect(attemptReads).toEqual([]);
 
@@ -200,7 +200,7 @@ for (const viewport of [
       ).toBeVisible();
       await page.getByRole("navigation", { name: "Song activities" })
         .getByRole("link", { name: "Karaoke", exact: true }).click();
-      main = await failureMain(page, description);
+      main = await failureMain(page);
       expect(songReads).toEqual([songPath, songPath, songPath]);
       ready = true;
       await retryByKeyboard(page, main);
