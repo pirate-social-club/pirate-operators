@@ -10,6 +10,7 @@ export {
   IconCaretLeft,
   IconGift,
   IconMicrophoneStage,
+  IconPause,
   IconX,
 } from "@/components/media/icons";
 export { cn } from "@/lib/cn";

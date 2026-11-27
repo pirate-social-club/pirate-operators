@@ -52,14 +52,14 @@ export const Loading: Story = {
   },
 };
 
-export const KaraokeUnknown: Story = {
+export const KaraokeStartUnconfirmed: Story = {
   args: {
-    title: "Couldn't start karaoke",
-    description: "Go back and try again in a minute.",
-    tone: "blocked",
+    title: "Couldn't check if Karaoke started",
+    tone: "retryable",
     exitIcon: "back",
     exitLabel: "Exit karaoke",
     onExit: fn(),
-    primaryAction: { label: "Back", onClick: fn() },
+    primaryAction: { label: "Check again", onClick: fn() },
+    secondaryAction: { label: "Back", onClick: fn() },
   },
 };

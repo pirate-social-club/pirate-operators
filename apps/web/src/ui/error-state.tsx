@@ -1,5 +1,6 @@
+import type { JSX } from "@solidjs/web";
 import { Show } from "solid-js";
-import { Button, buttonVariants, cn, Type } from "../design-system.ts";
+import { Button, buttonVariants, cn, IconWarningCircle, Type } from "../design-system.ts";
 
 export type ErrorStateTone = "blocked" | "retryable" | "resumable";
 
@@ -19,6 +20,9 @@ export interface ErrorStateProps {
   primaryAction?: ErrorStateAction;
   secondaryAction?: ErrorStateAction;
   headingLevel?: "h1" | "h2";
+  centered?: boolean;
+  error?: boolean;
+  icon?: JSX.Element;
 }
 
 /**
@@ -26,11 +30,24 @@ export interface ErrorStateProps {
  * footer actions; inline pages such as Wallet may render the actions here.
  */
 export function ErrorState(props: ErrorStateProps) {
+  const failure = () => props.error ?? props.tone === "retryable";
   return (
-    <div class="flex flex-col items-start gap-4">
+    <div
+      role={failure() ? "alert" : undefined}
+      class={cn(
+        "flex flex-col gap-4",
+        props.centered ? "items-center text-center" : "items-start",
+      )}
+    >
+      <Show when={props.icon}>
+        {(icon) => icon()}
+      </Show>
+      <Show when={!props.icon && failure()}>
+        <IconWarningCircle aria-hidden="true" class="size-6 text-destructive-text" />
+      </Show>
       <Type as={props.headingLevel ?? "h2"} variant="h3">{props.title}</Type>
       <Show when={props.description}>
-        {(description) => <Type role="alert">{description()}</Type>}
+        {(description) => <Type class="text-muted-foreground">{description()}</Type>}
       </Show>
       <Show when={props.tone === "resumable" && props.status}>
         <Type role="status" variant="caption">{props.status}</Type>

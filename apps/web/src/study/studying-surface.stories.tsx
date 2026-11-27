@@ -306,7 +306,7 @@ export const MultipleChoiceSubmitError: Story = {
     kind: "multiple_choice",
     attemptNumber: 1,
     exercise: storyMultipleChoiceExercise,
-    submitError: "Could not record this answer. Try again.",
+    submitError: "Couldn't save your answer",
   }),
 };
 

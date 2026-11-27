@@ -98,7 +98,7 @@ export function MediaUpload(props: MediaUploadProps) {
       update(await props.client.status(id));
       setError("");
     } catch {
-      if (!disposed) setError("Your recording’s status couldn’t be confirmed.");
+      if (!disposed) setError("Couldn’t check your recording");
     }
   }
   async function run(action: () => Promise<void>) {

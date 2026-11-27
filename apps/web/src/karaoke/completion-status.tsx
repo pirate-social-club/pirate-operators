@@ -5,6 +5,7 @@ import { Button, Type } from "./ui.ts";
  */
 export function KaraokeCompletionStatus(props: {
   state: string | null;
+  error?: string | null;
   onCheck(): void;
 }) {
   return (
@@ -20,6 +21,7 @@ export function KaraokeCompletionStatus(props: {
           ? `Publication status: ${props.state}.`
           : "Publication status is unavailable."}
       </p>
+      {props.error ? <p role="alert">{props.error}</p> : null}
       <Button variant="secondary" onClick={props.onCheck}>
         Check again
       </Button>

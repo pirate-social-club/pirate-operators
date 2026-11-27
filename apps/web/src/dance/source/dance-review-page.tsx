@@ -216,7 +216,7 @@ export function DanceReviewPage(props: {
         setPhase("error");
         setNotice(
           (originalHoldCopy(error) ? "This recording needs confirmation. Resume to continue." : null) ??
-            "Your recording’s status couldn’t be confirmed.",
+            "Couldn’t check your recording",
         );
       }
     }
@@ -442,7 +442,7 @@ export function DanceReviewPage(props: {
           </div>
         </Show>
         <Show when={phase() === "error"}>
-          <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">Your recording’s status couldn’t be confirmed.</p>
+          <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">Couldn’t check your recording</p>
             <Button variant="secondary" onClick={() => void load(false)}>Check again</Button>
             <Button onClick={() => void load(true)}>Resume submission</Button>
             <Button variant="secondary" onClick={provided.onBack}>Back to dance</Button>

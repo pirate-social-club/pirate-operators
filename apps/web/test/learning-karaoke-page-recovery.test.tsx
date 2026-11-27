@@ -198,7 +198,7 @@ test("a new take consumes the actual flat operator ticket without replacing its 
   expect(host.textContent).not.toContain("could not be prepared");
 });
 
-test("an unknown Karaoke start checks itself and returns to the normal start screen when nothing opened", async () => {
+test("an unknown Karaoke start checks itself and centers a safe retry when nothing opened", async () => {
   const service = port();
   vi.mocked(service.attempt).mockResolvedValue({ state: "none" });
   vi.mocked(service.ticket).mockRejectedValue(
@@ -225,24 +225,30 @@ test("an unknown Karaoke start checks itself and returns to the normal start scr
   expect(host.textContent).not.toContain("Checking whether this take opened.");
   expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
-  expect(host.textContent).toContain("Karaoke didn't start. Try again.");
-  expect(host.querySelector('footer [role="alert"]')?.textContent).toContain(
-    "Karaoke didn't start. Try again.",
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "Karaoke didn't start",
   );
+  expect(host.textContent).not.toContain("Meet me by the old harbor");
   expect(
     [...host.querySelectorAll("button")].some(
       (node) => node.textContent?.trim() === "Check status",
     ),
   ).toBe(false);
+  const retry = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Try again",
+  );
+  expect(retry).toBeDefined();
   expect(
     [...host.querySelectorAll("button")].some(
       (node) => node.textContent?.trim() === "Start karaoke",
     ),
-  ).toBe(true);
+  ).toBe(false);
   expect(service.ticket).toHaveBeenCalledOnce();
+  retry!.click();
+  await vi.waitFor(() => expect(service.ticket).toHaveBeenCalledTimes(2));
 });
 
-test("an unresolved Karaoke start offers Back after automatic checking and has no dead end", async () => {
+test("an unresolved Karaoke start centers the check failure and Check again rechecks the same start", async () => {
   const service = port();
   vi.mocked(service.attempt)
     .mockResolvedValueOnce({ state: "none" })
@@ -265,23 +271,23 @@ test("an unresolved Karaoke start offers Back after automatic checking and has n
   button!.click();
   await vi.advanceTimersByTimeAsync(0);
   expect(host.textContent).toContain("Starting karaoke…");
-  const status = host.querySelector('[role="status"]');
-  expect(status?.textContent).toContain("Starting karaoke…");
-  expect(status?.closest('[aria-busy="true"]')).not.toBeNull();
-  expect(host.textContent).not.toContain("Checking whether this take opened.");
-  expect(host.textContent).not.toContain("This can take a few seconds.");
   await vi.advanceTimersByTimeAsync(10_000);
-  expect(host.textContent).toContain("Couldn't start karaoke");
-  expect(host.textContent).toContain("Go back and try again in a minute.");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "Couldn't check if Karaoke started",
+  );
+  expect(host.textContent).not.toContain("Go back and try again in a minute.");
+  expect(host.textContent).not.toContain("Meet me by the old harbor");
+  const check = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Check again",
+  );
   const back = [...host.querySelectorAll("button")].find(
     (node) => node.textContent?.trim() === "Back",
   );
+  expect(check).toBeDefined();
   expect(back).toBeDefined();
-  back!.click();
+  const reads = vi.mocked(service.attempt).mock.calls.length;
+  check!.click();
   await vi.advanceTimersByTimeAsync(0);
-  expect(
-    [...host.querySelectorAll("button")].some(
-      (node) => node.textContent?.trim() === "Start karaoke",
-    ),
-  ).toBe(true);
+  expect(vi.mocked(service.attempt).mock.calls.length).toBeGreaterThan(reads);
+  expect(host.textContent).toContain("Starting karaoke…");
 });

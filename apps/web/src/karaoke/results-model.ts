@@ -44,7 +44,12 @@ export function karaokeResultsView(summary: KaraokeResultsSummary | null, bestCo
   const stats: ActivityResultStat[] = [
     { label: "Lyrics", value: `${clampResultPercent(summary.lyricsScore * 100)}%`, tone: "success" },
     // A null timing score was not part of this take's score; say so rather than show a number.
-    { label: "Timing", value: summary.timingScore === null ? "Not scored" : timingLabels[summary.timingTrend], tone: "primary" },
+    {
+      label: "Timing",
+      value: summary.timingScore === null ? "—" : timingLabels[summary.timingTrend],
+      accessibilityValue: summary.timingScore === null ? "Not scored" : undefined,
+      tone: "primary",
+    },
     { label: "Best combo", value: `×${Math.max(0, Math.floor(bestCombo))}`, tone: "warning" },
   ];
   const note = summary.uncertainLineCount > 0
