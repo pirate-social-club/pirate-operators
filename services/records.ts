@@ -1,4 +1,4 @@
-// The operator's learning-records publisher (docs/learning-records-contract.md).
+// The operator's learning-records publisher (docs/deferred/learning-records-contract.md).
 // A finalized karaoke result is published only when its learner consented on
 // the live socket. Each write is an intent in the durable sender, persisted
 // before any RPC call, and the stages run strictly in order: open the attempt,

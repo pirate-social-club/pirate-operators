@@ -1,5 +1,5 @@
 // Manual, opt-in MegaETH testnet deployment of LearningRecords that measures
-// publication gas (docs/learning-records-contract.md). Never runs in CI.
+// publication gas (docs/deferred/learning-records-contract.md). Never runs in CI.
 // Chain 6343 only; the community admin and operator keys are read from the
 // private file outside the repository and never printed. The learner is an
 // ephemeral key generated in memory that only signs consent. The records are

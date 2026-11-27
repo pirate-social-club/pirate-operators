@@ -42,8 +42,7 @@ does not become the community publisher. The runtime gaps below remain open.
 This is the required onboarding contract. The application/runtime and standalone
 hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
 The hosted Wizard client/server/UI source has scoped local qualification below.
-It does not establish a supported installed host. Acceptance of the complete fresh-host journey
-is UNRUN; no public DNS/ACME, external provider or real-device readiness is inferred.
+It does not establish a supported installed host. A pinned 4 GiB VM run at product successor `299ebfe` passed installation, publication, HTTPS playback, same-store restart, replay with zero duplicate effects, and clean shutdown. That evidence does not qualify live Fluence staging, public DNS/ACME, external providers, real devices, or the expanded release; live staging acceptance remains open.
 
 Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
 context and private host-only paths, without a prebound community identity.
@@ -169,6 +168,8 @@ requires a new valid challenge or supported reconciliation, not an override.
 
 ### 3. Register and enroll automatically
 
+Before registration, collect every input the registration prepare call binds: the neutral human community title, canonical HTTPS origin, controller and publisher addresses, invitation token and required pilot notice acceptance. The HTTPS control proof establishes the selected origin; it does not defer choosing that origin until installation review. These values become part of the original registration draft and cannot be silently changed later.
+
 Before installation preparation begins, the scoped automatic registrar registers or reconciles the same community and configuration, then hosted enrollment produces its required evidence.
 Use the original idempotency key and retain the canonical receipt/checkpoint.
 There is no manual Pirate approval queue. A missing registrar implementation is
@@ -184,7 +185,7 @@ The Wizard must retain the registration receipt/readback and enrollment evidence
 
 ### 4. Review and provision one complete installation
 
-Set a neutral human community title and the chosen canonical HTTPS origin.
+Use the community title and canonical HTTPS origin already bound by registration.
 Generate technical identifiers and keep their details under Advanced. Preserve
 the portable community key, chain-specific community identity, installation and
 resource IDs, selected source/ABI/artifact digests and explicit installation
@@ -395,8 +396,7 @@ Required joint work is finite: accept the pending profile/Directory/configuratio
 contract; implement its real producers and scoped automatic registration; mount
 the existing ceremony wire and genuine authority path; qualify supported hosting
 control, DNS/TLS and installation readbacks; then execute the one-host browser,
-member/name, first-song and restart/retry journeys. All runtime acceptance for
-this revised flow is UNRUN. Existing component results do not establish it.
+member/name, first-song and restart/retry journeys. Existing component results do not establish the full journey by themselves. A pinned 4 GiB VM run at product successor `299ebfe` passed installation, publication, HTTPS playback, same-store restart, replay with zero duplicate effects, and clean shutdown. That evidence does not qualify live Fluence staging, public DNS/ACME, external providers, real devices, or the expanded release; live staging acceptance remains open.
 
 ## Retained historical boundaries
 
