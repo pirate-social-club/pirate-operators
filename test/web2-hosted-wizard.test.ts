@@ -51,6 +51,10 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     view = await f.send("redeem", { signature: await f.sign(view.challenge) });
     assert.equal(view.phase, "unknown");
     const identity = view.selection;
+    const legacy = JSON.parse(await readFile(f.journal, "utf8"));
+    legacy.inviteToken = "ab".repeat(32);
+    legacy.invitationRefused = false;
+    await writeFile(f.journal, JSON.stringify(legacy) + "\n");
     await f.restart();
     await f.mine();
     view = await f.send("reconcile", {});
@@ -103,6 +107,7 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     assert.equal((await lstat(f.journal)).mode & 0o777, 0o600);
     const original = JSON.parse(await readFile(f.journal, "utf8"));
     assert.equal(Object.hasOwn(original, "inviteToken"), false);
+    assert.equal(Object.hasOwn(original, "invitationRefused"), false);
     await f.artifact("recovery", view);
   } finally {
     await f.close();

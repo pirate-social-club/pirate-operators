@@ -170,6 +170,20 @@ export async function createWeb2Journal(
       503,
     );
     journal = JSON.parse(await readFile(path, "utf8"));
+    const legacy = journal as unknown as Record<string, unknown>;
+    if (Object.hasOwn(legacy, "inviteToken")) {
+      insist(
+        legacy.inviteToken === null ||
+          (typeof legacy.inviteToken === "string" && /^[a-f0-9]{64}$/.test(legacy.inviteToken)),
+        "web2_original_changed",
+        503,
+      );
+      delete legacy.inviteToken;
+    }
+    if (Object.hasOwn(legacy, "invitationRefused")) {
+      insist(typeof legacy.invitationRefused === "boolean", "web2_original_changed", 503);
+      delete legacy.invitationRefused;
+    }
     exact(object(journal), [
       "schema",
       "revision",
