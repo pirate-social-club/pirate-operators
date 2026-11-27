@@ -84,6 +84,7 @@ HOLD = {
     "startup-progress.json", "chain-init-refusal.json", "wizard-install-refusal.json", "install-server-refusal.json",
     "service-child-exit-initial.json", "service-child-exit-restart.json", "launcher-interruption.json",
     "apply-observation.json", "publication-failure-before.json", "publication-failure-after.json",
+    "wizard-reopened-progress.json",
     "close-progress.json", "artifact-progress.json", "guest-memory.json",
     "native-progress.json", "native-memory.json",
 }
@@ -158,6 +159,7 @@ MILESTONE_FILES = {
     ),
     "reopened": (
         "w6-wizard-retained-repair.json",
+        "w6-wizard-retained-repair-progress.json",
     ),
     "reopened/application-after": (
         "application-browser-control.json",
@@ -444,6 +446,11 @@ PUBLICATION_LITERAL_REASONS = {
 PUBLICATION_FAILURE_CATEGORIES = PUBLICATION_LITERAL_REASONS | {
     "unexpected-public-proof", "original-publication-unconfirmed", "unclassified-private-error",
 }
+REPLAY_OPERATIONS = {
+    "verify-origin", "read-capabilities", "read-public-proof", "player-navigation",
+    "activate-player", "wait-player-element", "decode-audio", "verify-range-readback",
+    "verify-full-body-readback", "verify-audio-wire", "validate-decoded-audio", "verify-read-only-effects",
+}
 
 
 def validate_publication_failure(row):
@@ -451,13 +458,44 @@ def validate_publication_failure(row):
     assert row["phase"] in PUBLICATION_FAILURE_PHASES
     assert type(row["sealAcceptedAndIdentified"]) is bool
     failure = row["failure"]
-    assert isinstance(failure, dict) and set(failure) <= {"category", "status"} and "category" in failure
+    assert isinstance(failure, dict) and set(failure) <= {"category", "status", "operation", "elapsedMs", "errorClass", "lastCompletedOperation"} and "category" in failure
+    if "operation" in failure:
+        assert failure["operation"] in REPLAY_OPERATIONS
+        assert type(failure.get("elapsedMs")) is int and 0 <= failure["elapsedMs"] <= 120000
+        assert failure.get("errorClass") in {"AssertionError", "TimeoutError", "Error", "TypeError", "AbortError", "Other"}
+    if "lastCompletedOperation" in failure:
+        assert failure["lastCompletedOperation"] in REPLAY_OPERATIONS
     assert failure["category"] in PUBLICATION_FAILURE_CATEGORIES
     if "status" in failure:
         assert type(failure["status"]) is int and 100 <= failure["status"] <= 599
-        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"}
+        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"} or "operation" in failure
     else:
         assert failure["category"] not in {"unexpected-public-proof", "original-publication-unconfirmed"}
+
+
+def validate_wizard_repair_progress(row):
+    assert isinstance(row, dict)
+    base = {"schema", "step", "stage", "writtenUtc", "phases", "parseError"}
+    assert base <= set(row) <= base | {"waiting", "lastCompleted", "failure"}
+    assert row["schema"] == "pirate.native-wizard-repair-progress/1" and row["step"] == "retained-repair"
+    assert row["parseError"] is None
+    label = re.compile(r"[a-z0-9-]{1,80}\Z")
+    assert label.fullmatch(row["stage"])
+    assert UTC_STAMP.fullmatch(row["writtenUtc"]) and row["writtenUtc"].endswith("Z")
+    assert isinstance(row["phases"], list) and len(row["phases"]) <= 128
+    for phase in row["phases"]:
+        assert {"label", "utc"} <= set(phase) <= {"label", "utc", "status"} and label.fullmatch(phase["label"])
+        assert UTC_STAMP.fullmatch(phase["utc"]) and phase["utc"].endswith("Z")
+        if "status" in phase:
+            assert type(phase["status"]) is int and 100 <= phase["status"] <= 599
+    for key in ("waiting", "lastCompleted"):
+        if key in row:
+            value = row[key]
+            assert set(value) == {"operation", "utc"} and label.fullmatch(value["operation"])
+            assert UTC_STAMP.fullmatch(value["utc"]) and value["utc"].endswith("Z")
+    if "failure" in row:
+        assert set(row["failure"]) == {"stage", "errorClass"} and label.fullmatch(row["failure"]["stage"])
+        assert row["failure"]["errorClass"] in {"AssertionError", "TimeoutError", "Error", "TypeError", "AbortError", "Other"}
 
 
 def validate_install_server_refusal(row):
@@ -763,6 +801,8 @@ def verify_worker_hold(held):
     for name in ("publication-failure-before.json", "publication-failure-after.json"):
         if name in held:
             validate_publication_failure(held[name])
+    if "wizard-reopened-progress.json" in held:
+        validate_wizard_repair_progress(held["wizard-reopened-progress.json"])
 
 
 def assess(run, result):
@@ -841,6 +881,8 @@ def assess(run, result):
                 result["publicationFailureBefore"] = held["publication-failure-before.json"]
             if "publication-failure-after.json" in held:
                 result["publicationFailureAfter"] = held["publication-failure-after.json"]
+            if "wizard-reopened-progress.json" in held:
+                result["wizardRepairProgress"] = held["wizard-reopened-progress.json"]
         return
     for unit in ("docker.socket", "docker.service", "containerd.service"):
         assert f"PIRATE_SMOKE_UNIT {unit} inactive" in serial

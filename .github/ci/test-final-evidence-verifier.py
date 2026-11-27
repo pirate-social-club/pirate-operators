@@ -320,6 +320,11 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
             module.validate_publication_failure({
                 "phase": "public_read_only_replay", "sealAcceptedAndIdentified": True,
                 "failure": {"category": "unexpected-public-proof", "status": 404}})
+            module.validate_publication_failure({
+                "phase": "public_read_only_replay", "sealAcceptedAndIdentified": True,
+                "failure": {"category": "unclassified-private-error", "operation": "read-capabilities",
+                            "elapsedMs": 17, "errorClass": "Error", "status": 503,
+                            "lastCompletedOperation": "verify-origin"}})
 
     def test_publication_failure_rejects_malformed_shape(self):
         base = {"phase": "wait_for_same_published_original", "sealAcceptedAndIdentified": True,
@@ -334,6 +339,16 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
                 dict(base, failure={"category": "original-publication-unconfirmed", "status": 99}),
                 dict(base, failure={"category": "original-publication-unconfirmed", "status": 600}),
                 dict(base, failure={"category": "unclassified-private-error", "status": 503}),
+                dict(base, failure={"category": "unclassified-private-error", "operation": "invented-operation",
+                                    "elapsedMs": 1, "errorClass": "Error"}),
+                dict(base, failure={"category": "unclassified-private-error", "operation": "decode-audio",
+                                    "errorClass": "Error"}),
+                dict(base, failure={"category": "unclassified-private-error", "operation": "decode-audio",
+                                    "elapsedMs": 120001, "errorClass": "Error"}),
+                dict(base, failure={"category": "unclassified-private-error", "operation": "decode-audio",
+                                    "elapsedMs": 1, "errorClass": "ArbitraryText"}),
+                dict(base, failure={"category": "unclassified-private-error",
+                                    "lastCompletedOperation": "invented-operation"}),
                 dict(base, extra="field"),
                 {k: v for k, v in base.items() if k != "phase"},
             ):
@@ -374,6 +389,49 @@ class FinalEvidenceVerifierTests(unittest.TestCase):
         unexpected = COLLECTOR.project_publication_failure(dict(
             record, error={"name": "AssertionError", "message": "unexpected_public_proof_http_500"}))
         self.assertEqual(unexpected["failure"], {"category": "unexpected-public-proof", "status": 500})
+        replay = dict(record, phase="public_read_only_replay",
+                      operation={"name": "read-capabilities", "event": "throw", "utc": "2026-11-27T08:00:01.000Z",
+                                 "elapsedMs": 17, "errorClass": "Error", "httpStatus": 503},
+                      lastCompletedOperation="verify-origin",
+                      error={"name": "Error", "message": "private capability detail"})
+        row = COLLECTOR.project_publication_failure(replay)
+        self.assertEqual(row["failure"], {
+            "category": "unclassified-private-error", "operation": "read-capabilities", "errorClass": "Error",
+            "elapsedMs": 17, "status": 503, "lastCompletedOperation": "verify-origin"})
+        self.assertNotIn("private capability detail", json.dumps(row))
+        MODULE.validate_publication_failure(row)
+
+    def test_wizard_repair_progress_projection_round_trips_through_verifier(self):
+        raw = {
+            "schema": "pirate.disposable-native-wizard-browser/1", "step": "retained-repair",
+            "startedUtc": "2026-11-27T08:00:00.000Z", "writtenUtc": "2026-11-27T08:00:02.000Z",
+            "fixtureWallet": True, "stage": "wait-running-indicator",
+            "phases": [{"label": "pair", "utc": "2026-11-27T08:00:00.100Z"},
+                       {"label": "paired", "utc": "2026-11-27T08:00:00.500Z", "status": 200}],
+            "waiting": {"operation": "wait-running-indicator", "utc": "2026-11-27T08:00:01.000Z"},
+            "lastCompleted": {"operation": "pair-wizard", "utc": "2026-11-27T08:00:00.900Z"},
+            "original": {"private": "not exported"}, "installed": {"private": "not exported"},
+        }
+        row = COLLECTOR.project_wizard_repair_progress(raw)
+        self.assertEqual(row, {
+            "schema": "pirate.native-wizard-repair-progress/1", "step": "retained-repair",
+            "stage": "wait-running-indicator", "writtenUtc": "2026-11-27T08:00:02.000Z",
+            "phases": [{"label": "pair", "utc": "2026-11-27T08:00:00.100Z"},
+                       {"label": "paired", "utc": "2026-11-27T08:00:00.500Z", "status": 200}],
+            "waiting": {"operation": "wait-running-indicator", "utc": "2026-11-27T08:00:01.000Z"},
+            "lastCompleted": {"operation": "pair-wizard", "utc": "2026-11-27T08:00:00.900Z"},
+            "parseError": None,
+        })
+        self.assertNotIn("not exported", json.dumps(row))
+        MODULE.verify_worker_hold({"wizard-reopened-progress.json": row})
+        path = self.root / "wizard-progress.tar"
+        archive(path, {"wizard-reopened-progress.json": receipt("wizard-reopened-progress.json", row)})
+        records, _pins, _manifest = MODULE.receipt_set(path, MODULE.HOLD, set())
+        self.assertEqual(records["wizard-reopened-progress.json"], row)
+        with self.assertRaises(AssertionError):
+            COLLECTOR.project_wizard_repair_progress(dict(raw, stage="private_text"))
+        with self.assertRaises(AssertionError):
+            MODULE.verify_worker_hold({"wizard-reopened-progress.json": dict(row, stage="private_text")})
 
     def test_empty_allowlisted_receipt_is_rejected_by_name(self):
         path = self.root / "empty.tar"

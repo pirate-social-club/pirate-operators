@@ -31,6 +31,14 @@ CLOSE_ISO_SEALED_R20 = {
 # This pin is the r20 packaged digest of that member.
 ENTRY_OVERLAY_MANUAL_BROWSER_R20 = '24f3384bb962f80c07b4bfedfd3f34a48f01f711c37cd162cddbd9b7d936690e'
 
+# Controller helpers inside the pinned r24 notes-entry ISO. The adapter verifies
+# these exact sealed bytes before replacing their effective guest copies with
+# the Git-vendored diagnostic copies in close-instrumentation.iso.
+ENTRY_CONTROLLER_SEALED_R24 = {
+    'wizard-notes-control.mjs': '7db2b6517bfb4198569c5f603b4aa58d9361ea712c9060d7fb356adbac88e838',
+    'native-notes-browser.mjs': '6675aa3fbfb0eb4995513f99811545e8983b9d1f1dbba389ecb4a755af3a6730',
+}
+
 
 def iso_member(iso, member):
     result = subprocess.run(['isoinfo', '-i', str(iso), '-R', '-x', '/' + member],
@@ -92,19 +100,25 @@ def main():
         actual = hashlib.sha256(browser_member.read()).hexdigest()
     assert actual == ENTRY_OVERLAY_MANUAL_BROWSER_R20, \
         f'notes-entry.iso launcher-overlay manual-browser.ts sealed {actual} diverges from pinned r20 base {ENTRY_OVERLAY_MANUAL_BROWSER_R20}'
+    for member, sealed_pin in ENTRY_CONTROLLER_SEALED_R24.items():
+        actual = hashlib.sha256(iso_member(bundle / 'notes-entry.iso', 'controller/' + member)).hexdigest()
+        assert actual == sealed_pin, \
+            f'notes-entry.iso controller/{member} sealed {actual} diverges from pinned r24 base {sealed_pin}'
 
     iso_root = scratch / 'close-iso-rebuild'
     demo_target = iso_root / '.local/web2-native-private-practice-reviewed/manual-demo.ts'
     browser_target = iso_root / '.local/web2-native-private-practice-reviewed/manual-browser.ts'
-    controller_target = iso_root / 'controller/guest-notes-controller.py'
     demo_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    controller_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    controller_dir = iso_root / 'controller'
+    controller_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     demo_target.write_bytes((vendored_root / 'manual-demo.ts').read_bytes())
     browser_target.write_bytes((vendored_root / 'manual-browser.ts').read_bytes())
-    controller_target.write_bytes((vendored_root / 'guest-notes-controller.py').read_bytes())
     demo_target.chmod(0o600)
     browser_target.chmod(0o600)
-    controller_target.chmod(0o600)
+    for name in ('guest-notes-controller.py', 'wizard-notes-control.mjs', 'native-notes-browser.mjs'):
+        target = controller_dir / name
+        target.write_bytes((vendored_root / name).read_bytes())
+        target.chmod(0o600)
     subprocess.run(['genisoimage', '-quiet', '-R', '-V', 'PRT_CLOSE', '-o', 'close-instrumentation.iso', '.'],
                    check=True, cwd=iso_root)
     rebuilt = iso_root / 'close-instrumentation.iso'
@@ -117,6 +131,12 @@ def main():
     demo_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-demo.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-demo.ts"'
     browser_install = 'install -o 1000 -g 1000 -m 0600 "$close_diag/.local/web2-native-private-practice-reviewed/manual-browser.ts" "$checkout/.local/web2-native-private-practice-reviewed/manual-browser.ts"'
     raw = replace(raw, demo_install, demo_install + '\n' + browser_install)
+    controller_install = 'install -o 1000 -g 1000 -m 0400 "$close_diag/controller/guest-notes-controller.py" "$root/inputs/notes-controller/guest-notes-controller.py"'
+    diagnostic_installs = '\n'.join(
+        'install -o 1000 -g 1000 -m 0400 "$close_diag/controller/{0}" "$root/inputs/notes-controller/{0}"'.format(name)
+        for name in ('wizard-notes-control.mjs', 'native-notes-browser.mjs')
+    )
+    raw = replace(raw, controller_install, controller_install + '\n' + diagnostic_installs)
     close_exit_trap = 'trap close_guest EXIT'
     bootmark_shell = 'bootmark() { printf \'BOOTMARK %s\\n\' "$1" >/dev/ttyS0 2>/dev/null || true; }\ntrap \'rc=$?; printf "BOOTMARK err line=%s rc=%s phase=%s\\n" "$LINENO" "$rc" "$pre_docker_phase" >/dev/ttyS0 2>/dev/null || true\' ERR\nbootmark enter'
     raw = replace(raw, close_exit_trap, close_exit_trap + '\n' + bootmark_shell)

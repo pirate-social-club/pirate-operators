@@ -328,6 +328,49 @@ PUBLICATION_EMBEDDED_STATUS = {
     "unexpected_public_proof": "unexpected-public-proof",
     "one_original_publication_unconfirmed": "original-publication-unconfirmed",
 }
+REPLAY_OPERATIONS = {
+    "verify-origin", "read-capabilities", "read-public-proof", "player-navigation",
+    "activate-player", "wait-player-element", "decode-audio", "verify-range-readback",
+    "verify-full-body-readback", "verify-audio-wire", "validate-decoded-audio", "verify-read-only-effects",
+}
+
+
+WIZARD_PROGRESS_LABEL = re.compile(r"[a-z0-9-]{1,80}\Z")
+WIZARD_PROGRESS_ERRORS = {"AssertionError", "TimeoutError", "Error", "TypeError", "AbortError", "Other"}
+
+
+def project_wizard_repair_progress(row):
+    assert isinstance(row, dict)
+    assert row.get("schema") == "pirate.disposable-native-wizard-browser/1" and row.get("step") == "retained-repair"
+    assert isinstance(row.get("stage"), str) and WIZARD_PROGRESS_LABEL.fullmatch(row["stage"])
+    assert isinstance(row.get("writtenUtc"), str) and UTC_STAMP.fullmatch(row["writtenUtc"]) and row["writtenUtc"].endswith("Z")
+    phases = row.get("phases")
+    assert isinstance(phases, list) and len(phases) <= 128
+    projected = {"schema": "pirate.native-wizard-repair-progress/1", "step": "retained-repair",
+                 "stage": row["stage"], "writtenUtc": row["writtenUtc"], "phases": [], "parseError": None}
+    for phase in phases:
+        assert isinstance(phase, dict) and set(phase) <= {"label", "utc", "status"}
+        assert isinstance(phase.get("label"), str) and WIZARD_PROGRESS_LABEL.fullmatch(phase["label"])
+        assert isinstance(phase.get("utc"), str) and UTC_STAMP.fullmatch(phase["utc"]) and phase["utc"].endswith("Z")
+        output = {"label": phase["label"], "utc": phase["utc"]}
+        if "status" in phase:
+            assert type(phase["status"]) is int and 100 <= phase["status"] <= 599
+            output["status"] = phase["status"]
+        projected["phases"].append(output)
+    for key in ("waiting", "lastCompleted"):
+        value = row.get(key)
+        if value is not None:
+            assert isinstance(value, dict) and set(value) == {"operation", "utc"}
+            assert isinstance(value["operation"], str) and WIZARD_PROGRESS_LABEL.fullmatch(value["operation"])
+            assert isinstance(value["utc"], str) and UTC_STAMP.fullmatch(value["utc"]) and value["utc"].endswith("Z")
+            projected[key] = {"operation": value["operation"], "utc": value["utc"]}
+    failure = row.get("failure")
+    if failure is not None:
+        assert isinstance(failure, dict) and isinstance(failure.get("stage"), str)
+        assert WIZARD_PROGRESS_LABEL.fullmatch(failure["stage"])
+        projected["failure"] = {"stage": failure["stage"],
+                                "errorClass": failure.get("name") if failure.get("name") in WIZARD_PROGRESS_ERRORS else "Other"}
+    return projected
 
 
 def validate_publication_failure(row):
@@ -335,11 +378,17 @@ def validate_publication_failure(row):
     assert row["phase"] in PUBLICATION_FAILURE_PHASES
     assert type(row["sealAcceptedAndIdentified"]) is bool
     failure = row["failure"]
-    assert isinstance(failure, dict) and set(failure) <= {"category", "status"} and "category" in failure
+    assert isinstance(failure, dict) and set(failure) <= {"category", "status", "operation", "elapsedMs", "errorClass", "lastCompletedOperation"} and "category" in failure
+    if "operation" in failure:
+        assert failure["operation"] in REPLAY_OPERATIONS
+        assert type(failure.get("elapsedMs")) is int and 0 <= failure["elapsedMs"] <= 120000
+        assert failure.get("errorClass") in {"AssertionError", "TimeoutError", "Error", "TypeError", "AbortError", "Other"}
+    if "lastCompletedOperation" in failure:
+        assert failure["lastCompletedOperation"] in REPLAY_OPERATIONS
     assert failure["category"] in PUBLICATION_FAILURE_CATEGORIES
     if "status" in failure:
         assert type(failure["status"]) is int and 100 <= failure["status"] <= 599
-        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"}
+        assert failure["category"] in {"unexpected-public-proof", "original-publication-unconfirmed"} or "operation" in failure
     else:
         assert failure["category"] not in {"unexpected-public-proof", "original-publication-unconfirmed"}
 
@@ -375,6 +424,18 @@ def project_publication_failure(record):
     failure = {"category": category}
     if status is not None:
         failure["status"] = status
+    operation = record.get("operation")
+    if isinstance(operation, dict) and operation.get("event") == "throw" and operation.get("name") in REPLAY_OPERATIONS:
+        failure["operation"] = operation["name"]
+        failure["errorClass"] = operation.get("errorClass") if operation.get("errorClass") in {
+            "AssertionError", "TimeoutError", "Error", "TypeError", "AbortError"
+        } else "Other"
+        if type(operation.get("elapsedMs")) is int:
+            failure["elapsedMs"] = max(0, min(120000, operation["elapsedMs"]))
+        if status is None and type(operation.get("httpStatus")) is int and 100 <= operation["httpStatus"] <= 599:
+            failure["status"] = operation["httpStatus"]
+    if record.get("lastCompletedOperation") in REPLAY_OPERATIONS:
+        failure["lastCompletedOperation"] = record["lastCompletedOperation"]
     row = {"phase": phase, "sealAcceptedAndIdentified": bool(seal), "failure": failure}
     validate_publication_failure(row)
     return row
@@ -495,6 +556,7 @@ MILESTONE_FILES = {
     ),
     "reopened": (
         "w6-wizard-retained-repair.json",
+        "w6-wizard-retained-repair-progress.json",
     ),
     "reopened/application-after": (
         "application-browser-control.json",
@@ -984,6 +1046,16 @@ def collect_hold(session):
             pass
         else:
             write_json(session / "launcher-interruption.json", row)
+
+    artifact_root = ROOT / "artifacts"
+    try:
+        runs = sorted(item for item in artifact_root.iterdir() if RUN_DIR.fullmatch(item.name) and item.is_dir() and not item.is_symlink())
+        progress_file = runs[0] / "reopened" / "w6-wizard-retained-repair-progress.json" if len(runs) == 1 else None
+        if progress_file and progress_file.is_file():
+            _raw, row = private_json(progress_file)
+            write_json(session / "wizard-reopened-progress.json", project_wizard_repair_progress(row))
+    except (AssertionError, OSError, TypeError, ValueError, IndexError):
+        pass
 
     for failure_file, output in publication_failure_files():
         try:
