@@ -19,7 +19,7 @@ This is testnet software for disposable data. Nothing here is production qualifi
 
 ## Development
 
-Use Node.js 24, Foundry 1.9.0, and ffmpeg/ffprobe. The root integration tests also require a pinned Caddy 2.11.9 executable, private `TMPDIR` scratch space, and a private `PIRATE_TEST_RUN_PARENT` directory under `/run`. `.github/workflows/local.yml` contains the verified Caddy download and hash-check commands; the required executable SHA-256 is `a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf`.
+Use Node.js 24.15 or a later Node.js 24 release, Foundry 1.9.0, and ffmpeg/ffprobe. The root integration tests also require a pinned Caddy 2.11.9 executable, private `TMPDIR` scratch space, and a private `PIRATE_TEST_RUN_PARENT` directory under `/run`. `.github/workflows/local.yml` contains the verified Caddy download and hash-check commands; the required executable SHA-256 is `a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf`.
 
 From the repository root, the unsharded local check is:
 
