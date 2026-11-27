@@ -19,9 +19,9 @@ This is testnet software for disposable data. Nothing here is production qualifi
 
 ## Development
 
-Use Node.js 24, Foundry 1.9.0, and ffmpeg/ffprobe. The root integration tests also require a pinned Caddy 2.11.9 executable and private scratch space. `.github/workflows/local.yml` contains the verified download and hash-check commands; the required executable SHA-256 is `a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf`.
+Use Node.js 24, Foundry 1.9.0, and ffmpeg/ffprobe. The root integration tests also require a pinned Caddy 2.11.9 executable, private `TMPDIR` scratch space, and a private `PIRATE_TEST_RUN_PARENT` directory under `/run`. `.github/workflows/local.yml` contains the verified Caddy download and hash-check commands; the required executable SHA-256 is `a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf`.
 
-From the repository root:
+From the repository root, the unsharded local check is:
 
 ```sh
 npm ci --ignore-scripts
@@ -29,19 +29,30 @@ npm ci --ignore-scripts --prefix apps/web
 npm ci --ignore-scripts --prefix apps/community-wizard
 forge build
 TMPDIR="$(mktemp -d)" \
+PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)" \
 PIRATE_CADDY_BINARY=/path/to/caddy \
 PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
 npm run check
 ```
 
-On Linux, the network-isolated form used by CI is:
+Hosted CI does not run that unsharded command in its network namespace. It runs four root-test shards through `harness/ci/run-root-tests.mjs`; each shard creates both private scratch directories inside the namespace. The CI-shaped command for one shard is:
 
 ```sh
-TMPDIR="$(mktemp -d)" \
+TEST_SHARD=1/4 \
 PIRATE_CADDY_BINARY=/path/to/caddy \
 PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
-unshare -Urn sh -c 'ip link set lo up && npm run check'
+sudo --preserve-env=PATH,HOME,TEST_SHARD,PIRATE_CADDY_BINARY,PIRATE_CADDY_SHA256 \
+  unshare --net bash -c '
+    set -euo pipefail
+    ip link set lo up
+    TMPDIR="$(mktemp -d)"
+    PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)"
+    export TMPDIR PIRATE_TEST_RUN_PARENT
+    node harness/ci/run-root-tests.mjs
+  '
 ```
+
+Set `TEST_SHARD` to `1/4`, `2/4`, `3/4`, or `4/4`. The shard runner writes `.local/root-tests-<shard>.xml`. The image-runtime container probe is a separate scoped CI job, not part of those root shards.
 
 The root check runs TypeScript, root integration tests, Solidity tests, and the repeatable acceptance harness. Hosted CI additionally runs the Web, Study, Karaoke, Wizard, and Creator suites before `release-ready` can pass. Local acceptance uses real handlers, cryptography, WebSockets, SQLite persistence, and Anvil; external providers and payment services are explicit simulations. Fixture keys are public test material only.
 
