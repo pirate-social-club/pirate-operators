@@ -29,7 +29,8 @@ export interface KaraokeCenteredStatus {
 
 export interface KaraokeCenteredStatusAction {
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  armsPlayback?: boolean;
   disabled?: boolean;
   loading?: boolean;
 }
@@ -189,12 +190,12 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
         icon: <IconPause aria-hidden="true" class="size-6 text-muted-foreground" />,
       };
     if (playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active")
-      return { title: "Couldn't play audio", tone: "retryable" };
+      return { title: "Couldn't play audio", tone: "retryable", error: true };
     if (
       props.startError &&
       (props.singingStatus === undefined || props.singingStatus === "idle" || props.singingStatus === "error")
     )
-      return { title: props.startError, tone: "retryable" };
+      return { title: props.startError, tone: "retryable", error: true };
     return undefined;
   });
   const footerKind = createMemo(() => props.centeredStatus
@@ -219,7 +220,11 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
   const showHeader = createMemo(() => !ended());
   const primaryFooterAction = () => {
     const kind = footerKind();
-    if (kind === "status") return props.centeredStatusAction?.onClick();
+    if (kind === "status") {
+      const action = props.centeredStatusAction;
+      if (action?.armsPlayback) return startAction();
+      return action?.onClick?.();
+    }
     if (kind === "interrupted") return resumeInterruptedPlayback();
     if (kind === "issue") return playBackingTrack();
     if (resultsFooter()) return props.onExit?.();
@@ -300,7 +305,7 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
             );
           }}
         </Show>
-        <Show when={!ended() && !isLoading()} fallback={<Show when={!ended()}><div class="grid flex-1 place-items-center"><Spinner class="size-8" /></div></Show>}>
+        <Show when={!ended() && (!isLoading() || Boolean(centeredStatus()))} fallback={<Show when={!ended()}><div class="grid flex-1 place-items-center"><Spinner class="size-8" /></div></Show>}>
           <Show
             when={centeredStatus()}
             fallback={

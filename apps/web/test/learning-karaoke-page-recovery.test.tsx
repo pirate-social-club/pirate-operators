@@ -79,18 +79,25 @@ function port(): OperatorKaraokePort {
     dispose: vi.fn(),
   };
 }
-function captureDouble() {
+function captureDouble(initialStatus: "idle" | "error" = "error") {
   const started = vi.fn(),
     disposed = vi.fn();
+  let updateState: (state: KaraokeCaptureState) => void = () => {};
+  const errored = (): KaraokeCaptureState => ({
+    status: "error",
+    phase: "aborted",
+    micError: null,
+    error: { code: "connection_lost", message: "Connection lost" },
+  });
   const createCapture = (
     options: UseKaraokeCaptureOptions,
   ): UseKaraokeCaptureResult => {
-    const [state, setState] = createSignal<KaraokeCaptureState>({
-      status: "error",
-      phase: "aborted",
-      micError: null,
-      error: { code: "connection_lost", message: "Connection lost" },
-    });
+    const [state, setState] = createSignal<KaraokeCaptureState>(
+      initialStatus === "error"
+        ? errored()
+        : { status: "idle", phase: "idle", micError: null, error: null },
+    );
+    updateState = setState;
     onCleanup(disposed);
     return {
       state,
@@ -121,12 +128,17 @@ function captureDouble() {
       },
     };
   };
-  return { createCapture, started, disposed };
+  return {
+    createCapture,
+    started,
+    disposed,
+    fail: () => updateState(errored()),
+  };
 }
-function mount(service: OperatorKaraokePort) {
+function mount(service: OperatorKaraokePort, initialStatus: "idle" | "error" = "error") {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const capture = captureDouble(),
+  const capture = captureDouble(initialStatus),
     host = document.createElement("div");
   document.body.append(host);
   cleanup.push(
@@ -196,6 +208,62 @@ test("a new take consumes the actual flat operator ticket without replacing its 
   await vi.waitFor(() => expect(capture.started).toHaveBeenCalledOnce());
   expect(service.ticket).toHaveBeenCalledOnce();
   expect(host.textContent).not.toContain("could not be prepared");
+});
+
+test("a scoring-failure retry re-arms playback on the same take and element", async () => {
+  const service = port();
+  const { host, capture } = mount(service, "idle");
+  await start(host);
+  await vi.waitFor(() => expect(capture.started).toHaveBeenCalledOnce());
+  const play = vi.mocked(HTMLMediaElement.prototype.play);
+  await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+  const audio = host.querySelector("audio");
+  expect(audio).not.toBeNull();
+  capture.fail();
+  await vi.waitFor(() =>
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't connect scoring",
+    ),
+  );
+  expect(host.textContent).not.toContain("Meet me by the old harbor");
+  const retry = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Try again",
+  );
+  expect(retry).toBeDefined();
+  retry!.click();
+  await vi.waitFor(() => expect(capture.started).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+  expect(host.querySelector("audio")).toBe(audio);
+  expect(service.ticket).not.toHaveBeenCalled();
+});
+
+test("a missing result can be checked again without another ticket or capture", async () => {
+  const service = port();
+  vi.mocked(service.attempt).mockResolvedValue(opened);
+  const { host, capture } = mount(service, "idle");
+  await start(host);
+  await vi.waitFor(() => expect(capture.started).toHaveBeenCalledOnce());
+  const audio = host.querySelector("audio")!;
+  vi.useFakeTimers();
+  audio.dispatchEvent(new Event("ended"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(host.textContent).toContain("Checking your result…");
+  await vi.advanceTimersByTimeAsync(90_000);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "Couldn't get your result",
+  );
+  expect(host.textContent).not.toContain("Great work!");
+  vi.mocked(service.attempt).mockResolvedValue(recovered);
+  const check = [...host.querySelectorAll("button")].find(
+    (node) => node.textContent?.trim() === "Check again",
+  );
+  expect(check).toBeDefined();
+  check!.click();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(host.textContent).toContain("Great work!");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(service.ticket).not.toHaveBeenCalled();
+  expect(capture.started).toHaveBeenCalledOnce();
 });
 
 test("an unknown Karaoke start checks itself and centers a safe retry when nothing opened", async () => {

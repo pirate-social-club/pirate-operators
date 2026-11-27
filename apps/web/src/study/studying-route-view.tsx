@@ -627,6 +627,7 @@ function LoadedStudyingLesson(
           title="Couldn't get your result"
           description={STUDY_PROVIDER_REVIEW_MESSAGE}
           tone="blocked"
+          error
           exitIcon="close"
           exitLabel="Exit study"
           onExit={props.onExit}

@@ -10,6 +10,7 @@ const meta = {
     title: "Something went wrong",
     description: "The requested change could not be completed.",
     tone: "retryable",
+    error: true,
     primaryAction: { label: "Try again", onClick: fn() },
   },
   parameters: {

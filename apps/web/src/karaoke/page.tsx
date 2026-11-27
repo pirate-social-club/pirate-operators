@@ -883,6 +883,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
               <ActivityStatusShell
                 title="Karaoke unavailable"
                 tone="retryable"
+                error
                 exitIcon="back"
                 exitLabel="Back"
                 onExit={props.onExit}
@@ -904,6 +905,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                         <ActivityStatusShell
                           title="Couldn't check if Karaoke started"
                           tone="retryable"
+                          error
                           exitIcon="back"
                           exitLabel="Exit karaoke"
                           onExit={props.onExit}
@@ -945,16 +947,16 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                     resultPhase() === "checking"
                       ? { title: "Checking your result…", loading: true }
                       : resultPhase() === "unavailable"
-                        ? { title: "Couldn't get your result", tone: "retryable" }
+                        ? { title: "Couldn't get your result", tone: "retryable", error: true }
                         : notice() && !finished() && take()
-                          ? { title: notice()!, tone: "retryable" }
+                          ? { title: notice()!, tone: "retryable", error: true }
                           : undefined
                   }
                   centeredStatusAction={
                     resultPhase() === "unavailable"
                       ? { label: "Check again", onClick: () => void checkResult() }
                       : notice() && !finished() && take()
-                        ? { label: "Try again", onClick: () => void start(songMs) }
+                        ? { label: "Try again", armsPlayback: true }
                         : undefined
                   }
                   bestCombo={

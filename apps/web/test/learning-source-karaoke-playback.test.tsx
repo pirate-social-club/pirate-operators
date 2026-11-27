@@ -49,6 +49,7 @@ function mount(
   playbackAccess?: KaraokePlaybackAccess,
   statusSlot?: JSX.Element,
   lines: KaraokeStageLine[] = [],
+  startError?: string,
 ) {
   const [status, setStatus] = createSignal<
     | "idle"
@@ -83,6 +84,7 @@ function mount(
         onTimeChange={onTimeChange}
         onPlaybackElement={onPlaybackElement}
         statusSlot={statusSlot}
+        startError={startError}
       />
     ),
     host,
@@ -200,6 +202,23 @@ test("a recovery resolving after the take ends never restarts playback", async (
   resolve?.(true);
   await Promise.resolve();
   expect(play).not.toHaveBeenCalled();
+});
+
+test("a blocking start failure stays visible while media is still loading", async () => {
+  const { host } = mount(
+    vi.fn(async () => true),
+    undefined,
+    undefined,
+    lyricLines,
+    "Karaoke didn't start",
+  );
+  await vi.waitFor(() =>
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Karaoke didn't start",
+    ),
+  );
+  expect(button(host, "Try again")).toBeDefined();
+  expect(host.querySelector("audio")).not.toBeNull();
 });
 
 test("centers a direct playback retry and pauses scoring when the browser refuses audio", async () => {

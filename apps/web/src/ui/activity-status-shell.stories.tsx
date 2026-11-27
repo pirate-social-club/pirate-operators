@@ -56,6 +56,7 @@ export const KaraokeStartUnconfirmed: Story = {
   args: {
     title: "Couldn't check if Karaoke started",
     tone: "retryable",
+    error: true,
     exitIcon: "back",
     exitLabel: "Exit karaoke",
     onExit: fn(),

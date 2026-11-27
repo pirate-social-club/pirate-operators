@@ -357,7 +357,7 @@ export const ResultUnavailable: Story = {
   args: {
     ...PausedPrimed.args,
     singingStatus: "active",
-    centeredStatus: { title: "Couldn't get your result", tone: "retryable" },
+    centeredStatus: { title: "Couldn't get your result", tone: "retryable", error: true },
     centeredStatusAction: { label: "Check again", onClick: fn() },
   },
   play: async ({ canvasElement, args }) => {

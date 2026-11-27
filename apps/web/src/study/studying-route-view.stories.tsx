@@ -89,6 +89,9 @@ export const RecordingOutcomeUnknown: Story = {
     await expect(
       canvas.getByText("This lesson can't continue. Start a new one."),
     ).toBeInTheDocument();
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Couldn't get your result",
+    );
     await expect(
       canvas.queryByRole("button", { name: "Recording paused" }),
     ).toBeNull();

@@ -30,7 +30,7 @@ export interface ErrorStateProps {
  * footer actions; inline pages such as Wallet may render the actions here.
  */
 export function ErrorState(props: ErrorStateProps) {
-  const failure = () => props.error ?? props.tone === "retryable";
+  const failure = () => props.error === true;
   return (
     <div
       role={failure() ? "alert" : undefined}

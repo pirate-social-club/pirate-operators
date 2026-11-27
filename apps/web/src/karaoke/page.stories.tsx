@@ -3,6 +3,7 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { createSignal } from "solid-js";
 import { KaraokePage } from "./page.tsx";
+import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
 import {
   KARAOKE_START_UNKNOWN_MESSAGE,
   type OperatorKaraokePort,
@@ -200,6 +201,30 @@ export const CouldntStart: Story = {
   },
 };
 export const StartUnconfirmed: Story = {
+  render: () => (
+    <ActivityStatusShell
+      title="Couldn't check if Karaoke started"
+      tone="retryable"
+      error
+      exitIcon="back"
+      exitLabel="Exit karaoke"
+      onExit={() => {}}
+      primaryAction={{ label: "Check again", onClick: () => {} }}
+      secondaryAction={{ label: "Back", onClick: () => {} }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByRole("heading", { name: "Couldn't check if Karaoke started" }),
+    ).toBeVisible();
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Couldn't check if Karaoke started",
+    );
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+  },
+};
+export const StartUnconfirmedRecovery: Story = {
   render: example("unknown-unresolved"),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
