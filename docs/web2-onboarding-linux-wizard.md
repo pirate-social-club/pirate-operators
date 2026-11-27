@@ -42,7 +42,7 @@ does not become the community publisher. The runtime gaps below remain open.
 This is the required onboarding contract. The application/runtime and standalone
 hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
 The hosted Wizard client/server/UI source has scoped local qualification below.
-It does not establish a supported installed host. A pinned 4 GiB VM run at product successor `299ebfe` passed installation, publication, HTTPS playback, same-store restart, replay with zero duplicate effects, and clean shutdown. That evidence does not qualify live Fluence staging, public DNS/ACME, external providers, real devices, or the expanded release; live staging acceptance remains open.
+It does not establish a supported installed host. Current acceptance evidence is recorded in [First-song acceptance status](self-hosting/checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status); the controlled VM pass does not qualify live staging.
 
 Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
 context and private host-only paths, without a prebound community identity.
@@ -384,12 +384,8 @@ namespace authority; it does not block ordinary HTTPS use. Naming, Core/Director
 Storage, the member application and the contract owners retain their existing
 component responsibilities.
 
-Existing component results do not establish the full journey by themselves. A
-pinned 4 GiB VM run at product successor `299ebfe` passed installation,
-publication, HTTPS playback, same-store restart, replay with zero duplicate
-effects, and clean shutdown. That evidence does not qualify live Fluence
-staging, public DNS/ACME, external providers, real devices, or the expanded
-release; live staging acceptance remains open.
+Existing component results do not establish the full journey by themselves.
+Use the acceptance status linked above before assigning remaining host or staging work.
 
 ## Retained historical boundaries
 

@@ -46,3 +46,8 @@ These are testnet research and expanded-release inputs. They establish no live d
 - [Portable storage boundary](storage-provider-boundary.md)
 
 These are supporting design inputs, not deployed service commitments.
+## Deferred Linux delivery acceptance
+
+- [Linux community delivery acceptance](linux-community-delivery-acceptance.md)
+
+This broader Compose/backup/upgrade checklist is retained for the later full Linux delivery profile. The November 14 first-song pilot supersedes it as current pilot scope.

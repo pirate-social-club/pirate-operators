@@ -12,13 +12,11 @@ Start here. When another document conflicts with these, the release plan wins.
 - [Hosted Wizard contract](web2-onboarding-linux-wizard.md) — current operator onboarding behavior and remaining implementation joins.
 - [Linux Web2 first-song installation](self-hosting/linux-web2-first-song.md) — native Linux installation profile and host evidence.
 - [Linux runtime foundation candidate](self-hosting/linux-foundation-v1.md) — foundation Compose/runtime boundary.
-- [Linux Compose service inventory](self-hosting/linux-compose-service-inventory.md) — service inventory and ownership boundaries.
-- [Linux Compose acceptance](self-hosting/linux-compose-acceptance.md) — acceptance contract for Compose delivery.
+- [First-song acceptance status](self-hosting/checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status) — single volatile VM-versus-live-staging status entry.
 - [Managed first-song services](self-hosting/managed-first-song-services.md) — managed publishing, recognition, and admission service composition.
 - [Pirate-hosted enrollment](self-hosting/pirate-hosted-enrollment.md) — invited enrollment and capped initial-gas service.
 - [Paired Web2 operator signing](self-hosting/web2-operator-signing.md) — controller/owner signing and publishing review boundary.
 - [Canonical community service transport](web2-canonical-service-transport.md) — authenticated service transport.
-- [Web2 first-song runtime adoption](web2-first-song-runtime-20261115.md) — application/runtime adoption record.
 
 ## First-song publication runtime
 

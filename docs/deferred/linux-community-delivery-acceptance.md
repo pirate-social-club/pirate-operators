@@ -1,12 +1,12 @@
 # Linux community delivery acceptance
 
-The approved [November 14 checkpoint 1](checkpoint-1-pilot-delivery-20261114.md)
+The approved [November 14 checkpoint 1](../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
 supersedes this broader checklist for the invited pilot. HNS is separate from
 initial HTTPS setup; automated upgrades and second-host backup/restore remain
 deferred. Retain the scenarios below as historical and later requirements,
 without claiming their completion or adding them back to checkpoint 4.
 
-This maps the required Linux delivery behavior to evidence that implementation must produce. It is not an executed acceptance report. The source baseline is 3d21abf6bc2b0e32b6126fe0aef39faacaf1287d; each later run must bind its exact source, images, configuration and selected feature profile. The [delivery contract](linux-compose-delivery-contract-v1.json) and [service inventory](linux-compose-service-inventory.md) define the composition and remaining choices.
+This maps the required Linux delivery behavior to evidence that implementation must produce. It is not an executed acceptance report. The source baseline is 3d21abf6bc2b0e32b6126fe0aef39faacaf1287d; each later run must bind its exact source, images, configuration and selected feature profile. The [delivery contract](../self-hosting/linux-compose-delivery-contract-v1.json) and [archived service inventory](../archive/evidence/linux-compose-service-inventory.md) supply the historical composition and remaining choices.
 
 ## Required scenarios
 
@@ -39,6 +39,6 @@ Primary controlled-TLD import remains separate from the application's hosting or
 
 ## Existing supporting evidence
 
-The [storage boundary](../deferred/storage-provider-boundary.md) validates role profiles and a Node Files SDK transport against real SDK protocol fixtures. It does not replace the application's R2 bindings or complete L01 through L10. Native component diagnostics are supporting qualification inputs; complete runtime and recovery evidence must be bound to the actual selected deployment.
+The [storage boundary](storage-provider-boundary.md) validates role profiles and a Node Files SDK transport against real SDK protocol fixtures. It does not replace the application's R2 bindings or complete L01 through L10. Native component diagnostics are supporting qualification inputs; complete runtime and recovery evidence must be bound to the actual selected deployment.
 
 This independently owned community application contains its Solid frontend, decentralized API, MOSS and local cookie-session issuer. Earlier centralized implementations supply behavior and pure-source provenance, not required runtime containers. Keep the actual owning entrypoints and session boundary explicit in the deployment contract.

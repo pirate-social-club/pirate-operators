@@ -154,7 +154,7 @@ setup, account/resource and DNS/TLS control, nonce-bound full-app readback,
 automatic registration, real member/name authorization, first-song playback and
 ordinary restart/retry evidence on the selected host. Controlled fixtures, source
 review and old setup-page receipts do not establish these results. Runtime
-acceptance is split as follows: a pinned 4 GiB VM run at product successor `299ebfe` passed installation, publication, HTTPS playback, same-store restart, replay with zero duplicates and clean shutdown; live Fluence staging, public DNS/ACME, external providers and real-device readiness remain open. No ETA is promised.
+acceptance evidence is recorded in [First-song acceptance status](../../docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status); the controlled VM pass does not qualify live staging. No ETA is promised.
 
 ## Historical precedence and deferred work
 
