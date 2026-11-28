@@ -133,6 +133,16 @@ test("failed installation readback produces zero registrar signatures and broadc
     assert.equal((await allOperations(f.db, p.e.id)).length, 0, "mismatched installation reserved no operation");
 
     f.state.installationMismatch = false;
+    f.state.installationProofInvalid = true;
+    assert.deepEqual(await f.post("/redeem", p.auth), {
+      status: 409,
+      body: { error: "installation_proof_invalid" },
+    });
+    assert.equal(f.state.registrarSignatures, 0, "a substituted installation key produced no registrar signature");
+    assert.equal(f.state.sendCount, 0, "a substituted installation key produced no broadcast");
+    assert.equal((await allOperations(f.db, p.e.id)).length, 0, "a substituted installation key reserved no operation");
+
+    f.state.installationProofInvalid = false;
     assert.equal((await f.post("/redeem", p.auth)).status, 200);
     assert.equal(f.state.registrarSignatures, 1, "successful readback produced exactly one registrar signature");
     assert.equal(f.state.sendCount, 1, "successful readback produced exactly one broadcast");

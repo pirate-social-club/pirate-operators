@@ -1,4 +1,5 @@
-import type { Hex } from "viem";
+import { recoverTypedDataAddress, type Hex } from "viem";
+import { randomBytes } from "node:crypto";
 import {
   canonical,
   CommunityError,
@@ -10,6 +11,10 @@ import {
 } from "../packages/community/common.ts";
 import { preparePin, readBounded } from "../packages/community/ipfs.ts";
 import { validateWeb2Configuration } from "../packages/community/web2-config-manifest.ts";
+import {
+  installationReadbackTypedData,
+  parseInstallationReadbackProof,
+} from "../packages/community/web2-installation-readback.ts";
 import { sharedBytes32 } from "../packages/community/shared-identity.ts";
 import {
   parseWeb2ProfileDocument,
@@ -162,9 +167,11 @@ export async function verifyHostedInstallation(
   const origin = new URL(e.plan.config.app.origin);
   insist(origin.protocol === "https:", "installation_origin_not_https", 409);
   const url = new URL("/.well-known/pirate-community.json", origin);
+  const nonce = `0x${randomBytes(32).toString("hex")}` as Hex;
   url.searchParams.set("enrollmentId", e.id);
   url.searchParams.set("communityId", e.plan.profile.communityId);
   url.searchParams.set("installationId", e.plan.profile.installationId);
+  url.searchParams.set("nonce", nonce);
   const transport = r.readInstallation ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   let response: Response;
   try {
@@ -194,14 +201,46 @@ export async function verifyHostedInstallation(
     throw new CommunityError("installation_readback_invalid", 503);
   }
   let installed;
+  let proof;
   try {
-    installed = validateWeb2Configuration(body, e.plan.profile);
-  } catch {
+    const row = object(body);
+    exact(row, ["schema", "configuration", "proof"]);
+    insist(
+      row.schema === "pirate.web2-installation-readback-response/1",
+      "installation_readback_invalid",
+      503,
+    );
+    installed = validateWeb2Configuration(row.configuration, e.plan.profile);
+    proof = parseInstallationReadbackProof(row.proof);
+  } catch (error) {
+    if (error instanceof CommunityError) throw error;
     throw new CommunityError("installation_readback_invalid", 503);
   }
   insist(
     canonical(installed) === canonical(e.plan.config),
     "installation_configuration_mismatch",
+    409,
+  );
+  const { schema: _schema, signature: readbackSignature, ...message } = proof;
+  let recovered: string;
+  try {
+    recovered = await recoverTypedDataAddress({
+      ...installationReadbackTypedData(installed, message),
+      signature: readbackSignature,
+    });
+  } catch {
+    throw new CommunityError("installation_proof_invalid", 409);
+  }
+  insist(
+    proof.enrollmentId === e.id &&
+      proof.communityId === installed.communityId &&
+      proof.installationId === installed.installationId &&
+      proof.nonce === nonce &&
+      proof.originHash === hashText(installed.app.origin) &&
+      proof.configurationDigest === hashText(canonical(installed)) &&
+      proof.publisher === installed.publisher &&
+      recovered.toLowerCase() === installed.publisher,
+    "installation_proof_invalid",
     409,
   );
 }

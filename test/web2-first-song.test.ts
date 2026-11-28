@@ -1,6 +1,47 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { web2FirstSongFixture } from "./fixtures/web2-first-song.ts";
+import { recoverTypedDataAddress, type Hex } from "viem";
+import { canonical, hashText } from "../packages/community/common.ts";
+import {
+  installationReadbackTypedData,
+  parseInstallationReadbackProof,
+} from "../packages/community/web2-installation-readback.ts";
+
+test("installed Web2 application freshly signs a one-use installation readback", { timeout: 120000 }, async (t) => {
+  const f = await web2FirstSongFixture({ http: true, evidenceDirectory: ".local/web2-installation-readback" });
+  t.after(f.close);
+  const config = await f.application.configuration(),
+    enrollmentId = hashText("installation readback enrollment") as Hex,
+    nonce = hashText("installation readback nonce") as Hex;
+  const plain = await f.application.fetch("/.well-known/pirate-community.json");
+  assert.equal(((await plain.json()) as { schema: string }).schema, "pirate.community-config/4");
+  const response = await f.application.fetch(
+    `/.well-known/pirate-community.json?enrollmentId=${enrollmentId}&communityId=${config.communityId}&installationId=${config.installationId}&nonce=${nonce}`,
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json() as { schema: string; configuration: unknown; proof: unknown };
+  assert.equal(body.schema, "pirate.web2-installation-readback-response/1");
+  assert.equal(canonical(body.configuration), canonical(config));
+  const proof = parseInstallationReadbackProof(body.proof),
+    { schema: _schema, signature, ...message } = proof;
+  assert.equal(proof.enrollmentId, enrollmentId);
+  assert.equal(proof.nonce, nonce);
+  assert.equal(proof.originHash, hashText(config.app.origin));
+  assert.equal(proof.configurationDigest, hashText(canonical(config)));
+  assert.equal(
+    (await recoverTypedDataAddress({
+      ...installationReadbackTypedData(config, message),
+      signature,
+    })).toLowerCase(),
+    config.publisher,
+  );
+  const wrong = await f.application.fetch(
+    `/.well-known/pirate-community.json?enrollmentId=${enrollmentId}&communityId=${config.communityId}&installationId=${"0x" + "0".repeat(64)}&nonce=${nonce}`,
+  );
+  assert.equal(wrong.status, 404);
+});
 
 test("V2 ERC1271 controller authorization passes actual first-song HTTP, D1, canonical witnesses and publication", { timeout: 120000 }, async (t) => {
   const f = await web2FirstSongFixture({ http: true, authorizationVersion: 2, contractController:true, evidenceDirectory:".local/web2-owner-signing-implementation/recognition-expiry" });

@@ -42,6 +42,10 @@ import {
 } from "../../packages/community/hosted-enrollment.ts";
 import type { HostedRuntime } from "../../packages/community/hosted-topup-chain.ts";
 import { createHostedEnrollmentService } from "../../services/hosted-community-enrollment.ts";
+import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../../packages/community/web2-installation-readback.ts";
 import { createHostedFundingService } from "../../services/hosted-community-funding.ts";
 import {
   web2SongChain,
@@ -207,11 +211,35 @@ export async function hostedWizardFixture(
       // the Wizard ordering integration is assembled. Failure behavior itself
       // is exercised against the hosted service fixture, not by this stand-in.
       readInstallation: async (url) => {
-        const id = new URL(String(url)).searchParams.get("enrollmentId");
+        const requestUrl = new URL(String(url)),
+          id = requestUrl.searchParams.get("enrollmentId");
         if (!id) return Response.json({ error: "missing enrollment" }, { status: 503, headers: { "cache-control": "no-store" } });
         try {
-          const enrollment = await loadEnrollment(db, id as `0x${string}`);
-          return Response.json(enrollment.plan.config, { headers: { "cache-control": "no-store" } });
+          const enrollment = await loadEnrollment(db, id as `0x${string}`),
+            config = enrollment.plan.config,
+            publisherAccount = [web2Publisher, web2Controller, web2Owner].find(
+              (account) => account.address.toLowerCase() === config.publisher,
+            ) ?? web2Controller,
+            message = installationReadbackMessage({
+              enrollmentId: id as Hex,
+              config,
+              nonce: requestUrl.searchParams.get("nonce") as Hex,
+            }),
+            signature = await publisherAccount.signTypedData(
+              installationReadbackTypedData(config, message),
+            );
+          return Response.json(
+            {
+              schema: "pirate.web2-installation-readback-response/1",
+              configuration: config,
+              proof: {
+                schema: "pirate.web2-installation-readback/1",
+                ...message,
+                signature,
+              },
+            },
+            { headers: { "cache-control": "no-store" } },
+          );
         } catch {
           return Response.json({ error: "installation unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });
         }

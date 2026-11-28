@@ -59,6 +59,10 @@ import {
 import { createHostedEnrollmentService } from "../../services/hosted-community-enrollment.ts";
 import { createHostedFundingService } from "../../services/hosted-community-funding.ts";
 import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
+import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../../packages/community/web2-installation-readback.ts";
 
 const fixtureAccounts = Array.from({ length: 6 }, (_, i) =>
   privateKeyToAccount(`0x${(i + 1).toString(16).padStart(64, "0")}`),
@@ -197,7 +201,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     ...(journal ? { d1Persist: journal } : {}),
   });
   const pins = new Map<string, Uint8Array>(),
-    installations = new Map<string, Web2CommunityConfig>(),
+    installations = new Map<string, { config: Web2CommunityConfig; publisherAccount: (typeof fixtureAccounts)[number] }>(),
     state = {
       dropSend: 0,
       dropBeforeSend: 0,
@@ -207,6 +211,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       redirectPin: false,
       installationStatus: 200,
       installationMismatch: false,
+      installationProofInvalid: false,
       registrarSignatures: 0,
       funderSignatures: 0,
       failRpc: false,
@@ -492,12 +497,32 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       readConfiguration: async (uri) =>
         fetch(`${proxyUrl}/ipfs/${uri.slice(7)}`),
       readInstallation: async (url) => {
-        const id = new URL(String(url)).searchParams.get("communityId");
+        const requestUrl = new URL(String(url)),
+          id = requestUrl.searchParams.get("communityId");
         const installed = id ? installations.get(id as `0x${string}`) : undefined;
         if (!installed || state.installationStatus !== 200)
           return Response.json({ error: "installation unavailable" }, { status: state.installationStatus, headers: { "cache-control": "no-store" } });
+        const config = state.installationMismatch
+          ? { ...installed.config, app: { ...installed.config.app, label: "substituted" } }
+          : installed.config;
+        const message = installationReadbackMessage({
+          enrollmentId: requestUrl.searchParams.get("enrollmentId") as Hex,
+          config,
+          nonce: requestUrl.searchParams.get("nonce") as Hex,
+        });
+        const signature = await (state.installationProofInvalid ? stranger : installed.publisherAccount).signTypedData(
+          installationReadbackTypedData(config, message),
+        );
         return Response.json(
-          state.installationMismatch ? { ...installed, app: { ...installed.app, label: "substituted" } } : installed,
+          {
+            schema: "pirate.web2-installation-readback-response/1",
+            configuration: config,
+            proof: {
+              schema: "pirate.web2-installation-readback/1",
+              ...message,
+              signature,
+            },
+          },
           { headers: { "cache-control": "no-store" } },
         );
       },
@@ -566,7 +591,10 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const bytes = new TextEncoder().encode(canonical(config)),
         pin = await preparePin(bytes, "application/json");
       pins.set(pin.uri, bytes);
-      installations.set(config.communityId, config);
+      installations.set(config.communityId, {
+        config,
+        publisherAccount: (opts.publisher ?? publisher.address).toLowerCase() === publisher.address.toLowerCase() ? publisher : controller,
+      });
       return {
         profile,
         config,

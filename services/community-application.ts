@@ -16,6 +16,11 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../packages/community/web2-installation-readback.ts";
+import type { Web2CommunityConfig } from "../packages/community/web2-config-manifest.ts";
+import {
   accountSession,
   authenticatedWrite,
   ensureCommunityIdentity,
@@ -768,8 +773,48 @@ async function communityFetchBusiness(
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-community.json"
-    )
-      return reply(config);
+    ) {
+      const nonce = url.searchParams.get("nonce");
+      if (!nonce) return reply(config);
+      insist(
+        config.schema === "pirate.community-config/4" &&
+          /^0x[0-9a-f]{64}$/.test(nonce) &&
+          url.searchParams.get("communityId") === config.communityId &&
+          url.searchParams.get("installationId") === config.installationId &&
+          /^0x[0-9a-f]{64}$/.test(url.searchParams.get("enrollmentId") ?? ""),
+        "installation_readback_unavailable",
+        404,
+      );
+      const web2Config = config as Web2CommunityConfig,
+        message = installationReadbackMessage({
+          enrollmentId: url.searchParams.get("enrollmentId") as Hex,
+          config: web2Config,
+          nonce: nonce as Hex,
+        });
+      let signature: Hex;
+      try {
+        signature = await privateKeyToAccount(
+          env.COMMUNITY_PUBLISHER_PRIVATE_KEY as Hex,
+        ).signTypedData(installationReadbackTypedData(web2Config, message));
+      } catch {
+        throw new CommunityError("installation_readback_unavailable", 503);
+      }
+      insist(
+        privateKeyToAccount(env.COMMUNITY_PUBLISHER_PRIVATE_KEY as Hex).address.toLowerCase() ===
+          web2Config.publisher,
+        "installation_readback_unavailable",
+        503,
+      );
+      return reply({
+        schema: "pirate.web2-installation-readback-response/1",
+        configuration: config,
+        proof: {
+          schema: "pirate.web2-installation-readback/1",
+          ...message,
+          signature,
+        },
+      });
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-client.json"
