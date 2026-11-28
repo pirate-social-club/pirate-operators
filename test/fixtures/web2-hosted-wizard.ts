@@ -33,6 +33,7 @@ import {
 import {
   provisionHostedInvite,
   allOperations,
+  loadEnrollment,
 } from "../../packages/community/hosted-enrollment-store.ts";
 import {
   enrollmentTypedData,
@@ -201,6 +202,20 @@ export async function hostedWizardFixture(
       },
       readConfiguration: (uri) =>
         fetch(chain.deployment.ipfsGateways[0] + "/ipfs/" + uri.slice(7)),
+      // Explicit external-site fixture: the registrar-facing HTTPS endpoint is
+      // represented by the prepared enrollment's immutable configuration while
+      // the Wizard ordering integration is assembled. Failure behavior itself
+      // is exercised against the hosted service fixture, not by this stand-in.
+      readInstallation: async (url) => {
+        const id = new URL(String(url)).searchParams.get("enrollmentId");
+        if (!id) return Response.json({ error: "missing enrollment" }, { status: 503, headers: { "cache-control": "no-store" } });
+        try {
+          const enrollment = await loadEnrollment(db, id as `0x${string}`);
+          return Response.json(enrollment.plan.config, { headers: { "cache-control": "no-store" } });
+        } catch {
+          return Response.json({ error: "installation unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });
+        }
+      },
     };
     const enrollment = createHostedEnrollmentService(runtime),
       funding = createHostedFundingService(runtime);

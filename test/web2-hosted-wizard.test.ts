@@ -47,8 +47,10 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
       f.prepareInput.publisher.toLowerCase(),
     );
     assert(view.challenge);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    assert.equal(view.controllerAuthorized, true);
     f.dropRedeemReply();
-    view = await f.send("redeem", { signature: await f.sign(view.challenge) });
+    view = await f.send("redeem", {});
     assert.equal(view.phase, "unknown");
     const identity = view.selection;
     const legacy = JSON.parse(await readFile(f.journal, "utf8"));

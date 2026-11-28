@@ -8,6 +8,7 @@ export interface Web2Snapshot {
 export type Web2Action =
   | "prepare"
   | "resume-prepare"
+  | "authorize"
   | "redeem"
   | "reconcile"
   | "topup"
@@ -21,6 +22,7 @@ export type Web2Action =
 const actions: readonly string[] = [
   "prepare",
   "resume-prepare",
+  "authorize",
   "redeem",
   "reconcile",
   "topup",

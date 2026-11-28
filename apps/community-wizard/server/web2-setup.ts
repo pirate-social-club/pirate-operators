@@ -239,19 +239,33 @@ export async function createWeb2Setup(
   function enrollmentDraft() {
     insist(
       journal.request &&
-        journal.enrollment &&
+        journal.prepared &&
         journal.deployment &&
-        journal.plan,
-      "safe_registration_required",
+        journal.plan &&
+        journal.controllerSignature,
+      "web2_controller_proof_required",
       409,
     );
+    const enrollment = journal.enrollment ?? {
+      schema: "pirate.hosted-enrollment-status/1" as const,
+      enrollmentId: journal.prepared.enrollmentId,
+      communityId: journal.plan.profile.communityId,
+      installationId: journal.plan.profile.installationId,
+      profile: journal.plan.profile,
+      configurationUri: journal.plan.uri,
+      operations: [],
+    };
     return linuxWeb2DraftFrom({
       schema: "pirate.linux-web2-draft/1",
       name: journal.request.name,
       origin: journal.request.origin,
       deployment: journal.deployment,
-      enrollment: journal.enrollment,
+      enrollment,
       configuration: journal.plan.config,
+      authorization: {
+        enrollment: journal.prepared.enrollment,
+        controllerSignature: journal.controllerSignature,
+      },
     });
   }
   async function run(action: string, value: unknown) {
@@ -341,6 +355,25 @@ export async function createWeb2Setup(
           });
           journal.prepared = await client.prepare(plan);
         }
+        journal.phase = "prepared";
+      } else if (action === "authorize") {
+        exact(body, Object.hasOwn(body, "signature") ? ["signature"] : []);
+        insist(journal.prepared, "web2_prepare_required", 409);
+        if (Object.hasOwn(body, "signature")) {
+          const proof = signature(body.signature);
+          insist(
+            journal.controllerSignature === null ||
+              journal.controllerSignature === proof,
+            "web2_original_authorization_changed",
+            409,
+          );
+          journal.controllerSignature = proof;
+        }
+        insist(
+          journal.controllerSignature,
+          "web2_controller_proof_required",
+          409,
+        );
         journal.phase = "prepared";
       } else if (
         action === "redeem" ||
