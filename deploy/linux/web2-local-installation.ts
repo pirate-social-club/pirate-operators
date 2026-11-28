@@ -38,8 +38,7 @@ import {
   type InstalledTarget,
 } from "./local-target-controller.ts";
 import {
-  authenticateWeb2Enrollment,
-  authenticateWeb2InstallationAuthorization,
+  authenticateWeb2InstallEnrollment,
   ownWeb2ChainAuthority,
   readWeb2HostAdmission,
   type Web2ChainAuthority,
@@ -226,16 +225,7 @@ export async function createWeb2Installation(
         ...(planId ? { planId } : {}),
       });
     await host();
-    const original = draft.enrollment.operations.find(
-      (op) => op.kind === "registration",
-    );
-    const evidence =
-      original &&
-      original.state === "consumed" &&
-      original.transactionHash &&
-      original.receipt !== null
-        ? await authenticateWeb2Enrollment(chain, draft)
-        : await authenticateWeb2InstallationAuthorization(chain, draft);
+    const evidence = await authenticateWeb2InstallEnrollment(chain, draft);
     const admission = await host();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(

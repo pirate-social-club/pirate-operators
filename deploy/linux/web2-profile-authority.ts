@@ -14,6 +14,7 @@ import {
 } from "../../packages/community/common.ts";
 import { address } from "../../packages/community/manifest-core.ts";
 import {
+  directoryV3Abi,
   parseWeb2ProfileDocument,
   web2ProfileDocument,
 } from "../../packages/community/web2-directory.ts";
@@ -410,12 +411,64 @@ export async function authenticateWeb2InstallEnrollment(
   const original = draft.enrollment.operations.find(
     (op) => op.kind === "registration",
   );
-  return original &&
+  if (
+    original &&
     original.state === "consumed" &&
     original.transactionHash &&
     original.receipt !== null
-    ? authenticateWeb2Enrollment(input, draft)
-    : authenticateWeb2InstallationAuthorization(input, draft);
+  )
+    return authenticateWeb2Enrollment(input, draft);
+  // A Wizard can stop after registration lands but before its hosted receipt is
+  // saved. The signed installation original must not be rewritten for that
+  // recovery case. Rediscover the community's exact binding event through the
+  // safe chain view, then use its transaction hash only as a lookup: the normal
+  // enrollment authenticator still reconstructs and validates the transaction,
+  // receipt, registration events, safe block and current Directory binding.
+  if (draft.authorization !== undefined) {
+    const authority = ownWeb2ChainAuthority(input),
+      profile = parseWeb2ProfileDocument(draft.enrollment.profile),
+      event = directoryV3Abi.find(
+        (row) => row.type === "event" && row.name === "CommunityBound",
+      );
+    assert(event, "directory_binding_event_unavailable");
+    const safe = await authority.client.getBlock({ blockTag: "safe" });
+    insist(
+      safe.number !== null && safe.hash !== null,
+      "install_safe_view_unavailable",
+      503,
+    );
+    const logs = await authority.client.getLogs({
+      address: profile.directory,
+      event,
+      args: { communityId: profile.communityId },
+      fromBlock: profile.deploymentBlock,
+      toBlock: safe.number,
+      strict: true,
+    });
+    insist(logs.length <= 1, "ambiguous_install_registration", 503);
+    const discovered = logs[0]?.transactionHash;
+    if (discovered) {
+      const recovered = linuxWeb2DraftFrom({
+        ...draft,
+        enrollment: {
+          ...draft.enrollment,
+          operations: [
+            ...draft.enrollment.operations.filter(
+              (op) => op.kind !== "registration",
+            ),
+            {
+              kind: "registration",
+              state: "consumed",
+              transactionHash: discovered,
+              receipt: { discovered: true },
+            },
+          ],
+        },
+      });
+      return authenticateWeb2Enrollment(input, recovered);
+    }
+  }
+  return authenticateWeb2InstallationAuthorization(input, draft);
 }
 
 export async function readWeb2HostAdmission(input: {
