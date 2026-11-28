@@ -9,10 +9,10 @@ import {
 } from "../packages/community/web2-installation-readback.ts";
 
 test("installed Web2 application freshly signs a one-use installation readback", { timeout: 120000 }, async (t) => {
-  const f = await web2FirstSongFixture({ http: true, evidenceDirectory: ".local/web2-installation-readback" });
+  const f = await web2FirstSongFixture({ http: true, nativeOriginal: true, evidenceDirectory: ".local/web2-installation-readback" });
   t.after(f.close);
   const config = await f.application.configuration(),
-    enrollmentId = hashText("installation readback enrollment") as Hex,
+    enrollmentId = hashText("actual-local-fixture-enrollment") as Hex,
     nonce = hashText("installation readback nonce") as Hex;
   const plain = await f.application.fetch("/.well-known/pirate-community.json");
   assert.equal(((await plain.json()) as { schema: string }).schema, "pirate.community-config/4");

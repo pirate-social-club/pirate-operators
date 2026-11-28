@@ -14,7 +14,7 @@ import {
   type AuthorityRecoveryPorts,
 } from "../packages/community-setup/authority-recovery.ts";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
+import { BaseError, ContractFunctionRevertedError, keccak256, type Hex } from "viem";
 import {
   installationReadbackMessage,
   installationReadbackTypedData,
@@ -44,7 +44,7 @@ import { readAndCacheWeb2Configuration } from "./community-web2-configuration-ca
 import { communityPrivatePractice, requirePrivateStudy } from "./community-private-practice.ts";
 import { privatePracticeAllows } from "./community-private-practice-profile.ts";
 import { studyV5PrivateHttp } from "./study-v5-http.ts";
-import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
+import { directoryV3Abi, parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
 import { readSignInMessageV4 } from "../packages/protocol/learning-results-v4.ts";
 import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
@@ -774,8 +774,48 @@ async function communityFetchBusiness(
         return await configuration();
       } catch (error) {
         if (!web2 || !env.NATIVE_APPLICATION_ORIGINAL_JSON) throw error;
+        const client = ports.publicReads?.client;
+        insist(client, "community_authority_unavailable", 503);
+        const profile = parseWeb2ProfileDocument(deployment.directoryProfile),
+          safe = await client.getBlock({ blockTag: "safe" });
         insist(
-          /UnknownCommunity/.test(String(error)),
+          typeof safe.number === "bigint" &&
+            typeof safe.hash === "string" &&
+            typeof safe.timestamp === "bigint" &&
+            BigInt(Math.floor(Date.now() / 1000)) - safe.timestamp <=
+              BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
+          "community_authority_unavailable",
+          503,
+        );
+        const [code, unknown] = await Promise.all([
+          client.getCode({ address: profile.directory, blockNumber: safe.number! }),
+          client.readContract({
+            address: profile.directory,
+            abi: directoryV3Abi,
+            functionName: "getCommunity",
+            args: [profile.communityId],
+            blockNumber: safe.number!,
+          }).then(
+            () => false,
+            (cause: unknown) => {
+              const reverted = cause instanceof BaseError
+                ? cause.walk((part) => part instanceof ContractFunctionRevertedError)
+                : null;
+              if (
+                reverted instanceof ContractFunctionRevertedError &&
+                reverted.data?.errorName === "UnknownCommunity"
+              )
+                return true;
+              throw cause;
+            },
+          ),
+        ]);
+        const recheck = await client.getBlock({ blockNumber: safe.number! });
+        insist(
+          unknown === true &&
+            code !== undefined &&
+            keccak256(code) === profile.directoryCodeHash &&
+            recheck.hash === safe.hash,
           "community_authority_unavailable",
           503,
         );
@@ -814,11 +854,28 @@ async function communityFetchBusiness(
         404,
       );
       const web2Config = config as Web2CommunityConfig,
-        message = installationReadbackMessage({
-          enrollmentId: url.searchParams.get("enrollmentId") as Hex,
-          config: web2Config,
-          nonce: nonce as Hex,
-        });
+        original = await web2ApplicationOriginal(env),
+        plan = original.record.body;
+      insist(
+        plan.draft.enrollment.enrollmentId ===
+          url.searchParams.get("enrollmentId"),
+        "installation_readback_unavailable",
+        404,
+      );
+      const message = installationReadbackMessage({
+        enrollmentId: url.searchParams.get("enrollmentId") as Hex,
+        config: web2Config,
+        nonce: nonce as Hex,
+        installation: {
+          generation: plan.generation,
+          planId: plan.planId,
+          durableScope: plan.durableScope,
+          releaseArtifactDigest: plan.releaseArtifactDigest as Hex,
+          releaseSourceDigest: plan.releaseSourceDigest as Hex,
+          targetDigest: plan.targetDigest,
+          hostFingerprint: plan.hostFingerprint,
+        },
+      });
       let signature: Hex;
       try {
         signature = await privateKeyToAccount(

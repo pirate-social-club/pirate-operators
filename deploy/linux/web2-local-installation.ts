@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import type { Hex } from "viem";
 import {
   retainWeb2Record as retain,
   optionalWeb2Record as optionalRecord,
@@ -301,6 +302,22 @@ export async function createWeb2Installation(
       },
     };
   }
+  function installationProbe(body: Web2InstallPlan) {
+    return body.enrollment.schema ===
+      "pirate.linux-web2-installation-authorization/1"
+      ? {
+          enrollmentId: body.enrollment.enrollmentId,
+          configuration: body.draft.configuration,
+          generation: body.generation,
+          planId: body.planId,
+          durableScope: body.durableScope,
+          releaseArtifactDigest: body.releaseArtifactDigest as Hex,
+          releaseSourceDigest: body.releaseSourceDigest as Hex,
+          targetDigest: body.targetDigest,
+          hostFingerprint: body.hostFingerprint,
+        }
+      : undefined;
+  }
   async function observation(
     selection: LinuxWeb2PlanSelection,
   ): Promise<LinuxWeb2Observation> {
@@ -337,6 +354,8 @@ export async function createWeb2Installation(
         ingress,
         body.draft.enrollment.communityId,
         true,
+        undefined,
+        installationProbe(body),
       );
       await authorize(body.draft, body.planId, body.generation);
       assert(
@@ -457,6 +476,7 @@ export async function createWeb2Installation(
           ingress,
           body.draft.enrollment.communityId,
           current,
+          installationProbe(body),
         );
         await current();
         if (edge) {

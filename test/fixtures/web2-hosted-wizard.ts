@@ -226,6 +226,15 @@ export async function hostedWizardFixture(
               enrollmentId: id as Hex,
               config,
               nonce: requestUrl.searchParams.get("nonce") as Hex,
+              installation: {
+                generation: 1,
+                planId: "web2-" + (requestUrl.searchParams.get("enrollmentId") as Hex).slice(2),
+                durableScope: "a".repeat(64),
+                releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
+                releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
+                targetDigest: "d".repeat(64),
+                hostFingerprint: "fixture-installation",
+              },
             }),
             signature = await publisherAccount.signTypedData(
               installationReadbackTypedData(config, message),
