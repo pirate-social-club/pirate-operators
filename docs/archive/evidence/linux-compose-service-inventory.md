@@ -1,5 +1,7 @@
 # Linux Compose service inventory
 
+For new installations use the [November 28 community storage decision](../../self-hosting/community-storage-onboarding.md). Historical service bindings below describe the inspected revision.
+
 The approved [November 14 checkpoint 1](../../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
 governs the narrower invited pilot, selected external-service responsibilities
 and funding path. The graph below is historical source inventory, not a claim

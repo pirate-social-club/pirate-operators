@@ -67,8 +67,10 @@ charges; neither a budget proposal nor a saved secret proves enforcement.
 
 ## Credentials and selected infrastructure
 
-Use established Alchemy/Infisical managed authentication and scoped secret
-references. Alchemy is the sole reconciler of its Cloudflare resources. Use cf
+For the Linux public media step, collect one community-owned Filebase IPFS RPC
+API token through the paired browser. Its community VPS holds the token and
+pins approved bytes directly. See the [onboarding decision](../../docs/self-hosting/community-storage-onboarding.md).
+Managed infrastructure uses its existing Alchemy/Infisical scoped access. Alchemy is the sole reconciler of its Cloudflare resources. Use cf
 only for the supported authentication/diagnostic path; do not add Wrangler or a
 second secret synchronizer. Publication/recognition use the selected shared
 service, without asking community operators for its provider or treasury keys.

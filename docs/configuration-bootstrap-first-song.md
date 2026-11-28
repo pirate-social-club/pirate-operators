@@ -54,6 +54,8 @@ passed the canonical event and public readback checks. The public deployment
 record contains the retained pin and transaction evidence. This establishes
 configuration registration; it does not claim song publication or playback.
 
+The credential procedure below records the November 5 configuration-manifest run. For public media on a new Linux community, follow the [community storage onboarding decision](self-hosting/community-storage-onboarding.md).
+
 The operator reads its existing Filebase credential through the established
 Infisical workflow. The community receives the public manifest reference. The
 token never enters its configuration, browser or private journal. A read-only
