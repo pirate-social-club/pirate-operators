@@ -30,6 +30,8 @@ retention and ongoing cost remain the pin operator's responsibility.
 
 ## Ownership and provisioning
 
+The shared Filebase and Infisical provisions below apply to the managed D1/R2 composition. For [community-owned storage](../self-hosting/community-storage-onboarding.md), only the community VPS uses the bucket token. Hosting another service grants Pirate no access to that token.
+
 The community operator owns the upload API, D1 jobs, quotas, retention and the
 publication account. A Pirate-hosted installation may operate these for the
 community; an independent installation supplies its own resources. Admission

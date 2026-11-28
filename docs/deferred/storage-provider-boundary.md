@@ -1,8 +1,8 @@
 # Portable storage boundary
 
 `packages/community-setup/storage.ts` validates a versioned, nonsecret storage
-profile. Public IPFS publication defaults to the existing Filebase pinning
-flow. Private object and backup destinations default to Filebase object storage.
+profile. Public IPFS publication uses the community VPS and its community-owned Filebase
+RPC token as specified in the [onboarding decision](../self-hosting/community-storage-onboarding.md). Private object and backup destinations default to Filebase object storage.
 B2 and operator-controlled custom S3 endpoints are explicit alternatives.
 
 The public IPFS profile has no bucket or S3 credentials. It must continue through

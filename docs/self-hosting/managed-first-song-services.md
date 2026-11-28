@@ -1,5 +1,7 @@
 # Managed first-song services
 
+This document records the existing managed composition. Its service-level Filebase credential is a legacy binding. The [community media decision](community-storage-onboarding.md) requires local pinning by each new community VPS. Qualifying the earlier service does not qualify that path.
+
 Status: fresh managed composition under finite local qualification, unqualified
 for deployment. The correction-v4 review packet records actual commands, source
 hashes, results and retained failures. Earlier source-only packets retain their

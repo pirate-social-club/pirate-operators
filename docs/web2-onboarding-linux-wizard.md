@@ -1,5 +1,7 @@
 # Ordered HTTPS setup and separate HNS onboarding
 
+For new Linux communities the [November 28 onboarding decision](self-hosting/community-storage-onboarding.md) governs public media custody and the operator journey. Where legacy pilot steps below require an invitation or registration before installation, the permissionless journey takes precedence. The controller approves the original request before install. The registrar writes only after independently confirming the installed application over verified HTTPS.
+
 ## Hosted Wizard failure plan, November 15
 
 Before implementing the consumer, qualify the actual paired HTTP controller,
@@ -207,8 +209,10 @@ original identity and obtain review of the actual origin before app activation;
 do not guess an address or replace an immutable operational origin silently.
 
 Discover the selected shared publication/recognition configuration and only the
-credentials required by selected features. Use established scoped Alchemy and
-Infisical authentication and secret-reference workflows. Alchemy owns its
+credentials required by selected features. For public media the community VPS saves
+the community’s bucket-specific Filebase RPC token in its local credential store
+and pins approved bytes directly. The operator supplies no shared-service keys or
+Infisical access. Managed-service provisioning retains its own scoped secrets. Alchemy owns its
 Cloudflare resources; cf is for supported authentication/diagnostics, not a second
 reconciler. Do not introduce Wrangler configuration. Values, private keys and
 raw credential-bearing errors never enter browser output, patches or public logs.
