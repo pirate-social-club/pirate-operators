@@ -4,6 +4,8 @@ import {
   type Web2PublishingInputs,
   type Web2PublishingView,
 } from "./web2-publishing-setup.ts";
+import { createWeb2StorageSetup } from "./web2-storage-setup.ts";
+import type { CommunityMediaStorage } from "../../../deploy/linux/community-media-storage.ts";
 import type { PublisherProofSigner } from "../../../deploy/linux/web2-operator-inputs.ts";
 import { ownerOnly } from "../../../packages/community/owner-policy.ts";
 import {
@@ -124,6 +126,9 @@ export interface Web2SetupInputs {
     sha256: Hex;
   }): Promise<void>;
   installation?: LinuxWeb2Installation;
+  /** Community-owned media credential custody, constructed by the bootstrap
+   * with the real key channel. Absent only where no vault exists. */
+  mediaStorage?: CommunityMediaStorage;
   /** Trusted persistent host identity; distinct from the Directory installation ID. */
   hostInstallationId?: string;
   transport?: typeof fetch;
@@ -183,6 +188,13 @@ export async function createWeb2Setup(
   const serverPublisher = input.publisherProof
     ? await input.publisherProof.selected()
     : null;
+  const storage = createWeb2StorageSetup({
+    storage: input.mediaStorage ?? null,
+  });
+  // The vault is the durable record; this cache mirrors it for the synchronous
+  // view. It refreshes at startup (restart recovery) and after each storage
+  // action, the only paths through which generations change.
+  let storageCache = await storage.read();
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
   function snapshot(): Web2WizardView {
@@ -197,6 +209,7 @@ export async function createWeb2Setup(
       signingOrigin,
       serverPublisher,
       publishing: publishing.snapshot(),
+      mediaStorage: storageCache,
       notice,
       policy: {
         chainId: policy.deployment.chainId,
@@ -603,13 +616,31 @@ export async function createWeb2Setup(
     }
     return snapshot();
   }
+  // Storage actions never touch the enrollment journal: the vault carries
+  // its own immutable generations, so no revision fencing or journal mutation
+  // applies. They share the busy serialization so a storage effect cannot
+  // interleave with an enrollment effect mid-write.
+  async function runStorage(action: string, value: unknown) {
+    const body = object(structuredClone(value));
+    delete body.revision;
+    busy = true;
+    try {
+      const outcome = await storage.act(action, body);
+      storageCache = await storage.read();
+      return Object.assign(snapshot(), { outcome });
+    } finally {
+      busy = false;
+    }
+  }
   return {
     snapshot,
     publishingAttachment: publishing.attachment,
     send(action: string, value: unknown) {
       if (busy)
         return Promise.reject(new CommunityError("web2_revision_changed", 409));
-      const task = run(action, value);
+      const task = action.startsWith("storage-")
+        ? runStorage(action, value)
+        : run(action, value);
       active = task.catch(() => {});
       return task;
     },

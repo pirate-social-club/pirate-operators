@@ -110,7 +110,7 @@ export async function createCommunityMediaStorage(
       check: structuredClone(record.check),
     };
   }
-  return {
+  const api = {
     /** Check the submitted token read-only, then commit that same generation.
      * A declined or unavailable check writes nothing and keeps any previously
      * committed generation active. The plaintext is zeroized on every path. */
@@ -233,6 +233,27 @@ export async function createCommunityMediaStorage(
         },
       );
     },
+    /** Re-probe the committed credential read-only. The generation itself is
+     * never mutated by a check: a declined result is the operator's signal to
+     * replace, while the previous generation stays usable until one passes. */
+    async recheckActive(): Promise<
+      | { state: "missing" }
+      | { state: "ok"; pinCount: number }
+      | { state: "declined" }
+      | { state: "unavailable" }
+    > {
+      assert(!disposed);
+      await input.lease.assertHeld();
+      if (!(await active())) return { state: "missing" };
+      return api.useToken(async (token) => {
+        const outcome = await checkPinListAccess(token, send);
+        return outcome.state === "ok"
+          ? { state: "ok" as const, pinCount: outcome.pinCount }
+          : outcome.state === "declined"
+            ? { state: "declined" as const }
+            : { state: "unavailable" as const };
+      });
+    },
     /** Current active generation number, for journal binding without any
      * secret material. Null before the first committed generation. */
     async activeGeneration(): Promise<number | null> {
@@ -244,6 +265,7 @@ export async function createCommunityMediaStorage(
       disposed = true;
     },
   };
+  return api;
 }
 export type CommunityMediaStorage = Awaited<
   ReturnType<typeof createCommunityMediaStorage>

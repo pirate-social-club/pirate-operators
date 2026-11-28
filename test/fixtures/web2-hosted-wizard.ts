@@ -55,6 +55,19 @@ import {
 } from "../../apps/community-wizard/server/web2-setup.ts";
 import { createWizardServer } from "../../apps/community-wizard/server/http.ts";
 import { LinuxInputError } from "../../packages/community-setup/shared-linux-profile.ts";
+import {
+  createCommunityMediaStorage,
+  type CommunityMediaStorage,
+} from "../../deploy/linux/community-media-storage.ts";
+import {
+  startManagedKeyAgent,
+  createManagedKeyClient,
+} from "../../deploy/linux/managed-key-channel.ts";
+import {
+  processIdentity,
+  acquireOperation,
+} from "../../deploy/linux/backend-state.ts";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 
 export async function hostedWizardFixture(
   options: {
@@ -284,6 +297,76 @@ export async function hostedWizardFixture(
       ...hostDeployment
     } = chain.deployment;
     const signing = await operatorSigningFixture(directory,policy,options);
+    // Real key-agent custody for the community media credential vault, the
+    // same construction the Linux bootstrap performs. The Filebase transport
+    // is the one injected boundary; the test controls token acceptance.
+    for (const name of ["media-operation", "media-keys", "media-agent", "media-vault", "media-cohort"])
+      await mkdir(join(directory, name), { mode: 0o700 });
+    const mediaFrame = await processIdentity(process.pid);
+    assert(mediaFrame);
+    const mediaLease = await acquireOperation(
+      join(directory, "media-operation"),
+      "wizard-media-storage",
+      "wizard-host-fixture",
+      { purpose: "integration" },
+      mediaFrame.pidNamespace,
+    );
+    const mediaPair = generateKeyPairSync("ed25519");
+    await writeFile(
+      join(directory, "media-keys", "issuer.der"),
+      mediaPair.privateKey.export({ format: "der", type: "pkcs8" }),
+      { mode: 0o600 },
+    );
+    await writeFile(join(directory, "media-keys", "master"), randomBytes(32), { mode: 0o600 });
+    const mediaAuthKey = randomBytes(32);
+    const mediaAgent = await startManagedKeyAgent({
+      socket: join(directory, "media-agent", "key.sock"),
+      directory: join(directory, "media-agent"),
+      installationId: "wizard-host-fixture",
+      authenticationKey: mediaAuthKey,
+      lease: mediaLease,
+      keys: [
+        {
+          ref: "community-media",
+          generation: 1,
+          path: join(directory, "media-keys", "master"),
+          bytes: 32,
+        },
+      ],
+      signingKeyFile: join(directory, "media-keys", "issuer.der"),
+      trust: {
+        keyId: "wizard-media-issuer",
+        spki: mediaPair.publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+      },
+      permittedProfileDigests: new Set(),
+      capturedRoots: [join(directory, "media-cohort")],
+    });
+    const mediaChannel = await createManagedKeyClient({
+      socket: join(directory, "media-agent", "key.sock"),
+      installationId: "wizard-host-fixture",
+      authenticationKey: mediaAuthKey,
+      lease: mediaLease,
+    });
+    const filebase = {
+      accepted: new Map<string, number>(),
+      calls: [] as Array<{ method: string; path: string; authorization: string | null }>,
+    };
+    const filebaseTransport = async (request: Request): Promise<Response> => {
+      const url = new URL(request.url);
+      const authorization = request.headers.get("authorization");
+      filebase.calls.push({
+        method: request.method,
+        path: url.pathname + url.search,
+        authorization,
+      });
+      const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+      if (!filebase.accepted.has(token))
+        return new Response("refused", { status: 401 });
+      const pins: Record<string, { Type: string }> = {};
+      for (let i = 0; i < filebase.accepted.get(token)!; i++)
+        pins["bafybeig" + String(i).padStart(40, "0")] = { Type: "recursive" };
+      return new Response(JSON.stringify({ Keys: pins }), { status: 200 });
+    };
     const prepareInput = {
       name:"Wizard Garden",origin:"https://wizard-community.example",controller,
       publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
@@ -308,6 +391,7 @@ export async function hostedWizardFixture(
         policies: chain.current().policies,
       },
       transport,
+      mediaStorage: undefined as CommunityMediaStorage | undefined,
       async pinConfiguration(value: { uri: string; bytes: Uint8Array }) {
         chain.contents.set(value.uri.slice(7), value.bytes);
       },
@@ -327,6 +411,16 @@ export async function hostedWizardFixture(
       await save();
     }
     const start = async () => {
+      inputs.mediaStorage?.dispose();
+      inputs.mediaStorage = await createCommunityMediaStorage({
+        directory: join(directory, "media-vault"),
+        lease: mediaLease,
+        channel: mediaChannel,
+        keyRef: "community-media",
+        keyGeneration: 1,
+        installationId: "wizard-host-fixture",
+        send: filebaseTransport,
+      });
       setup = await createWeb2Setup(directory, inputs);
       server = createWizardServer(
         undefined,
@@ -572,12 +666,18 @@ export async function hostedWizardFixture(
         );
         return artifactPath;
       },
+      filebase,
       async close() {
         for (const release of statusReleases) release();
+        inputs.mediaStorage?.dispose();
         const results = await Promise.allSettled([
           stopServer(),
           mf.dispose(),
           chain.close(),
+          (async () => {
+            mediaChannel.dispose();
+            await mediaAgent.close();
+          })(),
         ]);
         const failures = results.filter((r) => r.status === "rejected");
         await recordNative(failures.length ? "cleanup-uncertain" : "closed");
