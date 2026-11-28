@@ -210,6 +210,49 @@ export async function addPin(
   );
   return reconcilePin(intent, token, send);
 }
+/** Read-only credential access check. One bounded pin-list call proves the
+ * token is accepted for its bucket without creating any object; the outcome
+ * distinguishes a provider refusal from an unavailable check so the operator
+ * sees the honest cause. The token never appears in any returned value. */
+export async function checkPinListAccess(
+  token: string,
+  send: IpfsTransport = transport,
+): Promise<
+  | { state: "ok"; pinCount: number; responseSha256: Hex }
+  | { state: "declined"; status: number }
+  | { state: "unavailable"; status: number | null }
+> {
+  let response: Response;
+  try {
+    response = await send(rpc(token, "/api/v0/pin/ls"));
+  } catch {
+    return { state: "unavailable", status: null };
+  }
+  if (response.status === 401 || response.status === 403)
+    return { state: "declined", status: response.status };
+  if (!response.ok) return { state: "unavailable", status: response.status };
+  let raw: Uint8Array;
+  try {
+    raw = await readBounded(response, 1024 * 1024);
+  } catch {
+    return { state: "unavailable", status: response.status };
+  }
+  try {
+    const result = object(
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)),
+    );
+    const keys = object(result.Keys);
+    return {
+      state: "ok",
+      pinCount: Object.keys(keys).length,
+      responseSha256: hashText(
+        new TextDecoder("utf-8", { fatal: true }).decode(raw),
+      ),
+    };
+  } catch {
+    return { state: "unavailable", status: response.status };
+  }
+}
 export async function reconcilePin(
   intent: PinIntent,
   token: string,
