@@ -14,6 +14,7 @@ import {
   assertDeployment,
   enrollmentDocument,
   enrollmentTypedData,
+  HOSTED_NO_INVITE_ID,
   ownPolicy,
   parseEnrollment,
   parsePlan,
@@ -22,6 +23,7 @@ import {
   signature,
   type HostedPolicy,
 } from "../community/hosted-enrollment.ts";
+import { parseInstallationPlanCommitment } from "../community/web2-installation-commitment.ts";
 import type { Web2RegistrationPlan } from "../community/web2-registration-chain.ts";
 import {
   hostedEnrollmentStatusFrom,
@@ -39,6 +41,13 @@ const wire = (value: unknown): unknown =>
   JSON.parse(
     JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? String(v) : v)),
   );
+const wireBytes32 = (value: unknown): Hex => {
+  insist(
+    typeof value === "string" && /^0x[0-9a-f]{64}(?![\s\S])/.test(value),
+    "invalid_shared_bytes32",
+  );
+  return value as Hex;
+};
 async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   let abort: () => void = () => {};
   try {
@@ -67,11 +76,21 @@ export function checkedHostedPreparation(
   const typed = object(v.typedData),
     message = object(typed.message);
   const id = sharedBytes32(v.enrollmentId),
-    inviteId = sharedBytes32(message.inviteId);
+    wireInviteId = wireBytes32(message.inviteId),
+    wireAllowanceId = wireBytes32(message.allowanceId);
+  const inviteId = wireInviteId === HOSTED_NO_INVITE_ID ? null : wireInviteId,
+    allowanceId =
+      wireAllowanceId === HOSTED_NO_INVITE_ID ? null : wireAllowanceId;
   const expiresAt = integer(v.expiresAt, 1, Number.MAX_SAFE_INTEGER);
   insist(
-    v.schema === "pirate.hosted-enrollment/1" &&
-      id === hashText(`hosted-enrollment:${inviteId}`) &&
+    (inviteId === null) === (allowanceId === null) &&
+      v.schema === "pirate.hosted-enrollment/1" &&
+      id ===
+        hashText(
+          inviteId
+            ? `hosted-enrollment:${inviteId}`
+            : `hosted-enrollment:${plan.commitment}`,
+        ) &&
       expiresAt > now &&
       expiresAt <= now + policy.challengeSeconds,
     "hosted_signing_request_changed",
@@ -81,7 +100,7 @@ export function checkedHostedPreparation(
     schema: "pirate.hosted-enrollment/1" as const,
     id,
     inviteId,
-    allowanceId: sharedBytes32(message.allowanceId),
+    allowanceId,
     expiresAt,
     policyHash: policyHash(policy),
     noticeSha256: policy.noticeSha256,
@@ -212,12 +231,33 @@ export function createHostedEnrollmentClient(
     prepared: PreparedHostedEnrollment,
     controllerSignature: unknown,
     proofs?: unknown,
+    installationCommitmentValue?: unknown,
   ): Promise<HostedEnrollmentStatus> {
-    const e = original(prepared),
-      auth = {
-        enrollmentId: e.id,
-        controllerSignature: signature(controllerSignature),
-      };
+    const e = original(prepared);
+    let installationCommitment;
+    if (installationCommitmentValue !== undefined) {
+      try {
+        installationCommitment = parseInstallationPlanCommitment(
+          installationCommitmentValue,
+        );
+      } catch {
+        throw new CommunityError("invalid_installation_commitment", 409);
+      }
+      insist(
+        installationCommitment.enrollmentId === e.id &&
+          installationCommitment.communityId === e.plan.profile.communityId &&
+          installationCommitment.installationId === e.plan.profile.installationId,
+        "installation_plan_commitment_mismatch",
+        409,
+      );
+    }
+    const auth = {
+      enrollmentId: e.id,
+      controllerSignature: signature(controllerSignature),
+      ...(installationCommitment === undefined
+        ? {}
+        : { installationCommitment }),
+    };
     const value = await post(
       path,
       proofs === undefined ? auth : { ...auth, recipientProofs: proofs },
@@ -234,15 +274,16 @@ export function createHostedEnrollmentClient(
     return status;
   }
   return {
-    async prepare(planInput: Web2RegistrationPlan, inviteToken: string) {
+    async prepare(planInput: Web2RegistrationPlan, inviteToken?: string) {
       const plan = parsePlan(planDocument(planInput));
       assertDeployment(policy, plan);
-      insist(
-        typeof inviteToken === "string" && /^[a-f0-9]{64}$/.test(inviteToken),
-        "invalid_invite",
-      );
+      if (inviteToken !== undefined)
+        insist(
+          typeof inviteToken === "string" && /^[a-f0-9]{64}$/.test(inviteToken),
+          "invalid_invite",
+        );
       const value = await post("/prepare", {
-        inviteToken,
+        ...(inviteToken === undefined ? {} : { inviteToken }),
         profile: web2ProfileDocument(plan.profile),
         config: plan.config,
         uri: plan.uri,
@@ -250,8 +291,11 @@ export function createHostedEnrollmentClient(
       });
       return checkedHostedPreparation(value, plan, policy, clock());
     },
-    redeem: (prepared: PreparedHostedEnrollment, proof: unknown) =>
-      action("/redeem", prepared, proof),
+    redeem: (
+      prepared: PreparedHostedEnrollment,
+      proof: unknown,
+      installationCommitment: unknown,
+    ) => action("/redeem", prepared, proof, undefined, installationCommitment),
     status: (prepared: PreparedHostedEnrollment, proof: unknown) =>
       action("/status", prepared, proof),
     topup: (

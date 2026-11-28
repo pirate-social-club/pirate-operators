@@ -33,6 +33,7 @@ import {
 import {
   provisionHostedInvite,
   allOperations,
+  loadEnrollment,
 } from "../../packages/community/hosted-enrollment-store.ts";
 import {
   enrollmentTypedData,
@@ -41,6 +42,14 @@ import {
 } from "../../packages/community/hosted-enrollment.ts";
 import type { HostedRuntime } from "../../packages/community/hosted-topup-chain.ts";
 import { createHostedEnrollmentService } from "../../services/hosted-community-enrollment.ts";
+import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../../packages/community/web2-installation-readback.ts";
+import {
+  installationPlanCommitmentTypedData,
+  unsignedInstallationPlanCommitment,
+} from "../../packages/community/web2-installation-commitment.ts";
 import { createHostedFundingService } from "../../services/hosted-community-funding.ts";
 import {
   web2SongChain,
@@ -70,16 +79,22 @@ import {
   acquireOperation,
 } from "../../deploy/linux/backend-state.ts";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { linuxWeb2DraftFrom } from "../../packages/community-setup/linux-web2-profile.ts";
 
 export async function hostedWizardFixture(
   options: {
     contractController?: boolean;
     sameRecipient?: boolean;
+    /** Seed only the service-admitted funding enrollment preparation. The test
+     * still uses the Wizard's real authorize/install/registration sequence. */
+    fundedEnrollment?: boolean;
     invalidDeployment?: boolean;
     publishing?: boolean;
     grantWindowSeconds?:number;
     signingOrigin?:string;
     observeInstallationAttempts?:boolean;
+    scriptedInstallation?: boolean;
+    failFirstApply?: boolean;
     missingCustody?: boolean;
     /** False where the test drives DNS verification through the real browser
      * or actions itself; the fixture pre-verifies through real HTTP otherwise
@@ -220,6 +235,53 @@ export async function hostedWizardFixture(
       },
       readConfiguration: (uri) =>
         fetch(chain.deployment.ipfsGateways[0] + "/ipfs/" + uri.slice(7)),
+      // Explicit external-site fixture: the registrar-facing HTTPS endpoint is
+      // represented by the prepared enrollment's immutable configuration while
+      // the Wizard ordering integration is assembled. Failure behavior itself
+      // is exercised against the hosted service fixture, not by this stand-in.
+      readInstallation: async (url) => {
+        const requestUrl = new URL(String(url)),
+          id = requestUrl.searchParams.get("enrollmentId");
+        if (!id) return Response.json({ error: "missing enrollment" }, { status: 503, headers: { "cache-control": "no-store" } });
+        try {
+          const enrollment = await loadEnrollment(db, id as `0x${string}`),
+            config = enrollment.plan.config,
+            publisherAccount = [web2Publisher, web2Controller, web2Owner].find(
+              (account) => account.address.toLowerCase() === config.publisher,
+            ) ?? web2Controller,
+            message = installationReadbackMessage({
+              enrollmentId: id as Hex,
+              config,
+              nonce: requestUrl.searchParams.get("nonce") as Hex,
+              installation: {
+                generation: 1,
+                planId: "web2-" + (requestUrl.searchParams.get("enrollmentId") as Hex).slice(2),
+                durableScope: "a".repeat(64),
+                releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
+                releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
+                targetDigest: "d".repeat(64),
+                hostFingerprint: "fixture-installation",
+              },
+            }),
+            signature = await publisherAccount.signTypedData(
+              installationReadbackTypedData(config, message),
+            );
+          return Response.json(
+            {
+              schema: "pirate.web2-installation-readback-response/1",
+              configuration: config,
+              proof: {
+                schema: "pirate.web2-installation-readback/1",
+                ...message,
+                signature,
+              },
+            },
+            { headers: { "cache-control": "no-store" } },
+          );
+        } catch {
+          return Response.json({ error: "installation unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });
+        }
+      },
     };
     const enrollment = createHostedEnrollmentService(runtime),
       funding = createHostedFundingService(runtime);
@@ -251,18 +313,19 @@ export async function hostedWizardFixture(
       await client.waitForTransactionReceipt({ hash: init });
       await chain.rpc("anvil_mine", ["0x40", "0x0"]);
     }
-    const inviteToken = token();
-    await provisionHostedInvite(
-      db,
-      policy,
-      {
-        id: publicId(),
-        token: inviteToken,
-        allowanceId: publicId(),
-        expiresAt: runtime.now() + 3500,
-      },
-      runtime.now(),
-    );
+    const inviteToken = options.sameRecipient || options.fundedEnrollment ? token() : undefined;
+    if (inviteToken)
+      await provisionHostedInvite(
+        db,
+        policy,
+        {
+          id: publicId(),
+          token: inviteToken,
+          allowanceId: publicId(),
+          expiresAt: runtime.now() + 3500,
+        },
+        runtime.now(),
+      );
     const before = chain.effects.broadcasts;
     const transport: typeof fetch = async (url, init) => {
       const request = new Request(url, init);
@@ -380,13 +443,66 @@ export async function hostedWizardFixture(
     const communityHostname = "wizard-community.example";
     const prepareInput = {
       controller,
-      publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
+      publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),noticeAccepted:true,
     };
     let installationAttempts=0;
     const installationUnavailable=async()=>{installationAttempts++;throw Error("fixture installation must not run after an expired owner window");};
+    // Explicit Wizard sequencing stand-in. It preserves the draft, selection and
+    // running state for UI/server tests; it is not installer, container, ingress
+    // or public-HTTPS evidence. Those proofs belong to the installer and VM lane.
+    const scripted=()=>{
+      let plan:import("../../packages/community-setup/linux-web2-profile.ts").LinuxWeb2PlanSummary|null=null,
+        running=false,
+        applyFailed=!options.failFirstApply;
+      return {
+        async prepare(value:unknown) {
+          const draft=linuxWeb2DraftFrom(value),
+            registration=draft.enrollment.operations.find(op=>op.kind==="registration"&&op.state==="consumed");
+          plan={
+            planId:"web2-"+draft.enrollment.enrollmentId.slice(2),
+            planDigest:hashText(canonical(draft)).slice(2),
+            installationId:"wizard-host-fixture",
+            binding:{
+              generation:1,
+              planId:"web2-" + draft.enrollment.enrollmentId.slice(2),
+              durableScope:"a".repeat(64),
+              releaseArtifactDigest:("0x" + "b".repeat(64)) as `0x${string}`,
+              releaseSourceDigest:("0x" + "c".repeat(64)) as `0x${string}`,
+              targetDigest:"d".repeat(64),
+              hostFingerprint:"fixture-installation",
+            },
+            summary:{
+              communityId:draft.configuration.communityId,
+              origin:draft.configuration.app.origin,
+              name:draft.configuration.app.label,
+              controller:draft.configuration.controller,
+              publisher:draft.configuration.publisher,
+              registrationTransaction:registration?.transactionHash ?? null,
+              verifiedListing:false,
+              namesEnabled:false,
+              learningEnabled:false,
+              danceEnabled:false,
+            },
+          };
+          return structuredClone(plan);
+        },
+        async apply(selection:{planId:string;planDigest:string}) {
+          if(!plan||selection.planId!==plan.planId||selection.planDigest!==plan.planDigest)throw Error("scripted installation selection changed");
+          if(!applyFailed){applyFailed=true;throw Error("scripted installation apply interrupted");}
+          running=true;
+          return {...selection,installationId:plan.installationId,state:"running" as const};
+        },
+        async status(selection:{planId:string;planDigest:string}) {
+          if(!plan||selection.planId!==plan.planId||selection.planDigest!==plan.planDigest)throw Error("scripted installation selection changed");
+          return {...selection,installationId:plan.installationId,state:running?"running" as const:"prepared" as const};
+        },
+        async close() {},
+      };
+    };
+    const scriptedPort=options.scriptedInstallation?scripted():undefined;
     const inputs = {
       policy,
-      ...(options.observeInstallationAttempts ? {installation:{prepare:installationUnavailable,apply:installationUnavailable,status:installationUnavailable,close:async()=>{}}} : {}),
+      ...(options.observeInstallationAttempts ? {installation:{prepare:installationUnavailable,apply:installationUnavailable,status:installationUnavailable,close:async()=>{}}} : scriptedPort ? {installation:scriptedPort} : {}),
       ...(options.signingOrigin ? {signingOrigin:options.signingOrigin} : {}),
       notice,
       hostInstallationId:"wizard-host-fixture",
@@ -408,16 +524,39 @@ export async function hostedWizardFixture(
         chain.contents.set(value.uri.slice(7), value.bytes);
       },
     };
+    if(options.fundedEnrollment) {
+      const selected={name:communityName,origin:"https://"+communityHostname,controller,publisher:prepareInput.publisher as Hex};
+      const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
+      await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
+      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken!);
+      const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
+      Object.assign(journal,{request:selected,plan:web2Wire(planDocument(plan)),deployment,prepared,phase:"prepared"});
+      await save();
+    }
     if(options.sameRecipient) {
       const selected={name:communityName,origin:"https://"+communityHostname,controller,publisher:controller};
       const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
       await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
-      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken);
+      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken!);
       const e=parseEnrollment(prepared.enrollment),proof=await web2Owner.signTypedData(enrollmentTypedData(e));
-      await oldClient.redeem(prepared,proof);await chain.rpc("anvil_mine",["0x40","0x0"]);
+      const unsigned=unsignedInstallationPlanCommitment({
+        enrollmentId:e.id,
+        communityId:e.plan.profile.communityId,
+        installationId:e.plan.profile.installationId,
+        generation:1,
+        planId:"web2-" + e.id.slice(2),
+        durableScope:"a".repeat(64),
+        releaseArtifactDigest:("0x" + "b".repeat(64)) as Hex,
+        releaseSourceDigest:("0x" + "c".repeat(64)) as Hex,
+        targetDigest:"d".repeat(64),
+        hostFingerprint:"fixture-installation",
+      });
+      const installationCommitment={schema:"pirate.web2-installation-plan-commitment/1",...unsigned,
+        controllerSignature:await web2Owner.signTypedData(installationPlanCommitmentTypedData(e.plan.profile,unsigned))};
+      await oldClient.redeem(prepared,proof,installationCommitment);await chain.rpc("anvil_mine",["0x40","0x0"]);
       await oldClient.topup(prepared,proof,[{recipient:controller,signature:proof}]);await chain.rpc("anvil_mine",["0x40","0x0"]);
       const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
-      Object.assign(journal,{request:selected,inviteToken,plan:web2Wire(planDocument(plan)),deployment,prepared,
+      Object.assign(journal,{request:selected,plan:web2Wire(planDocument(plan)),deployment,prepared,
         controllerSignature:proof,recipientProofs:[{recipient:controller,signature:proof}],
         enrollment:await oldClient.status(prepared,proof),phase:"funded"});
       await save();
@@ -623,6 +762,20 @@ export async function hostedWizardFixture(
         ? web2Publisher
         : web2Owner
       ).signTypedData(typed as ReturnType<typeof enrollmentTypedData>);
+    const install = async () => {
+      let view = await send("installation-prepare", {});
+      const plan = view.installPlan;
+      assert(plan);
+      assert(view.installationChallenge);
+      view = await send("install", {
+        planId: plan.planId,
+        planDigest: plan.planDigest,
+        approved: true,
+        installationSignature: await sign(view.installationChallenge),
+      });
+      assert.equal(view.observation?.state, "running");
+      return view;
+    };
     const stopServer = async () => {
       await setup?.settled();
       if (server?.listening) {
@@ -648,7 +801,6 @@ export async function hostedWizardFixture(
       changeGrantSelection:(kind:"publisher")=>signing!.changeGrantSelection(kind),
       journal: join(directory, "web2-wizard-original.json"),
       dnsAnswers,
-      inviteToken,
       prepareInput,
       communityName,
       communityHostname,
@@ -657,6 +809,7 @@ export async function hostedWizardFixture(
       post,
       send,
       sign,
+      install,
       prepare: () => send("prepare", prepareInput),
       prepareResponse: () => post("prepare", prepareInput),
       dropRedeemReply: () => {

@@ -59,6 +59,11 @@ import {
 import { createHostedEnrollmentService } from "../../services/hosted-community-enrollment.ts";
 import { createHostedFundingService } from "../../services/hosted-community-funding.ts";
 import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
+import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../../packages/community/web2-installation-readback.ts";
+import { installationPlanCommitmentTypedData } from "../../packages/community/web2-installation-commitment.ts";
 
 const fixtureAccounts = Array.from({ length: 6 }, (_, i) =>
   privateKeyToAccount(`0x${(i + 1).toString(16).padStart(64, "0")}`),
@@ -73,6 +78,8 @@ function compile() {
   const files = [
     "contracts/community/CommunityDirectoryV3.sol",
     "contracts/community/PublicationReference.sol",
+    "contracts/community/CommunityPostsV1.sol",
+    "contracts/interfaces/community/ICommunityPostsV1.sol",
     "contracts/interfaces/community/ICommunityDirectoryV1.sol",
     "contracts/interfaces/community/ICommunityDirectoryV3.sol",
     "contracts/test/MockAccount.sol",
@@ -140,7 +147,9 @@ function compile() {
   );
   return artifacts;
 }
-export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean } = {}) {
+export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean; chainId?: 31337 | 6343 } = {}) {
+  const chainId = options.chainId ?? 31337,
+    fixtureChain = { ...foundry, id: chainId };
   const compiled = compile(),
     portReservation = createServer();
   portReservation.listen(0, "127.0.0.1");
@@ -157,9 +166,9 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       "--port",
       String(port),
       "--chain-id",
-      "31337",
+      String(chainId),
       "--timestamp",
-      String(options.packaged ? Math.floor(Date.now() / 1000) - 30 : 1800000000),
+      String(options.packaged || chainId === 6343 ? Math.floor(Date.now() / 1000) - 30 : 1800000000),
       "--slots-in-an-epoch",
       "1",
       "--silent",
@@ -186,7 +195,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     };
   const local = createPublicClient({
     transport: http(url, { retryCount: 0 }),
-    chain: foundry,
+    chain: fixtureChain,
   });
   const journal = options.packaged ? await mkdtemp(join(tmpdir(), "hosted-worker-journal-")) : undefined;
   const mf = new Miniflare({
@@ -197,13 +206,20 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     ...(journal ? { d1Persist: journal } : {}),
   });
   const pins = new Map<string, Uint8Array>(),
+    installations = new Map<string, { config: Web2CommunityConfig; publisherAccount: (typeof fixtureAccounts)[number] }>(),
     state = {
       dropSend: 0,
       dropBeforeSend: 0,
       sendCount: 0,
-      clock: options.packaged ? Math.floor(Date.now() / 1000) : 1800000030,
+      clock: options.packaged || chainId === 6343 ? Math.floor(Date.now() / 1000) : 1800000030,
       invalidPin: false,
       redirectPin: false,
+      installationStatus: 200,
+      installationMismatch: false,
+      installationProofInvalid: false,
+      readInstallation: undefined as typeof fetch | undefined,
+      registrarSignatures: 0,
+      funderSignatures: 0,
       failRpc: false,
       beforeSend: undefined as (() => Promise<void>) | undefined,
     };
@@ -292,7 +308,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const wallet = createWalletClient({
       account: admin,
       transport: http(url, { retryCount: 0 }),
-      chain: foundry,
+      chain: fixtureChain,
     });
     const hash = await wallet.deployContract({
       abi: compiled.CommunityDirectoryV3!.abi,
@@ -302,6 +318,18 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const receipt = await local.waitForTransactionReceipt({ hash });
     assert(receipt.contractAddress);
     const directory = lower(receipt.contractAddress);
+    const postsHash = await wallet.deployContract({
+      abi: compiled.CommunityPostsV1!.abi,
+      bytecode: compiled.CommunityPostsV1!.bytecode,
+      args: [directory],
+    });
+    const postsReceipt = await local.waitForTransactionReceipt({ hash: postsHash });
+    assert(postsReceipt.contractAddress);
+    const posts = {
+      address: lower(postsReceipt.contractAddress),
+      runtimeCodeHash: keccak256((await local.getCode({ address: postsReceipt.contractAddress, blockNumber: postsReceipt.blockNumber }))!),
+      deploymentBlock: String(postsReceipt.blockNumber),
+    };
     const configure = await wallet.writeContract({
       address: directory,
       abi: directoryV3Abi,
@@ -333,7 +361,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       serviceOrigin: "https://hosted.example",
       deployment: {
         schema: "pirate.web2-directory/3",
-        chainId: 31337,
+        chainId,
         directory,
         directoryCodeHash: directoryV3Build.runtimeCodeHash,
         directoryAbiSha256: directoryV3Build.abiSha256,
@@ -470,7 +498,11 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
     const worker = pkg && cwd ? { context: pkg.profile.configuration.schemaContext, pkg, cwd, restart, repeatMigrations, collectProfile, configurationFault, request: requestWorker, evidence } : undefined;
     const signer = (a: typeof admin): HostedSigner => ({
       address: lower(a.address),
-      signTransaction: async (tx) => a.signTransaction(tx),
+      signTransaction: async (tx) => {
+        if (a === registrar) state.registrarSignatures++;
+        if (a === funder) state.funderSignatures++;
+        return a.signTransaction(tx);
+      },
     });
     const runtime: HostedRuntime = {
       db,
@@ -482,6 +514,46 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       funder: signer(funder),
       readConfiguration: async (uri) =>
         fetch(`${proxyUrl}/ipfs/${uri.slice(7)}`),
+      readInstallation: async (url, init) => {
+        if (state.readInstallation) return state.readInstallation(url, init);
+        const requestUrl = new URL(String(url)),
+          id = requestUrl.searchParams.get("communityId");
+        const installed = id ? installations.get(id as `0x${string}`) : undefined;
+        if (!installed || state.installationStatus !== 200)
+          return Response.json({ error: "installation unavailable" }, { status: state.installationStatus, headers: { "cache-control": "no-store" } });
+        const config = state.installationMismatch
+          ? { ...installed.config, app: { ...installed.config.app, label: "substituted" } }
+          : installed.config;
+        const message = installationReadbackMessage({
+          enrollmentId: requestUrl.searchParams.get("enrollmentId") as Hex,
+          config,
+          nonce: requestUrl.searchParams.get("nonce") as Hex,
+          installation: {
+              generation: 1,
+              planId: "web2-" + (requestUrl.searchParams.get("enrollmentId") as Hex).slice(2),
+              durableScope: "a".repeat(64),
+              releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
+              releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
+              targetDigest: "d".repeat(64),
+              hostFingerprint: "fixture-installation",
+            },
+        });
+        const signature = await (state.installationProofInvalid ? stranger : installed.publisherAccount).signTypedData(
+          installationReadbackTypedData(config, message),
+        );
+        return Response.json(
+          {
+            schema: "pirate.web2-installation-readback-response/1",
+            configuration: config,
+            proof: {
+              schema: "pirate.web2-installation-readback/1",
+              ...message,
+              signature,
+            },
+          },
+          { headers: { "cache-control": "no-store" } },
+        );
+      },
     };
     const enrollment = createHostedEnrollmentService(runtime),
       funding = createHostedFundingService(runtime);
@@ -503,46 +575,29 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
         body: (await response.json()) as Record<string, unknown>,
       };
     };
-    const invite = async (
+    const registrationInput = async (
       opts: {
         controller?: Address;
         publisher?: Address;
-        allowanceId?: Hex;
-        ttl?: number;
       } = {},
     ) => {
-      const id = publicId(),
-        secret = token(),
-        allowanceId = opts.allowanceId ?? publicId(),
-        key = publicId(),
+      const key = publicId(),
         installationId = publicId();
-      await provisionHostedInvite(
-        db,
-        policy,
-        {
-          id,
-          token: secret,
-          allowanceId,
-          expiresAt: state.clock + (opts.ttl ?? 3600),
-        },
-        state.clock,
-        pkg?.profile.configuration.schemaContext,
-      );
       const profile = validateWeb2Profile({
         ...policy.deployment,
         communityKey: key,
-        communityId: directoryInstanceId(31337, key),
+        communityId: directoryInstanceId(chainId, key),
         installationId,
       });
       const config: Web2CommunityConfig = {
         schema: "pirate.community-config/4",
-        chainId: 31337,
+        chainId,
         directory,
         communityId: profile.communityId,
         communityKey: key,
         installationId,
         configurationRevision: 1,
-        postsContract: lower(stranger.address),
+        postsContract: posts.address,
         controller: lower(opts.controller ?? controller.address),
         publisher: lower(opts.publisher ?? publisher.address),
         operatorPayments: zero,
@@ -564,17 +619,62 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const bytes = new TextEncoder().encode(canonical(config)),
         pin = await preparePin(bytes, "application/json");
       pins.set(pin.uri, bytes);
-      const body = {
-        inviteToken: secret,
-        profile: web2ProfileDocument(profile),
+      installations.set(config.communityId, {
         config,
-        uri: pin.uri,
-        noticeSha256: policy.noticeSha256,
+        publisherAccount: (opts.publisher ?? publisher.address).toLowerCase() === publisher.address.toLowerCase() ? publisher : controller,
+      });
+      return {
+        profile,
+        config,
+        body: {
+          profile: web2ProfileDocument(profile),
+          config,
+          uri: pin.uri,
+          noticeSha256: policy.noticeSha256,
+        },
       };
-      return { id, secret, allowanceId, profile, config, body };
+    };
+    const invite = async (
+      opts: {
+        controller?: Address;
+        publisher?: Address;
+        allowanceId?: Hex;
+        ttl?: number;
+      } = {},
+    ) => {
+      const id = publicId(),
+        secret = token(),
+        allowanceId = opts.allowanceId ?? publicId();
+      await provisionHostedInvite(
+        db,
+        policy,
+        {
+          id,
+          token: secret,
+          allowanceId,
+          expiresAt: state.clock + (opts.ttl ?? 3600),
+        },
+        state.clock,
+        pkg?.profile.configuration.schemaContext,
+      );
+      const selected = await registrationInput(opts);
+      const body = {
+        ...selected.body,
+        inviteToken: secret,
+      };
+      return { id, secret, allowanceId, profile: selected.profile, config: selected.config, body };
+    };
+    const permissionless = async (
+      opts: {
+        controller?: Address;
+        publisher?: Address;
+      } = {},
+    ) => {
+      const selected = await registrationInput(opts);
+      return { profile: selected.profile, config: selected.config, body: selected.body };
     };
     const prepare = async (
-      i: Awaited<ReturnType<typeof invite>>,
+      i: { body: unknown },
       signerAccount = controller,
     ) => {
       const response = await post("/prepare", i.body);
@@ -583,7 +683,34 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const controllerSignature = await signerAccount.signTypedData(
         enrollmentTypedData(e),
       );
-      return { e, auth: { enrollmentId: e.id, controllerSignature } };
+      const installation = {
+        enrollmentId: e.id,
+        communityId: e.plan.profile.communityId,
+        installationId: e.plan.profile.installationId,
+        generation: 1,
+        planId: "web2-" + e.id.slice(2),
+        durableScope: "a".repeat(64),
+        releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
+        releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
+        targetDigest: "d".repeat(64),
+        hostFingerprint: "fixture-installation",
+      };
+      const installationCommitment = {
+        schema: "pirate.web2-installation-plan-commitment/1" as const,
+        ...installation,
+        controllerSignature: await signerAccount.signTypedData(
+          installationPlanCommitmentTypedData(e.plan.profile, installation),
+        ),
+      };
+      return {
+        e,
+        auth: { enrollmentId: e.id, controllerSignature },
+        registrationAuth: {
+          enrollmentId: e.id,
+          controllerSignature,
+          installationCommitment,
+        },
+      };
     };
     return {
       runtime,
@@ -600,9 +727,12 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       mine,
       post,
       invite,
+      permissionless,
       prepare,
       pins,
       compiled,
+      posts,
+      proxyUrl,
       enrollment,
       funding,
       async close() {

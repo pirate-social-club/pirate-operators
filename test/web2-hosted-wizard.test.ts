@@ -12,16 +12,11 @@ import {
 import { web2Other } from "./fixtures/web2-first-song-chain.ts";
 import { enrollmentTypedData } from "../packages/community/hosted-enrollment.ts";
 import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
-import { setTimeout as delay } from "node:timers/promises";
-import {
-  createWeb2WizardClient,
-  type Web2Snapshot,
-} from "../apps/community-wizard/src/web2-api.ts";
 
 // Failure plan precedes production in the onboarding document. These exercise
 // the actual paired HTTP server, hosted handlers, D1, signatures and local RPC.
-test("paired Web2 Wizard retains one original across lost redeem reply and restart, then funds distinct signers", async () => {
-  const f = await hostedWizardFixture();
+test("paired Web2 Wizard retains one original across lost redeem reply and restart without Pirate-funded gas", async () => {
+  const f = await hostedWizardFixture({ scriptedInstallation: true });
   try {
     const bad = await f.post("prepare", {
       ...f.prepareInput,
@@ -47,10 +42,17 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
       f.prepareInput.publisher.toLowerCase(),
     );
     assert(view.challenge);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    assert.equal(view.controllerAuthorized, true);
     f.dropRedeemReply();
-    view = await f.send("redeem", { signature: await f.sign(view.challenge) });
+    view = await f.install();
     assert.equal(view.phase, "unknown");
+    assert.equal(f.broadcasts(), 1);
     const identity = view.selection;
+    const legacy = JSON.parse(await readFile(f.journal, "utf8"));
+    legacy.inviteToken = "ab".repeat(32);
+    legacy.invitationRefused = false;
+    await writeFile(f.journal, JSON.stringify(legacy) + "\n");
     await f.restart();
     await f.mine();
     view = await f.send("reconcile", {});
@@ -59,60 +61,123 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     const sent = f.broadcasts();
     view = await f.send("redeem", { signature: await f.sign(view.challenge!) });
     assert.equal(f.broadcasts(), sent);
-    const proofs = await f.recipientProofs(view);
-    view = await f.send("topup", {});
-    await f.mine();
-    view = await f.send("reconcile", {});
-    assert.equal(view.enrollment?.operations.length, 3);
+    assert.equal(view.enrollment?.operations.length, 1);
     assert(view.enrollment.operations.every((op) => op.state === "consumed"));
     const funded = f.broadcasts();
-    await f.send("topup", {});
+    const topup = await f.post("topup", {});
+    assert.equal(topup.status, 409);
+    assert.equal(topup.body.code, "hosted_request_refused");
     assert.equal(f.broadcasts(), funded);
-    const unavailable = await f.post("install", {});
-    assert.equal(unavailable.status, 503);
-    assert.equal(unavailable.body.code, "web2_installation_unavailable");
-    const current = await f.raw("GET", "/api/web2/state"),
-      slowClient = createWeb2WizardClient(async (resource, init) => {
-        const request = new Request(
-            resource instanceof Request
-              ? resource
-              : new URL(resource, f.origin),
-            init,
-          ),
-          headers = new Headers(request.headers);
-        // Keep the existing explicit fixture pairing channel. The actual
-        // runner still checks Origin, CSRF, revision and all request data.
-        headers.set("cookie", "wizard_fixture=paired");
-        headers.set("origin", f.origin);
-        const response = await fetch(new Request(request, { headers }));
-        // Delay the real unavailable-installer reply past the old deadline;
-        // no installer or successful installation response is substituted.
-        await delay(31_000, undefined, { signal: request.signal });
-        return response;
-      });
-    await assert.rejects(
-      slowClient.send(
-        "installation-prepare",
-        {},
-        current.body as unknown as Web2Snapshot,
-      ),
-      /The real Linux Web2 installer is unavailable/,
-    );
     assert.deepEqual((await f.state()).selection, identity);
     assert.equal(f.broadcasts(), funded);
     const publicText = JSON.stringify(await f.state());
-    assert(!publicText.includes(f.inviteToken));
-    assert(!publicText.includes(proofs[0]!.signature));
+    assert(!publicText.includes("inviteToken"));
     assert.equal((await lstat(f.journal)).mode & 0o777, 0o600);
     const original = JSON.parse(await readFile(f.journal, "utf8"));
-    assert.equal(original.inviteToken, f.inviteToken);
+    assert.equal(Object.hasOwn(original, "inviteToken"), false);
+    assert.equal(Object.hasOwn(original, "invitationRefused"), false);
     await f.artifact("recovery", view);
   } finally {
     await f.close();
   }
 });
 
-test("unknown preparation resumes after reconstruction using the retained private invitation and same community", async () => {
+
+test("the Wizard gates registration on a running installation and publishing on its receipt", async () => {
+  const f = await hostedWizardFixture({ publishing: true, scriptedInstallation: true });
+  try {
+    let view = await f.send("prepare", f.prepareInput);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    assert.equal(view.controllerAuthorized, true);
+    assert.equal(view.publishing, null);
+    const publishingEarly = await f.post("publishing-prepare", {
+      ownerWallet: f.nominatedOwner,
+      rolesReviewed: true,
+    });
+    assert.equal(publishingEarly.status, 409);
+    assert.equal(publishingEarly.body.code, "safe_registration_required");
+    const redeemEarly = await f.post("redeem", {});
+    assert.equal(redeemEarly.status, 409);
+    assert.equal(redeemEarly.body.code, "web2_installation_required");
+    assert.equal(f.broadcasts(), 0);
+
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    assert.equal(plan.summary.registrationTransaction, null);
+    view = await f.send("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+      installationSignature: await f.sign(view.installationChallenge),
+    });
+    assert.equal(view.observation?.state, "running");
+    view = await f.send("redeem", {});
+    assert.equal(f.broadcasts(), 1);
+    await f.mine();
+    view = await f.send("reconcile", {});
+    assert.equal(
+      view.enrollment?.operations.some(
+        (operation) =>
+          operation.kind === "registration" && operation.state === "consumed",
+      ),
+      true,
+    );
+    assert.equal(view.installPlan?.installationId, plan.installationId);
+    assert.equal(view.installPlan?.planDigest, plan.planDigest);
+    view = await f.send("publishing-prepare", {
+      ownerWallet: f.nominatedOwner,
+      rolesReviewed: true,
+    });
+    assert(view.publishing);
+  } finally {
+    await f.close();
+  }
+});
+
+
+test("an interrupted install restart reuses the retained installation approval for the same plan", async () => {
+  const f = await hostedWizardFixture({
+    scriptedInstallation: true,
+    failFirstApply: true,
+  });
+  try {
+    let view = await f.send("prepare", f.prepareInput);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    const installationSignature = await f.sign(view.installationChallenge);
+    const interrupted = await f.post("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+      installationSignature,
+    });
+    assert.equal(interrupted.status, 502);
+    await f.restart();
+    const retained = JSON.parse(await readFile(f.journal, "utf8"));
+    assert.equal(retained.pending, "install");
+    assert.equal(
+      retained.installationCommitment.controllerSignature,
+      installationSignature,
+    );
+    assert.equal(retained.observation, null);
+    view = await f.send("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+    });
+    assert.equal(view.observation?.state, "running");
+    assert.equal(f.broadcasts(), 1);
+    const after = JSON.parse(await readFile(f.journal, "utf8"));
+    assert.deepEqual(after.installationCommitment, retained.installationCommitment);
+  } finally {
+    await f.close();
+  }
+});
+
+test("unknown preparation resumes after reconstruction using the retained original community", async () => {
   const f = await hostedWizardFixture();
   try {
     f.dropPrepareReply();
@@ -150,8 +215,8 @@ test("repeated real journal rename failures permit no hosted preparation until t
   }
 });
 
-test("definitively refused invitation and signature can be corrected without replacing the community or replaying an unknown original", async () => {
-  const f = await hostedWizardFixture();
+test("unexpected invitation input is refused and a wrong signature can be corrected without replacing the community", async () => {
+  const f = await hostedWizardFixture({ scriptedInstallation: true });
   try {
     const malformed = await f.post("prepare", {
       ...f.prepareInput,
@@ -159,26 +224,29 @@ test("definitively refused invitation and signature can be corrected without rep
     });
     assert.equal(malformed.status, 400);
     assert.equal((await f.state()).selection, null);
-    const refused = await f.post("prepare", {
-      ...f.prepareInput,
-      inviteToken: "f".repeat(64),
-    });
-    assert.equal(refused.status, 409);
-    const identity = (await f.state()).selection;
-    let view = await f.send("resume-prepare", {
-      inviteToken: f.inviteToken,
-      noticeAccepted: true,
-    });
-    assert.deepEqual(view.selection, identity);
+    let view = await f.prepare();
     const wrong = await web2Other.signTypedData(
       view.challenge as ReturnType<typeof enrollmentTypedData>,
     );
-    const denied = await f.post("redeem", { signature: wrong });
+    view = await f.send("authorize", { signature: wrong });
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    const denied = await f.post("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+      installationSignature: await f.sign(view.installationChallenge),
+    });
     assert.equal(denied.status, 409);
     assert.equal(denied.body.code, "hosted_authorization_refused");
     assert.equal((await f.state()).controllerAuthorized, false);
     assert.equal(f.broadcasts(), 0);
-    view = await f.send("redeem", { signature: await f.sign(view.challenge) });
+    view = await f.send("authorize", {
+      signature: await f.sign(view.challenge),
+    });
+    view = await f.send("installation-status", {});
+    assert.equal(f.broadcasts(), 1);
     await f.mine();
     view = await f.send("reconcile", {});
     assert.equal(view.enrollment?.operations[0]?.state, "consumed");
@@ -309,10 +377,12 @@ test("Web2 Wizard requires paired authorization, exact host, Origin and CSRF and
 });
 
 test("contract controller uses actual ERC1271 enrollment authorization without collecting a key", async () => {
-  const f = await hostedWizardFixture({ contractController: true });
+  const f = await hostedWizardFixture({ contractController: true, scriptedInstallation: true });
   try {
     let view = await f.prepare();
-    view = await f.send("redeem", { signature: await f.sign(view.challenge!) });
+    view = await f.send("authorize", { signature: await f.sign(view.challenge!) });
+    view = await f.install();
+    view = await f.send("redeem", {});
     await f.mine();
     view = await f.send("reconcile", {});
     const proofs = await f.recipientProofs(view);

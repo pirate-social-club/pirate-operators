@@ -3,11 +3,19 @@ import { constants, readFileSync } from "node:fs";
 import { lstat, open, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, normalize, join } from "node:path";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { request } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import { httpsOrigin } from "../../packages/community/manifest-core.ts";
-import { exact, object } from "../../packages/community/common.ts";
+import { canonical, exact, hashText, object } from "../../packages/community/common.ts";
+import { recoverTypedDataAddress, type Hex } from "viem";
+import {
+  installationReadbackTypedData,
+  parseInstallationReadbackProof,
+  type Web2InstallationReadbackBinding,
+} from "../../packages/community/web2-installation-readback.ts";
+import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
   hash,
   privateDirectory,
@@ -408,6 +416,12 @@ export async function startPublicIngress(
   };
 }
 
+export interface CommunityIngressInstallationProbe
+  extends Web2InstallationReadbackBinding {
+  enrollmentId: Hex;
+  configuration: Web2CommunityConfig;
+}
+
 /** A real application response over verified upstream TLS, not a readiness flag. */
 class ApplicationBootPending extends Error {}
 
@@ -417,6 +431,7 @@ export async function waitForCommunityIngress(
   ingress: PublicIngress,
   expectedCommunityId: string,
   assertCurrent: () => Promise<void>,
+  installation?: CommunityIngressInstallationProbe,
 ) {
   const signal = AbortSignal.timeout(60000);
   for (;;) {
@@ -424,7 +439,7 @@ export async function waitForCommunityIngress(
     await assertCurrent();
     signal.throwIfAborted();
     try {
-      await inspectCommunityIngress(ingress, expectedCommunityId, false, signal);
+      await inspectCommunityIngress(ingress, expectedCommunityId, false, signal, installation);
     } catch (error) {
       const notListening = error instanceof Error && "code" in error &&
         ["ECONNREFUSED", "ECONNRESET", "EPIPE"].includes(String(error.code));
@@ -443,6 +458,7 @@ export async function inspectCommunityIngress(
   expectedCommunityId: string,
   throughIngress = false,
   signal?: AbortSignal,
+  installation?: CommunityIngressInstallationProbe,
 ) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
@@ -457,7 +473,13 @@ export async function inspectCommunityIngress(
         )
       : undefined
     : await readFile(ingress.upstreamCaFile);
-  const url = new URL(ingress.upstream);
+  const url = new URL(ingress.upstream),
+    nonce = installation
+      ? (`0x${randomBytes(32).toString("hex")}` as Hex)
+      : null,
+    path = installation && nonce
+      ? `/.well-known/pirate-community.json?enrollmentId=${installation.enrollmentId}&communityId=${installation.configuration.communityId}&installationId=${installation.configuration.installationId}&nonce=${nonce}`
+      : "/api/public/community";
   return await new Promise<void>((resolve, reject) => {
     const req = request(
       {
@@ -468,7 +490,7 @@ export async function inspectCommunityIngress(
           : ingress.upstreamServerName,
         ca: bytes,
         method: "GET",
-        path: "/api/public/community",
+        path,
         headers: { Host: new URL(ingress.origin).host },
         timeout: 5000,
         signal,
@@ -482,21 +504,65 @@ export async function inspectCommunityIngress(
         });
         res.once("error", reject);
         res.once("end", () => {
-          try {
+          void (async () => {
             if (res.statusCode === 503) throw new ApplicationBootPending("application_boot_pending");
             assert(res.statusCode === 200, "application_readback_unavailable");
             const actual: unknown = JSON.parse(body);
+            if (!installation) {
+              assert(
+                actual &&
+                  typeof actual === "object" &&
+                  "communityId" in actual &&
+                  actual.communityId === expectedCommunityId,
+                "actual_application_community_changed",
+              );
+              return;
+            }
+            const row = object(actual);
+            exact(row, ["schema", "configuration", "proof"]);
             assert(
-              actual &&
-                typeof actual === "object" &&
-                "communityId" in actual &&
-                actual.communityId === expectedCommunityId,
+              row.schema === "pirate.web2-installation-readback-response/1" &&
+                canonical(row.configuration) ===
+                  canonical(installation.configuration),
               "actual_application_community_changed",
             );
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
+            const proof = parseInstallationReadbackProof(row.proof),
+              { schema: _schema, signature, ...message } = proof;
+            assert(
+              proof.enrollmentId === installation.enrollmentId &&
+                proof.communityId === expectedCommunityId &&
+                proof.installationId ===
+                  installation.configuration.installationId &&
+                proof.nonce === nonce &&
+                proof.generation === installation.generation &&
+                proof.planId === installation.planId &&
+                proof.durableScope === installation.durableScope &&
+                proof.releaseArtifactDigest ===
+                  installation.releaseArtifactDigest &&
+                proof.releaseSourceDigest ===
+                  installation.releaseSourceDigest &&
+                proof.targetDigest === installation.targetDigest &&
+                proof.hostFingerprint === installation.hostFingerprint &&
+                proof.originHash ===
+                  hashText(installation.configuration.app.origin) &&
+                proof.configurationDigest ===
+                  hashText(canonical(installation.configuration)) &&
+                proof.publisher === installation.configuration.publisher,
+              "actual_application_installation_changed",
+            );
+            const recovered = await recoverTypedDataAddress({
+              ...installationReadbackTypedData(
+                installation.configuration,
+                message,
+              ),
+              signature,
+            });
+            assert(
+              recovered.toLowerCase() ===
+                installation.configuration.publisher,
+              "actual_application_installation_changed",
+            );
+          })().then(resolve, reject);
         });
       },
     );

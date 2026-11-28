@@ -18,7 +18,7 @@ test("packaged hosted prepare reaches the real factory and installed Alchemy D1 
     const rows = await f.db.prepare("SELECT * FROM __alchemy_migrations ORDER BY id").all();
     assert.equal(rows.results.length, 1);
     assert.equal(rows.results[0]!.name, "0001_hosted_enrollment.sql");
-    assert.equal(rows.results[0]!.hash, "6f217ee3545c6f6c96a4ffc8e633246e43ff7b0c85e802341a653e9f93f403ce");
+    assert.equal(rows.results[0]!.hash, "c78eaa3599c8601ca0170b4b7566a54bb62149db4e9e7a1668014440099b74c7");
     const before = await f.db.prepare("SELECT * FROM hosted_preparations").all();
     await f.worker.repeatMigrations();
     assert.deepEqual((await f.db.prepare("SELECT * FROM hosted_preparations").all()).results, before.results);
@@ -222,7 +222,7 @@ test("public hosted signer ports refuse known local fixture keys before any sign
     const key = `0x${"a".padStart(64, "0")}` as const, account = privateKeyToAccount(key);
     const policy = { ...policyDocument(f.policy), registrar: account.address.toLowerCase(), funder: account.address.toLowerCase(), deployment: { ...policyDocument(f.policy).deployment, chainId: 6343 } };
     const configuration = canonical({ schema: "pirate.hosted-community-runtime/1", policy, rpcUrl: "https://never-contacted.invalid/", configurationGateway: "https://never-contacted.invalid/ipfs/",
-      schemaContext: { schema: "pirate.hosted-schema-alchemy/1", table: "__alchemy_migrations", migrations: [{ name: "0001_hosted_enrollment.sql", hash: "6f217ee3545c6f6c96a4ffc8e633246e43ff7b0c85e802341a653e9f93f403ce" }] } });
+      schemaContext: { schema: "pirate.hosted-schema-alchemy/1", table: "__alchemy_migrations", migrations: [{ name: "0001_hosted_enrollment.sql", hash: "c78eaa3599c8601ca0170b4b7566a54bb62149db4e9e7a1668014440099b74c7" }] } });
     for (const selected of [key, "0x" + key.slice(2).toUpperCase()]) {
       const r = configuredHostedRuntime({ DB: f.db, HOSTED_COMMUNITY_PROFILE: "hosted-enrollment", HOSTED_COMMUNITY_CONFIGURATION_JSON: configuration,
         HOSTED_COMMUNITY_CONFIGURATION_SHA256: hashText(configuration), HOSTED_REGISTRAR_PRIVATE_KEY: selected, HOSTED_FUNDER_PRIVATE_KEY: selected });

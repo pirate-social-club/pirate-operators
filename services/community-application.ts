@@ -14,7 +14,12 @@ import {
   type AuthorityRecoveryPorts,
 } from "../packages/community-setup/authority-recovery.ts";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
+import { BaseError, ContractFunctionRevertedError, keccak256, type Hex } from "viem";
+import {
+  installationReadbackMessage,
+  installationReadbackTypedData,
+} from "../packages/community/web2-installation-readback.ts";
+import type { Web2CommunityConfig } from "../packages/community/web2-config-manifest.ts";
 import {
   accountSession,
   authenticatedWrite,
@@ -39,7 +44,7 @@ import { readAndCacheWeb2Configuration } from "./community-web2-configuration-ca
 import { communityPrivatePractice, requirePrivateStudy } from "./community-private-practice.ts";
 import { privatePracticeAllows } from "./community-private-practice-profile.ts";
 import { studyV5PrivateHttp } from "./study-v5-http.ts";
-import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
+import { directoryV3Abi, parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
 import { readSignInMessageV4 } from "../packages/protocol/learning-results-v4.ts";
 import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
@@ -764,12 +769,145 @@ async function communityFetchBusiness(
       },
     );
     if (release) return release;
-    const config = await configuration();
+    const readbackConfiguration = async () => {
+      try {
+        return await configuration();
+      } catch (error) {
+        if (!web2 || !env.NATIVE_APPLICATION_ORIGINAL_JSON) throw error;
+        const client = ports.publicReads?.client;
+        insist(client, "community_authority_unavailable", 503);
+        const profile = parseWeb2ProfileDocument(deployment.directoryProfile);
+        insist(
+          (await client.getChainId()) === profile.chainId,
+          "wrong_application_chain",
+          503,
+        );
+        const safe = await client.getBlock({ blockTag: "safe" }),
+          now = BigInt(Math.floor(Date.now() / 1000));
+        insist(
+          typeof safe.number === "bigint" &&
+            typeof safe.hash === "string" &&
+            typeof safe.timestamp === "bigint" &&
+            safe.timestamp <= now &&
+            now - safe.timestamp <=
+              BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
+          "community_authority_unavailable",
+          503,
+        );
+        const [code, unknown] = await Promise.all([
+          client.getCode({ address: profile.directory, blockNumber: safe.number! }),
+          client.readContract({
+            address: profile.directory,
+            abi: directoryV3Abi,
+            functionName: "getCommunity",
+            args: [profile.communityId],
+            blockNumber: safe.number!,
+          }).then(
+            () => false,
+            (cause: unknown) => {
+              const reverted = cause instanceof BaseError
+                ? cause.walk((part) => part instanceof ContractFunctionRevertedError)
+                : null;
+              if (
+                reverted instanceof ContractFunctionRevertedError &&
+                reverted.data?.errorName === "UnknownCommunity"
+              )
+                return true;
+              throw cause;
+            },
+          ),
+        ]);
+        const recheck = await client.getBlock({ blockNumber: safe.number! });
+        insist(
+          unknown === true &&
+            code !== undefined &&
+            keccak256(code) === profile.directoryCodeHash &&
+            recheck.hash === safe.hash,
+          "community_authority_unavailable",
+          503,
+        );
+        const original = await web2ApplicationOriginal(env),
+          plan = original.record.body;
+        insist(
+          plan.enrollment.schema ===
+            "pirate.linux-web2-installation-authorization/1" &&
+            plan.draft.enrollment.enrollmentId ===
+              url.searchParams.get("enrollmentId") &&
+            plan.draft.enrollment.operations.every(
+              (operation) =>
+                operation.kind !== "registration" ||
+                operation.state !== "consumed",
+            ),
+          "community_authority_unavailable",
+          503,
+        );
+        return plan.draft.configuration;
+      }
+    };
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-community.json"
-    )
-      return reply(config);
+    ) {
+      const config = await readbackConfiguration();
+      const nonce = url.searchParams.get("nonce");
+      if (!nonce) return reply(config);
+      insist(
+        config.schema === "pirate.community-config/4" &&
+          /^0x[0-9a-f]{64}$/.test(nonce) &&
+          url.searchParams.get("communityId") === config.communityId &&
+          url.searchParams.get("installationId") === config.installationId &&
+          /^0x[0-9a-f]{64}$/.test(url.searchParams.get("enrollmentId") ?? ""),
+        "installation_readback_unavailable",
+        404,
+      );
+      const web2Config = config as Web2CommunityConfig,
+        original = await web2ApplicationOriginal(env),
+        plan = original.record.body;
+      insist(
+        plan.draft.enrollment.enrollmentId ===
+          url.searchParams.get("enrollmentId"),
+        "installation_readback_unavailable",
+        404,
+      );
+      const message = installationReadbackMessage({
+        enrollmentId: url.searchParams.get("enrollmentId") as Hex,
+        config: web2Config,
+        nonce: nonce as Hex,
+        installation: {
+          generation: plan.generation,
+          planId: plan.planId,
+          durableScope: plan.durableScope,
+          releaseArtifactDigest: plan.releaseArtifactDigest as Hex,
+          releaseSourceDigest: plan.releaseSourceDigest as Hex,
+          targetDigest: plan.targetDigest,
+          hostFingerprint: plan.hostFingerprint,
+        },
+      });
+      let signature: Hex;
+      try {
+        signature = await privateKeyToAccount(
+          env.COMMUNITY_PUBLISHER_PRIVATE_KEY as Hex,
+        ).signTypedData(installationReadbackTypedData(web2Config, message));
+      } catch {
+        throw new CommunityError("installation_readback_unavailable", 503);
+      }
+      insist(
+        privateKeyToAccount(env.COMMUNITY_PUBLISHER_PRIVATE_KEY as Hex).address.toLowerCase() ===
+          web2Config.publisher,
+        "installation_readback_unavailable",
+        503,
+      );
+      return reply({
+        schema: "pirate.web2-installation-readback-response/1",
+        configuration: config,
+        proof: {
+          schema: "pirate.web2-installation-readback/1",
+          ...message,
+          signature,
+        },
+      });
+    }
+    const config = await configuration();
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-client.json"

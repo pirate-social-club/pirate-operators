@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import type { Hex } from "viem";
 import {
   retainWeb2Record as retain,
   optionalWeb2Record as optionalRecord,
@@ -37,7 +38,7 @@ import {
   type InstalledTarget,
 } from "./local-target-controller.ts";
 import {
-  authenticateWeb2Enrollment,
+  authenticateWeb2InstallEnrollment,
   ownWeb2ChainAuthority,
   readWeb2HostAdmission,
   type Web2ChainAuthority,
@@ -224,7 +225,7 @@ export async function createWeb2Installation(
         ...(planId ? { planId } : {}),
       });
     await host();
-    const evidence = await authenticateWeb2Enrollment(chain, draft);
+    const evidence = await authenticateWeb2InstallEnrollment(chain, draft);
     const admission = await host();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(
@@ -274,19 +275,47 @@ export async function createWeb2Installation(
     return {
       ...selectionFor(p),
       installationId: p.installationId,
+      binding: {
+        generation: p.generation,
+        planId: p.planId,
+        durableScope: p.durableScope,
+        releaseArtifactDigest: p.releaseArtifactDigest as Hex,
+        releaseSourceDigest: p.releaseSourceDigest as Hex,
+        targetDigest: p.targetDigest,
+        hostFingerprint: p.hostFingerprint,
+      },
       summary: {
         name: p.draft.name,
         origin: p.draft.origin,
         communityId: p.draft.enrollment.communityId,
         controller: p.draft.configuration.controller,
         publisher: p.draft.configuration.publisher,
-        registrationTransaction: p.enrollment.transactionHash,
+        registrationTransaction:
+          p.enrollment.schema === "pirate.linux-web2-enrollment-evidence/1"
+            ? p.enrollment.transactionHash
+            : null,
         verifiedListing: false,
         namesEnabled: false,
         learningEnabled: false,
         danceEnabled: false,
       },
     };
+  }
+  function installationProbe(body: Web2InstallPlan) {
+    return body.enrollment.schema ===
+      "pirate.linux-web2-installation-authorization/1"
+      ? {
+          enrollmentId: body.enrollment.enrollmentId,
+          configuration: body.draft.configuration,
+          generation: body.generation,
+          planId: body.planId,
+          durableScope: body.durableScope,
+          releaseArtifactDigest: body.releaseArtifactDigest as Hex,
+          releaseSourceDigest: body.releaseSourceDigest as Hex,
+          targetDigest: body.targetDigest,
+          hostFingerprint: body.hostFingerprint,
+        }
+      : undefined;
   }
   async function observation(
     selection: LinuxWeb2PlanSelection,
@@ -324,6 +353,8 @@ export async function createWeb2Installation(
         ingress,
         body.draft.enrollment.communityId,
         true,
+        undefined,
+        installationProbe(body),
       );
       await authorize(body.draft, body.planId, body.generation);
       assert(
@@ -444,6 +475,7 @@ export async function createWeb2Installation(
           ingress,
           body.draft.enrollment.communityId,
           current,
+          installationProbe(body),
         );
         await current();
         if (edge) {

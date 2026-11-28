@@ -1,4 +1,7 @@
-import type { Hex } from "viem";
+import { recoverTypedDataAddress, type Hex } from "viem";
+import { verifyAccountTypedData } from "../packages/community/account-signature-verifier.ts";
+import { installationPlanCommitmentTypedData, parseInstallationPlanCommitment } from "../packages/community/web2-installation-commitment.ts";
+import { randomBytes } from "node:crypto";
 import {
   canonical,
   CommunityError,
@@ -9,6 +12,11 @@ import {
   object,
 } from "../packages/community/common.ts";
 import { preparePin, readBounded } from "../packages/community/ipfs.ts";
+import { validateWeb2Configuration } from "../packages/community/web2-config-manifest.ts";
+import {
+  installationReadbackTypedData,
+  parseInstallationReadbackProof,
+} from "../packages/community/web2-installation-readback.ts";
 import { sharedBytes32 } from "../packages/community/shared-identity.ts";
 import {
   parseWeb2ProfileDocument,
@@ -29,7 +37,7 @@ import {
   allOperations,
   ownHostedSchemaContext,
   assertHostedSchema,
-  assertBudgetNamespace,
+  ensureBudgetNamespace,
   findInvite,
   loadEnrollment,
   loadOriginalPolicy,
@@ -62,7 +70,7 @@ export async function readHostedRequest(r: HostedRuntime, request: Request) {
   // No cookies or ambient authority; proofs are required on every action.
   insist(!request.headers.has("cookie"), "cookie_authority_not_supported", 403);
   await assertHostedSchema(r.db, r.schemaContext);
-  await assertBudgetNamespace(r.db, r.policy);
+  await ensureBudgetNamespace(r.db, r.policy);
   return jsonBody(request, 128 * 1024);
 }
 export function hostedResponse(value: unknown, status = 200) {
@@ -149,6 +157,131 @@ export async function publicHostedStatus(r: HostedRuntime, e: Enrollment) {
     operations: states,
   };
 }
+/** Verify that the exact controller-authorized installation is the live public
+ * HTTPS site immediately before the registrar signs or broadcasts registration.
+ * The response is not evidence transported across time: it must be a fresh
+ * no-store readback from the enrollment's exact origin, and every validated
+ * configuration field must equal the configuration committed in the enrollment. */
+export async function verifyHostedInstallation(
+  r: HostedRuntime,
+  e: Enrollment,
+  commitmentValue: unknown,
+): Promise<void> {
+  const origin = new URL(e.plan.config.app.origin);
+  insist(origin.protocol === "https:", "installation_origin_not_https", 409);
+  const url = new URL("/.well-known/pirate-community.json", origin);
+  const nonce = `0x${randomBytes(32).toString("hex")}` as Hex;
+  url.searchParams.set("enrollmentId", e.id);
+  url.searchParams.set("communityId", e.plan.profile.communityId);
+  url.searchParams.set("installationId", e.plan.profile.installationId);
+  url.searchParams.set("nonce", nonce);
+  const transport = r.readInstallation ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  let response: Response;
+  try {
+    response = await transport(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      redirect: "error",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw new CommunityError("installation_https_unavailable", 503);
+  }
+  insist(response.status === 200, "installation_https_unavailable", 503);
+  insist(
+    response.headers.get("content-type")?.split(";")[0] === "application/json" &&
+      response.headers.get("cache-control")?.toLowerCase().includes("no-store") &&
+      (!response.headers.has("age") || response.headers.get("age") === "0"),
+    "installation_response_not_fresh",
+    503,
+  );
+  const bytes = await readBounded(response, 128 * 1024);
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new CommunityError("installation_readback_invalid", 503);
+  }
+  let installed;
+  let proof;
+  try {
+    const row = object(body);
+    exact(row, ["schema", "configuration", "proof"]);
+    insist(
+      row.schema === "pirate.web2-installation-readback-response/1",
+      "installation_readback_invalid",
+      503,
+    );
+    installed = validateWeb2Configuration(row.configuration, e.plan.profile);
+    proof = parseInstallationReadbackProof(row.proof);
+  } catch (error) {
+    if (error instanceof CommunityError) throw error;
+    throw new CommunityError("installation_readback_invalid", 503);
+  }
+  insist(
+    canonical(installed) === canonical(e.plan.config),
+    "installation_configuration_mismatch",
+    409,
+  );
+  const { schema: _schema, signature: readbackSignature, ...message } = proof;
+  let recovered: string;
+  try {
+    recovered = await recoverTypedDataAddress({
+      ...installationReadbackTypedData(installed, message),
+      signature: readbackSignature,
+    });
+  } catch {
+    throw new CommunityError("installation_proof_invalid", 409);
+  }
+  insist(
+    proof.enrollmentId === e.id &&
+      proof.communityId === installed.communityId &&
+      proof.installationId === installed.installationId &&
+      proof.nonce === nonce &&
+      proof.originHash === hashText(installed.app.origin) &&
+      proof.configurationDigest === hashText(canonical(installed)) &&
+      proof.publisher === installed.publisher &&
+      recovered.toLowerCase() === installed.publisher,
+    "installation_proof_invalid",
+    409,
+  );
+  let commitment;
+  try {
+    commitment = parseInstallationPlanCommitment(commitmentValue);
+  } catch {
+    throw new CommunityError("installation_plan_commitment_invalid", 409);
+  }
+  const { schema: _commitmentSchema, controllerSignature, ...plan } = commitment;
+  insist(
+    commitment.enrollmentId === e.id &&
+      commitment.communityId === installed.communityId &&
+      commitment.installationId === installed.installationId &&
+      commitment.generation === proof.generation &&
+      commitment.planId === proof.planId &&
+      commitment.durableScope === proof.durableScope &&
+      commitment.releaseArtifactDigest === proof.releaseArtifactDigest &&
+      commitment.releaseSourceDigest === proof.releaseSourceDigest &&
+      commitment.targetDigest === proof.targetDigest &&
+      commitment.hostFingerprint === proof.hostFingerprint,
+    "installation_plan_commitment_mismatch",
+    409,
+  );
+  const safe = await r.client.getBlock({ blockTag: "safe" });
+  const valid = await verifyAccountTypedData(r.client, {
+    data: installationPlanCommitmentTypedData(e.plan.profile, plan),
+    address: e.plan.config.controller,
+    signature: controllerSignature,
+    blockNumber: safe.number,
+  });
+  insist(
+    (await r.client.getBlock({ blockNumber: safe.number })).hash === safe.hash,
+    "hosted_chain_reorganized",
+    503,
+  );
+  insist(valid, "installation_plan_commitment_invalid", 409);
+}
+
 export function createHostedEnrollmentService(input: HostedRuntime) {
   const r = ownHostedRuntime(input);
   return async function fetch(request: Request): Promise<Response> {
@@ -162,23 +295,29 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
       const body = await readHostedRequest(r, request);
       if (path === "/prepare") {
         exact(body, [
-          "inviteToken",
           "profile",
           "config",
           "uri",
           "noticeSha256",
+          ...(Object.hasOwn(body, "inviteToken") ? ["inviteToken"] : []),
         ]);
-        insist(
-          typeof body.inviteToken === "string" && typeof body.uri === "string",
-          "invalid_prepare",
-        );
+        insist(typeof body.uri === "string", "invalid_prepare");
         insist(
           body.noticeSha256 === r.policy.noticeSha256,
           "pilot_notice_required",
           403,
         );
+        insist(
+          body.inviteToken === undefined ||
+            body.inviteToken === null ||
+            typeof body.inviteToken === "string",
+          "invalid_invite",
+        );
         const now = r.now(),
-          invite = await findInvite(r.db, body.inviteToken, r.policy, now);
+          invite =
+            body.inviteToken === undefined || body.inviteToken === null
+              ? null
+              : await findInvite(r.db, body.inviteToken, r.policy, now);
         const plan = prepareWeb2Registration(
           parseWeb2ProfileDocument(body.profile),
           body.config,
@@ -214,11 +353,15 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           );
         const candidate: Enrollment = {
           schema: "pirate.hosted-enrollment/1",
-          id: hashText(`hosted-enrollment:${invite.id}`),
-          inviteId: invite.id,
-          allowanceId: invite.allowance_id,
+          id: hashText(
+            invite
+              ? `hosted-enrollment:${invite.id}`
+              : `hosted-enrollment:${plan.commitment}`,
+          ),
+          inviteId: invite?.id ?? null,
+          allowanceId: invite?.allowance_id ?? null,
           expiresAt: Math.min(
-            invite.expires_at,
+            invite?.expires_at ?? Number.MAX_SAFE_INTEGER,
             now + r.policy.challengeSeconds,
           ),
           policyHash: ph,
@@ -234,7 +377,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           typedData: enrollmentTypedData(e),
         });
       }
-      exact(body, ["enrollmentId", "controllerSignature"]);
+      exact(body, Object.hasOwn(body, "installationCommitment") ? ["enrollmentId", "controllerSignature", "installationCommitment"] : ["enrollmentId", "controllerSignature"]);
       const e = await authenticateHostedRequest(r, body);
       if (path === "/redeem") {
         insist(
@@ -243,7 +386,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           409,
         );
         await redeemEnrollment(r.db, e, r.now());
-        await executeHostedOperation(r, e, "registration");
+        await executeHostedOperation(r, e, "registration", undefined, () => verifyHostedInstallation(r, e, body.installationCommitment));
       }
       return hostedResponse(await publicHostedStatus(r, e));
     } catch (error) {

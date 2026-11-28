@@ -117,10 +117,15 @@ export async function web2NativeOriginal(
       (!Object.hasOwn(body,"publishingAttachmentDigest") || (typeof body.publishingAttachmentDigest === "string" && /^0x[0-9a-f]{64}$/.test(body.publishingAttachmentDigest))) &&
       nativeCanonical(JSON.parse(release.graph.directoryRuntimeBinding)) ===
         nativeCanonical(draft.deployment) &&
-      body.enrollment.schema === "pirate.linux-web2-enrollment-evidence/1" &&
-      body.enrollment.transactionHash ===
-        draft.enrollment.operations.find((op) => op.kind === "registration")
-          ?.transactionHash,
+      ((body.enrollment.schema === "pirate.linux-web2-enrollment-evidence/1" &&
+        body.enrollment.transactionHash ===
+          draft.enrollment.operations.find((op) => op.kind === "registration")
+            ?.transactionHash) ||
+        (body.enrollment.schema ===
+            "pirate.linux-web2-installation-authorization/1" &&
+          body.enrollment.enrollmentId === draft.enrollment.enrollmentId &&
+          body.enrollment.controller === draft.configuration.controller &&
+          draft.authorization !== undefined)),
     "web2_native_original_binding_changed",
     503,
   );

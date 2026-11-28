@@ -56,6 +56,11 @@ import { initialRecipients } from "../../../packages/community/hosted-topup-chai
 import { parseEnrollment } from "../../../packages/community/hosted-enrollment.ts";
 import { createHostedEnrollmentClient } from "../../../packages/community-setup/hosted-enrollment-client.ts";
 import {
+  installationPlanCommitmentTypedData,
+  parseInstallationPlanCommitment,
+  unsignedInstallationPlanCommitment,
+} from "../../../packages/community/web2-installation-commitment.ts";
+import {
   linuxWeb2DraftFrom,
   type HostedEnrollmentStatus,
   type LinuxWeb2Installation,
@@ -102,11 +107,13 @@ export interface Web2WizardView {
   challenge: unknown | null;
   enrollment: HostedEnrollmentStatus | null;
   controllerAuthorized: boolean;
+  fundingAvailable: boolean;
   fundingAuthorized: boolean;
-  invitationCorrectionRequired: boolean;
   recipients: Array<{ address: Hex; value: string }>;
   installationAvailable: boolean;
   installPlan: LinuxWeb2PlanSummary | null;
+  installationApproved: boolean;
+  installationChallenge: unknown | null;
   observation: LinuxWeb2Observation | null;
   /** Secret-free community media credential state. Null only where no vault
    * is configured at all; otherwise the exact committed generation state,
@@ -219,6 +226,26 @@ export async function createWeb2Setup(
   let storageCache = await storage.read();
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
+  function unsignedCommitment() {
+    insist(
+      journal.prepared && journal.plan && journal.installPlan,
+      "web2_installation_review_required",
+      409,
+    );
+    return unsignedInstallationPlanCommitment({
+      enrollmentId: journal.prepared.enrollmentId,
+      communityId: journal.plan.profile.communityId,
+      installationId: journal.plan.profile.installationId,
+      ...journal.installPlan.binding,
+    });
+  }
+  function installationChallenge() {
+    if (!journal.prepared || !journal.plan || !journal.installPlan) return null;
+    return installationPlanCommitmentTypedData(
+      parsePlan(journal.plan).profile,
+      unsignedCommitment(),
+    );
+  }
   function snapshot(): Web2WizardView {
     const e = journal.prepared
       ? parseEnrollment(journal.prepared.enrollment)
@@ -253,15 +280,17 @@ export async function createWeb2Setup(
       challenge: journal.prepared?.typedData ?? null,
       enrollment: journal.enrollment,
       controllerAuthorized: Boolean(journal.controllerSignature),
+      fundingAvailable: Boolean(e?.allowanceId),
       fundingAuthorized: Boolean(journal.recipientProofs),
-      invitationCorrectionRequired: journal.invitationRefused,
-      recipients: e
+      recipients: e?.allowanceId
         ? initialRecipients(e, policy)
             .filter((r) => r.value > 0n)
             .map((r) => ({ address: r.address, value: String(r.value) }))
         : [],
       installationAvailable: Boolean(input.installation),
       installPlan: journal.installPlan,
+      installationApproved: journal.installationCommitment !== null,
+      installationChallenge: installationChallenge(),
       observation: journal.observation
         ? {
             planId: journal.observation.planId,
@@ -275,19 +304,33 @@ export async function createWeb2Setup(
   function enrollmentDraft() {
     insist(
       journal.request &&
-        journal.enrollment &&
+        journal.prepared &&
         journal.deployment &&
-        journal.plan,
-      "safe_registration_required",
+        journal.plan &&
+        journal.controllerSignature,
+      "web2_controller_proof_required",
       409,
     );
+    const enrollment = journal.enrollment ?? {
+      schema: "pirate.hosted-enrollment-status/1" as const,
+      enrollmentId: journal.prepared.enrollmentId,
+      communityId: journal.plan.profile.communityId,
+      installationId: journal.plan.profile.installationId,
+      profile: journal.plan.profile,
+      configurationUri: journal.plan.uri,
+      operations: [],
+    };
     return linuxWeb2DraftFrom({
       schema: "pirate.linux-web2-draft/1",
       name: journal.request.name,
       origin: journal.request.origin,
       deployment: journal.deployment,
-      enrollment: journal.enrollment,
+      enrollment,
       configuration: journal.plan.config,
+      authorization: {
+        enrollment: journal.prepared.enrollment,
+        controllerSignature: journal.controllerSignature,
+      },
     });
   }
   async function run(action: string, value: unknown) {
@@ -302,15 +345,8 @@ export async function createWeb2Setup(
     busy = true;
     try {
       if (action === "resume-prepare") {
-        exact(
-          body,
-          journal.invitationRefused ? ["inviteToken", "noticeAccepted"] : [],
-        );
-        insist(
-          journal.request && journal.inviteToken,
-          "web2_prepare_required",
-          409,
-        );
+        exact(body, []);
+        insist(journal.request, "web2_prepare_required", 409);
         // Only the operator-supplied roles carry forward: the community name
         // and origin are never body input anymore. Preparation re-derives them
         // from the DNS proof, and the original-selection consistency check
@@ -318,12 +354,7 @@ export async function createWeb2Setup(
         Object.assign(body, {
           controller: journal.request.controller,
           publisher: journal.request.publisher,
-          inviteToken: journal.invitationRefused
-            ? body.inviteToken
-            : journal.inviteToken,
-          noticeAccepted: journal.invitationRefused
-            ? body.noticeAccepted
-            : true,
+          noticeAccepted: true,
         });
         action = "prepare";
       }
@@ -331,7 +362,6 @@ export async function createWeb2Setup(
         exact(body, [
           "controller",
           "publisher",
-          "inviteToken",
           "noticeAccepted",
         ]);
         insist(body.noticeAccepted === true, "pilot_notice_required", 409);
@@ -373,20 +403,12 @@ export async function createWeb2Setup(
             409,
           );
         }
-        const inviteToken = text(body.inviteToken, 1024);
-        insist(/^[a-f0-9]{64}$/.test(inviteToken), "invalid_invite");
         if (journal.request) {
           insist(
-            canonical(selected) === canonical(journal.request) &&
-              (inviteToken === journal.inviteToken ||
-                (journal.invitationRefused &&
-                  !journal.prepared &&
-                  journal.pending === null)),
+            canonical(selected) === canonical(journal.request),
             "web2_original_selection_changed",
             409,
           );
-          journal.inviteToken = inviteToken;
-          journal.invitationRefused = false;
         } else {
           const { plan, deployment } = await prepareWeb2WizardRegistration(
             policy,
@@ -395,7 +417,6 @@ export async function createWeb2Setup(
             selected,
           );
           journal.request = selected;
-          journal.inviteToken = inviteToken;
           journal.plan = wire(planDocument(plan));
           journal.deployment = deployment;
         }
@@ -413,8 +434,27 @@ export async function createWeb2Setup(
             bytes,
             sha256: hashJson(plan.config),
           });
-          journal.prepared = await client.prepare(plan, journal.inviteToken!);
+          journal.prepared = await client.prepare(plan);
         }
+        journal.phase = "prepared";
+      } else if (action === "authorize") {
+        exact(body, Object.hasOwn(body, "signature") ? ["signature"] : []);
+        insist(journal.prepared, "web2_prepare_required", 409);
+        if (Object.hasOwn(body, "signature")) {
+          const proof = signature(body.signature);
+          insist(
+            journal.controllerSignature === null ||
+              journal.controllerSignature === proof,
+            "web2_original_authorization_changed",
+            409,
+          );
+          journal.controllerSignature = proof;
+        }
+        insist(
+          journal.controllerSignature,
+          "web2_controller_proof_required",
+          409,
+        );
         journal.phase = "prepared";
       } else if (
         action === "redeem" ||
@@ -450,6 +490,23 @@ export async function createWeb2Setup(
           "web2_controller_proof_required",
           409,
         );
+        if (action === "redeem" && input.installation)
+          insist(
+            journal.observation?.state === "running",
+            "web2_installation_required",
+            409,
+          );
+        if (
+          action === "redeem" &&
+          !journal.enrollment?.operations.some(
+            (op) => op.kind === "registration" && op.state === "consumed",
+          )
+        )
+          insist(
+            journal.installationCommitment !== null,
+            "web2_installation_commitment_required",
+            409,
+          );
         if (action === "topup" && Object.hasOwn(body, "proofs")) {
           insist(
             journal.recipientProofs !== null &&
@@ -527,9 +584,18 @@ export async function createWeb2Setup(
         journal.pending = action;
         journal.phase = "pending";
         await save();
+        const reconcileFirstRegistration =
+          action === "reconcile" &&
+          journal.observation?.state === "running" &&
+          journal.installationCommitment !== null &&
+          !journal.enrollment?.operations.some((op) => op.kind === "registration");
         journal.enrollment =
-          action === "redeem"
-            ? await client.redeem(journal.prepared, journal.controllerSignature)
+          action === "redeem" || reconcileFirstRegistration
+            ? await client.redeem(
+                journal.prepared,
+                journal.controllerSignature,
+                journal.installationCommitment ?? undefined,
+              )
             : action === "topup"
               ? await client.topup(
                   journal.prepared,
@@ -558,7 +624,10 @@ export async function createWeb2Setup(
           journal.request &&
             journal.enrollment &&
             journal.deployment &&
-            journal.plan,
+            journal.plan &&
+            journal.enrollment.operations.some(
+              (op) => op.kind === "registration" && op.state === "consumed",
+            ),
           "safe_registration_required",
           409,
         );
@@ -572,11 +641,14 @@ export async function createWeb2Setup(
         insist(input.installation, "web2_installation_unavailable", 503);
         exact(
           body,
-          action === "install" ? ["planId", "planDigest", "approved"] : [],
+          action === "install"
+            ? Object.hasOwn(body, "installationSignature")
+              ? ["planId", "planDigest", "approved", "installationSignature"]
+              : ["planId", "planDigest", "approved"]
+            : [],
         );
         if (action !== "installation-prepare")
           insist(journal.installPlan, "web2_installation_review_required", 409);
-        await publishing.attachment(enrollmentDraft());
         if (!journal.installDraft) journal.installDraft = enrollmentDraft();
         journal.revision++;
         journal.pending = action;
@@ -592,7 +664,7 @@ export async function createWeb2Setup(
         const p = journal.installPlan;
         checkInstallationPlan(p, journal.installDraft);
         const selection = { planId: p.planId, planDigest: p.planDigest };
-        if (action === "install")
+        if (action === "install") {
           insist(
             body.approved === true &&
               body.planId === p.planId &&
@@ -600,6 +672,32 @@ export async function createWeb2Setup(
             "web2_installation_review_changed",
             409,
           );
+          const supplied = Object.hasOwn(body, "installationSignature")
+            ? signature(body.installationSignature)
+            : null;
+          if (journal.installationCommitment === null)
+            insist(supplied, "web2_installation_commitment_required", 409);
+          const candidate = parseInstallationPlanCommitment({
+            schema: "pirate.web2-installation-plan-commitment/1",
+            ...unsignedCommitment(),
+            controllerSignature:
+              supplied ??
+              (journal.installationCommitment as { controllerSignature: Hex })
+                .controllerSignature,
+          });
+          if (journal.installationCommitment !== null)
+            insist(
+              canonical(candidate) ===
+                canonical(journal.installationCommitment),
+              "web2_original_authorization_changed",
+              409,
+            );
+          journal.installationCommitment = candidate;
+          // The operator's approval is part of the pre-effect original. It must
+          // be durable before Docker/launcher effects, so a restart during apply
+          // reconciles this same installation instead of requesting a new review.
+          await save();
+        }
         if (action !== "installation-prepare") {
           const observation =
             action === "install"
@@ -609,20 +707,35 @@ export async function createWeb2Setup(
           journal.observation = observation;
           journal.phase =
             observation.state === "running" ? "running" : "pending";
+          if (
+            observation.state === "running" &&
+            !journal.enrollment?.operations.some(
+              (op) => op.kind === "registration",
+            )
+          ) {
+            insist(
+              journal.prepared &&
+                journal.controllerSignature &&
+                journal.installationCommitment !== null,
+              "web2_installation_commitment_required",
+              409,
+            );
+            journal.revision++;
+            journal.pending = "redeem";
+            await save();
+            journal.enrollment = await client.redeem(
+              journal.prepared,
+              journal.controllerSignature,
+              journal.installationCommitment,
+            );
+            journal.phase = "running";
+          }
         }
       } else insist(false, "unknown_web2_action", 404);
       journal.pending = null;
       journal.revision++;
       await save();
     } catch (error) {
-      if (
-        error instanceof CommunityError &&
-        error.code === "hosted_invitation_refused"
-      ) {
-        journal.invitationRefused = true;
-        journal.pending = null;
-        journal.phase = "pending";
-      }
       if (
         error instanceof CommunityError &&
         error.code === "hosted_authorization_refused"

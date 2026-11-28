@@ -30,7 +30,7 @@ import {
 import { renderFullNativeConfig } from "./full-native-config.ts";
 import { assertStartAllowed } from "./maintenance-guard.ts";
 import {
-  authenticateWeb2Enrollment,
+  authenticateWeb2InstallEnrollment,
   readWeb2HostAdmission,
   type Web2InstallPlan,
 } from "./web2-profile-authority.ts";
@@ -196,7 +196,7 @@ export async function runWeb2Native(configPath: string) {
         planId: plan.planId,
       });
     await admission();
-    await authenticateWeb2Enrollment(
+    await authenticateWeb2InstallEnrollment(
       {
         client,
         send: communityIpfsTransport(deployment, send),

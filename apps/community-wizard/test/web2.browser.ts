@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { hostedWizardFixture } from "../../../test/fixtures/web2-hosted-wizard.ts";
 
-test("actual hosted Web2 enrollment and gas authorization resume in the browser without reporting a missing installer as running", async ({
+test("actual hosted Web2 enrollment installs before registration and resumes in the browser without an invitation", async ({
   page,
   context,
 }, info) => {
@@ -13,7 +13,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
   // The real native chain fixture consumes repository-owned compiled artifacts.
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin="https://signing.fixture.example";
-  const f = await hostedWizardFixture({ publishing: true, signingOrigin, preVerifyDns: false });
+  const f = await hostedWizardFixture({ publishing: true, signingOrigin, preVerifyDns: false, scriptedInstallation: true, failFirstApply: true });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -94,54 +94,58 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await expect(page.getByLabel("Owner wallet", {exact:true})).toHaveValue(f.prepareInput.controller);
     await page.getByLabel("Owner wallet", {exact:true}).fill(f.nominatedOwner);
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
-    await page.getByLabel("Pilot invitation").fill(f.inviteToken);
     await page
       .getByLabel("I accept this pilot notice", { exact: false })
       .check();
     await page
       .getByRole("button", { name: "Prepare enrollment", exact: true })
       .click();
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
     await expect(page.getByRole("alert")).toContainText("cancelled");
     expect((await f.state()).controllerAuthorized).toBe(false);
     changeAfterSign=true;
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
     await expect(page.getByRole("alert")).toContainText("account_changed");
     expect((await f.state()).controllerAuthorized).toBe(false);
     accountChanged=false;
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
+    await page.getByRole("button", { name: "Review Linux installation" }).click();
+    await expect(page.getByText("using the authorized controller and publisher", { exact: false })).toBeVisible();
+    await page.getByLabel("I reviewed this installation on the selected host.").check();
+    const broadcastsBeforeRegistration = f.broadcasts();
+    await initiateWindow("Install reviewed community");
+    expect(signedTypes.filter((type) => type === "InstallationPlan")).toHaveLength(1);
+    expect(f.broadcasts()).toBe(broadcastsBeforeRegistration);
+    await page.reload();
     await expect(
-      page.getByRole("button", { name: "Reconcile original enrollment" }),
-    ).toBeEnabled();
+      page.getByRole("button", { name: "Install reviewed community" }),
+    ).toBeVisible();
+    await page.getByLabel("I reviewed this installation on the selected host.").check();
+    f.dropRedeemReply();
+    await page.getByRole("button", { name: "Install reviewed community" }).click();
+    expect(signedTypes.filter((type) => type === "InstallationPlan")).toHaveLength(1);
+    await expect.poll(() => f.broadcasts()).toBe(broadcastsBeforeRegistration + 1);
+    await expect.poll(async () => (await f.state()).busy).toBe(false);
     await f.mine();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Set up your HTTPS community" }),
+    ).toBeVisible();
     await page
       .getByRole("button", { name: "Reconcile original enrollment" })
+      .first()
       .click();
     await expect(
       page.getByRole("button", {
         name: "Authorize initial gas allocation",
         exact: true,
       }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", {
-        name: "Authorize initial gas allocation",
-        exact: true,
-      })
-      .click();
+    ).toHaveCount(0);
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
-    ).toBeEnabled();
-    await f.mine();
-    await page
-      .getByRole("button", { name: "Reconcile original enrollment" })
-      .click();
-    await expect(
-      page.getByText("Setup state: funded", { exact: true }),
+      page.getByRole("button", {name:"Review owner publishing"}),
     ).toBeVisible();
+    await page.getByLabel("Nominated owner wallet", {exact:true}).fill(f.nominatedOwner);
+    await page.getByLabel("I reviewed the controller, owner and server publisher for publishing").check();
     await page.getByRole("button", {name:"Review owner publishing"}).click();
     await expect(page.getByText(f.nominatedOwner, {exact:false}).first()).toBeVisible();
     await page.getByLabel("I reviewed the owner policy, window, destination and every service limit").check();
@@ -158,11 +162,11 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await expect(page.getByText("Publishing grant attached",{exact:true})).toBeVisible();
     expect(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted).toEqual(acceptedBefore);
     expect(f.attachmentEffects()).toBe(1);
-    expect(signedTypes).toEqual(["HostedEnrollment","HostedEnrollment","HostedEnrollment","OwnerPublishingAuthorization"]);
+    expect(signedTypes).toEqual(["HostedEnrollment","HostedEnrollment","HostedEnrollment","InstallationPlan","OwnerPublishingAuthorization"]);
     const before = f.broadcasts();
     await page.reload();
     await expect(
-      page.getByText("Setup state: funded", { exact: true }),
+      page.getByText("Setup state: running", { exact: true }),
     ).toBeVisible();
     expect(f.broadcasts()).toBe(before);
     const gate = f.holdNextStatus();
@@ -187,33 +191,22 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       page.getByRole("button", { name: "Refresh retained setup" }),
     ).toBeEnabled();
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
+      page.getByRole("button", { name: "Reconcile original enrollment" }),
     ).toBeDisabled();
     gate.release();
     await forwarded;
     await page.getByRole("button", { name: "Refresh retained setup" }).click();
     await expect(
-      page.getByRole("button", {
-        name: "Retry original gas allocation",
-        exact: true,
-      }),
+      page.getByRole("button", { name: "Reconcile original enrollment" }),
     ).toBeEnabled();
     expect(f.broadcasts()).toBe(before);
     await expect(
-      page.getByText("The real Linux Web2 installer is unavailable.", {
-        exact: false,
-      }),
+      page.getByText("Last installation observation: running", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Install reviewed community" }),
-    ).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.length)).toBe(0);
     expect(
       requests.some((r) => r.path === "/api/web2/topup" && r.method === "POST"),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requests.some(
         (r) =>
@@ -222,7 +215,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       ),
     ).toBe(false);
     await page.screenshot({
-      path: info.outputPath("web2-funded-installer-unavailable.png"),
+      path: info.outputPath("web2-automatic-registration.png"),
       fullPage: true,
     });
     await info.attach("public-enrollment.json", {

@@ -44,6 +44,7 @@ import {
   type LinuxWeb2Observation,
   type LinuxWeb2PlanSummary,
 } from "../../../packages/community-setup/linux-web2-profile.ts";
+import { parseInstallationPlanCommitment } from "../../../packages/community/web2-installation-commitment.ts";
 import {
   isWeb2Deployment,
   validateCommunityDeploymentProfile,
@@ -69,13 +70,11 @@ export interface Journal {
   policyHash: Hex;
   phase: Phase;
   pending: string | null;
-  invitationRefused: boolean;
   rejectedAuthorizations: Array<{
     controller: Hex | null;
     recipients: Array<{ recipient: Hex; signature: Hex }> | null;
   }>;
   request: SelectionInput | null;
-  inviteToken: string | null;
   plan: ReturnType<typeof planDocument> | null;
   deployment: Web2CommunityDeploymentProfile | null;
   prepared: PreparedHostedEnrollment | null;
@@ -84,6 +83,7 @@ export interface Journal {
   enrollment: HostedEnrollmentStatus | null;
   installDraft: LinuxWeb2Draft | null;
   installPlan: LinuxWeb2PlanSummary | null;
+  installationCommitment: unknown | null;
   observation: LinuxWeb2Observation | null;
 }
 const MAX = 1_048_576;
@@ -172,16 +172,30 @@ export async function createWeb2Journal(
       503,
     );
     journal = JSON.parse(await readFile(path, "utf8"));
+    const legacy = journal as unknown as Record<string, unknown>;
+    if (Object.hasOwn(legacy, "inviteToken")) {
+      insist(
+        legacy.inviteToken === null ||
+          (typeof legacy.inviteToken === "string" && /^[a-f0-9]{64}$/.test(legacy.inviteToken)),
+        "web2_original_changed",
+        503,
+      );
+      delete legacy.inviteToken;
+    }
+    if (Object.hasOwn(legacy, "invitationRefused")) {
+      insist(typeof legacy.invitationRefused === "boolean", "web2_original_changed", 503);
+      delete legacy.invitationRefused;
+    }
+    if (!Object.hasOwn(legacy, "installationCommitment"))
+      legacy.installationCommitment = null;
     exact(object(journal), [
       "schema",
       "revision",
       "policyHash",
       "phase",
       "pending",
-      "invitationRefused",
       "rejectedAuthorizations",
       "request",
-      "inviteToken",
       "plan",
       "deployment",
       "prepared",
@@ -190,6 +204,7 @@ export async function createWeb2Journal(
       "enrollment",
       "installDraft",
       "installPlan",
+      "installationCommitment",
       "observation",
     ]);
     insist(
@@ -209,8 +224,7 @@ export async function createWeb2Journal(
     );
     integer(journal.revision, 0, Number.MAX_SAFE_INTEGER);
     insist(
-      typeof journal.invitationRefused === "boolean" &&
-        Array.isArray(journal.rejectedAuthorizations) &&
+      Array.isArray(journal.rejectedAuthorizations) &&
         journal.rejectedAuthorizations.length <= 32,
       "web2_original_changed",
     );
@@ -251,9 +265,7 @@ export async function createWeb2Journal(
         text(r.name, 63) === plan.config.app.label &&
           httpsOrigin(r.origin) === plan.config.app.origin &&
           address(r.controller) === plan.config.controller &&
-          address(r.publisher) === plan.config.publisher &&
-          typeof journal.inviteToken === "string" &&
-          /^[a-f0-9]{64}$/.test(journal.inviteToken),
+          address(r.publisher) === plan.config.publisher,
         "web2_original_changed",
       );
       const d = validateCommunityDeploymentProfile(journal.deployment);
@@ -269,7 +281,6 @@ export async function createWeb2Journal(
     } else
       insist(
         journal.request === null &&
-          journal.inviteToken === null &&
           journal.deployment === null &&
           journal.prepared === null,
         "web2_original_changed",
@@ -330,6 +341,37 @@ export async function createWeb2Journal(
     if (journal.controllerSignature) signature(journal.controllerSignature);
     if (journal.installPlan)
       checkInstallationPlan(journal.installPlan, journal.installDraft);
+    if (journal.installationCommitment !== null) {
+      let commitment;
+      try {
+        commitment = parseInstallationPlanCommitment(
+          journal.installationCommitment,
+        );
+      } catch {
+        throw new CommunityError("web2_original_changed", 503);
+      }
+      insist(
+        journal.prepared &&
+          journal.plan &&
+          journal.installPlan &&
+          commitment.enrollmentId === journal.prepared.enrollmentId &&
+          commitment.communityId === journal.plan.profile.communityId &&
+          commitment.installationId === journal.plan.profile.installationId &&
+          commitment.generation === journal.installPlan.binding.generation &&
+          commitment.planId === journal.installPlan.binding.planId &&
+          commitment.durableScope === journal.installPlan.binding.durableScope &&
+          commitment.releaseArtifactDigest ===
+            journal.installPlan.binding.releaseArtifactDigest &&
+          commitment.releaseSourceDigest ===
+            journal.installPlan.binding.releaseSourceDigest &&
+          commitment.targetDigest === journal.installPlan.binding.targetDigest &&
+          commitment.hostFingerprint ===
+            journal.installPlan.binding.hostFingerprint,
+        "web2_original_changed",
+        503,
+      );
+      journal.installationCommitment = commitment;
+    }
     if (journal.observation)
       checkObservation(journal.observation, journal.installPlan);
     if (journal.pending) journal.phase = "unknown";
@@ -344,10 +386,8 @@ export async function createWeb2Journal(
       policyHash: policyHash(policy),
       phase: "empty",
       pending: null,
-      invitationRefused: false,
       rejectedAuthorizations: [],
       request: null,
-      inviteToken: null,
       plan: null,
       deployment: null,
       prepared: null,
@@ -356,6 +396,7 @@ export async function createWeb2Journal(
       enrollment: null,
       installDraft: null,
       installPlan: null,
+      installationCommitment: null,
       observation: null,
     };
   }
@@ -363,7 +404,7 @@ export async function createWeb2Journal(
     p: LinuxWeb2PlanSummary,
     draft: LinuxWeb2Draft | null,
   ) {
-    exact(object(p), ["planId", "planDigest", "installationId", "summary"]);
+    exact(object(p), ["planId", "planDigest", "installationId", "binding", "summary"]);
     insist(
       draft &&
         /^[a-f0-9]{64}$/.test(p.planDigest) &&
@@ -374,6 +415,29 @@ export async function createWeb2Journal(
         p.installationId.length > 0 &&
         p.installationId.length <= 256 &&
         (!hostInstallationId || p.installationId === hostInstallationId),
+      "web2_installation_context_changed",
+      503,
+    );
+    exact(object(p.binding), [
+      "generation",
+      "planId",
+      "durableScope",
+      "releaseArtifactDigest",
+      "releaseSourceDigest",
+      "targetDigest",
+      "hostFingerprint",
+    ]);
+    insist(
+      Number.isSafeInteger(p.binding.generation) &&
+        p.binding.generation > 0 &&
+        p.binding.planId === p.planId &&
+        /^[0-9a-f]{64}$/.test(p.binding.durableScope) &&
+        /^0x[0-9a-f]{64}$/.test(p.binding.releaseArtifactDigest) &&
+        /^0x[0-9a-f]{64}$/.test(p.binding.releaseSourceDigest) &&
+        /^[0-9a-f]{64}$/.test(p.binding.targetDigest) &&
+        typeof p.binding.hostFingerprint === "string" &&
+        p.binding.hostFingerprint.length > 0 &&
+        p.binding.hostFingerprint.length <= 256,
       "web2_installation_context_changed",
       503,
     );
@@ -391,14 +455,16 @@ export async function createWeb2Journal(
     ]);
     const s = p.summary,
       c = draft.configuration,
-      r = draft.enrollment.operations.find((op) => op.kind === "registration");
+      r = draft.enrollment.operations.find(
+        (op) => op.kind === "registration" && op.state === "consumed",
+      );
     insist(
       s.communityId === c.communityId &&
         s.origin === c.app.origin &&
         s.name === c.app.label &&
         s.controller === c.controller &&
         s.publisher === c.publisher &&
-        s.registrationTransaction === r?.transactionHash &&
+        s.registrationTransaction === (r?.transactionHash ?? null) &&
         s.verifiedListing === false &&
         s.namesEnabled === false &&
         s.learningEnabled === false &&

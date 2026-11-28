@@ -86,7 +86,7 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string; lyrics?:string } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string; lyrics?:string; nativeOriginal?: boolean } = {}) {
   const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion";
   const community = await communityRuntime(),
     mf = new Miniflare({
@@ -364,7 +364,140 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       selection={...selected,selectionDigest:hashJson(selected)},
       attachmentBody={schema:"pirate.web2-publishing-attachment/1" as const,selection,authorization:ownerAuthorization,custodyBindingDigest:hashText("explicit-public-test-publisher-binding")},
       attachment={...attachmentBody,digest:hashJson(attachmentBody)};
+    let nativeOriginalJson: string | undefined;
+    const installationEnrollmentId = scope.enrollmentId;
+    if (options.nativeOriginal) {
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { signRecord, canonicalDigest } = await import(
+      "../../deploy/linux/installed-records.ts"
+    );
+    const { linuxWeb2DraftFrom } = await import(
+      "../../packages/community-setup/linux-web2-profile.ts"
+    );
+    const { initializeWeb2NativeOriginal } = await import(
+      "../../packages/community/web2-native-business-binding.ts"
+    );
+    const { nativeCanonical } = await import(
+      "../../packages/community/native-business-binding.ts"
+    );
+    // This application fixture emulates the installed native binding tables it
+    // uses; the guarded migration itself is exercised by the Linux installation
+    // tests against their exact release schema.
+    await community.db.batch([
+      community.db.prepare(`CREATE TABLE native_application_original(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        original_digest TEXT NOT NULL UNIQUE CHECK(length(original_digest)=64),
+        original_json TEXT NOT NULL CHECK(json_valid(original_json))
+      )`),
+      community.db.prepare(`CREATE TABLE native_business_bindings(
+        kind TEXT NOT NULL CHECK(kind IN ('session','media','learning','submission')),
+        record_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        original_digest TEXT NOT NULL REFERENCES native_application_original(original_digest),
+        session_hash TEXT UNIQUE REFERENCES community_sessions(session_hash) ON DELETE CASCADE,
+        media_id TEXT UNIQUE REFERENCES community_media(id) ON DELETE CASCADE,
+        lesson_id TEXT UNIQUE REFERENCES study_lessons(lesson_id) ON DELETE CASCADE,
+        submission_id TEXT UNIQUE REFERENCES media_submissions(submission_id) ON DELETE CASCADE,
+        proof_json TEXT CHECK(proof_json IS NULL OR json_valid(proof_json)),
+        PRIMARY KEY(kind,record_id)
+      )`),
+      community.db.prepare(`CREATE TABLE native_readback_nonces(nonce TEXT PRIMARY KEY CHECK(length(nonce)=64),expires_at INTEGER NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation>0),current_json TEXT NOT NULL CHECK(json_valid(current_json)))`),
+      community.db.prepare(`CREATE TABLE native_binding_guards(id TEXT PRIMARY KEY,valid INTEGER NOT NULL CHECK(valid=1))`),
+    ]);
+    const installedDraft = linuxWeb2DraftFrom({
+      schema: "pirate.linux-web2-draft/1",
+      name: deployment.name,
+      origin: deployment.origin,
+      deployment,
+      configuration: c.current(),
+      enrollment: {
+        schema: "pirate.hosted-enrollment-status/1",
+        enrollmentId: installationEnrollmentId,
+        communityId: c.profile.communityId,
+        installationId: c.profile.installationId,
+        profile: deployment.directoryProfile,
+        configurationUri: c.original.plan.uri,
+        operations: [
+          {
+            kind: "registration",
+            state: "consumed",
+            transactionHash: c.original.transactionHash,
+            receipt: { transactionHash: c.original.transactionHash },
+          },
+        ],
+      },
+    });
+    const nativeKeys = generateKeyPairSync("ed25519"),
+      nativeTrust = {
+        keyId: "web2-first-song-native-fixture",
+        spki: nativeKeys.publicKey
+          .export({ format: "der", type: "spki" })
+          .toString("base64"),
+      },
+      nativePrivateKey = nativeKeys.privateKey.export({
+        format: "der",
+        type: "pkcs8",
+      });
+    const installPlan = {
+      schema: "pirate.linux-web2-install-plan/1" as const,
+      planId: "web2-" + installationEnrollmentId.slice(2),
+      installationId: "web2-first-song-fixture-installation",
+      durableScope: "a".repeat(64),
+      generation: 1,
+      draft: installedDraft,
+      releaseArtifactDigest: "0x" + "b".repeat(64),
+      releaseSourceDigest: "0x" + "c".repeat(64),
+      ...(options.authorizationVersion === 2
+        ? { publishingAttachmentDigest: attachment.digest }
+        : {}),
+      targetDigest: "d".repeat(64),
+      hostFingerprint: "web2-first-song-fixture-host",
+      enrollment: {
+        schema: "pirate.linux-web2-enrollment-evidence/1" as const,
+        transactionHash: c.original.transactionHash,
+        registrationBlock: "1",
+        registrationBlockHash: ("0x" + "1".repeat(64)) as Hex,
+        safeBlock: "1",
+        safeBlockHash: ("0x" + "1".repeat(64)) as Hex,
+        observedAt: String(Math.floor(Date.now() / 1000)),
+        configurationRevision: 1,
+        configurationSha256: canonicalDigest(c.current()),
+      },
+      registrationAuthority: {
+        registrar: c.original.plan.registrar,
+        registrarRevision: String(c.original.plan.registrarRevision),
+        maxSafeBlockAgeSeconds: deployment.freshness.maxSafeBlockAgeSeconds,
+      },
+    };
+    const applicationRelease = {
+      schema: "pirate.complete-linux-web2-release/1" as const,
+      ...(options.authorizationVersion === 2
+        ? { publishingAttachmentDigest: attachment.digest }
+        : {}),
+      artifactDigest: installPlan.releaseArtifactDigest,
+      sourceDigest: installPlan.releaseSourceDigest,
+      graph: {
+        installationId: installPlan.installationId,
+        durableScope: installPlan.durableScope,
+        directoryRuntimeBinding: JSON.stringify(deployment),
+      },
+    };
+    const nativeOriginal = {
+      schema: "pirate.web2-native-application-original/1" as const,
+      trust: nativeTrust,
+      durableScope: installPlan.durableScope,
+      record: signRecord(installPlan, nativeTrust, nativePrivateKey),
+      release: signRecord(applicationRelease, nativeTrust, nativePrivateKey),
+    };
+    nativeOriginalJson = nativeCanonical(nativeOriginal);
+    await initializeWeb2NativeOriginal(community.db, nativeOriginalJson);
+    }
     const env = {
+      ...(nativeOriginalJson
+        ? { NATIVE_APPLICATION_ORIGINAL_JSON: nativeOriginalJson }
+        : {}),
       DB: community.db,
       MEDIA: community.media,
       JOBS: {

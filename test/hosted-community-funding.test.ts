@@ -21,7 +21,7 @@ async function enrolled(
       same ? { publisher: f.accounts.controller.address } : {},
     ),
     p = await f.prepare(i);
-  assert.equal((await f.post("/redeem", p.auth)).status, 200);
+  assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
   await f.mine();
   const recipients = same
     ? [f.accounts.controller]
@@ -419,7 +419,7 @@ test("recipient lifetime cap refusal allocates no nonce and a different eligible
         publisher: f.accounts.publisher.address,
       }),
       p = await f.prepare(i, f.accounts.publisher);
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     const proof = await f.accounts.publisher.signTypedData(
       enrollmentTypedData(p.e),

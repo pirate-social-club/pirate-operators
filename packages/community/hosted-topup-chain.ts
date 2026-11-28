@@ -60,6 +60,8 @@ export interface HostedRuntime {
   funder: HostedSigner;
   /** Retrieve public immutable configuration bytes through the selected pin service. */
   readConfiguration: (uri: string) => Promise<Response>;
+  /** Optional injection point for tests of the real public HTTPS installation readback. */
+  readInstallation?: typeof fetch;
 }
 interface TransferIntent {
   to: Address;
@@ -308,6 +310,7 @@ export async function executeHostedOperation(
   e: Enrollment,
   kind: HostedOperation["kind"],
   recipient?: Address,
+  beforeEffect?: () => Promise<void>,
 ) {
   const spec = intent(e, r.policy, kind, recipient),
     payload = canonical(spec),
@@ -353,6 +356,7 @@ export async function executeHostedOperation(
     }
   }
   await requireActive(r.db, e, r.now());
+  if (beforeEffect) await beforeEffect();
   const safe = await safeView(r.client, r.policy, r.now);
   // A real safe-state simulation occurs before reserving or signing. It is not
   // an inclusion guarantee; later reverts are still charged from their receipt.

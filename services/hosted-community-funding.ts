@@ -44,6 +44,11 @@ export function createHostedFundingService(input: HostedRuntime) {
         "hosted_policy_changed",
         409,
       );
+      insist(
+        e.inviteId !== null && e.allowanceId !== null,
+        "hosted_topup_allowance_required",
+        409,
+      );
       insist(Array.isArray(body.recipientProofs), "recipient_proofs_required");
       // Reconstruct proofs before any further await; no caller object is reused.
       const proofs = body.recipientProofs.map((value) => {
