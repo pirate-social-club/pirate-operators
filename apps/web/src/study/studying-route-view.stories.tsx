@@ -30,7 +30,9 @@ const meta = {
         component:
           "The studying screen and its lower-level route seam. Primary lesson, completion and recovery stories mount " +
           "StudyScreen through the production operator adapter and a server-shaped spoken lesson fixture; narrow " +
-          "loading, auth and in-flight seam states keep an injected route client. No network or microphone is used.",
+          "loading, auth and in-flight seam states keep an injected route client. Recovery journeys continue to a " +
+          "card; their companion warning stories stop at the blocking state so the browser audit captures it. No " +
+          "network or microphone is used.",
       },
     },
   },
@@ -78,6 +80,86 @@ async function expectResults(canvasElement: HTMLElement, score: string) {
   await expect(results).toHaveTextContent("Missed");
   expect(canvasElement.textContent).not.toContain("day streak");
   expect(canvasElement.textContent).not.toContain("$MOON");
+}
+
+async function expectRecordingOutcomeUnknownWarning(
+  canvas: Canvas,
+  canvasElement: HTMLElement,
+) {
+  await expect(
+    await canvas.findByRole("heading", { name: "Couldn't get your result" }),
+  ).toBeInTheDocument();
+  await expect(
+    canvas.getByText("This lesson can't continue. Start a new one."),
+  ).toBeInTheDocument();
+  await expect(canvas.getByRole("alert")).toHaveTextContent(
+    "Couldn't get your result",
+  );
+  await expectLearningActivityFrameGeometry(canvasElement);
+}
+
+async function reachRecordingOutcomeUnknownWarning(
+  canvas: Canvas,
+  canvasElement: HTMLElement,
+) {
+  await submitSpoken(canvas);
+  await expectRecordingOutcomeUnknownWarning(canvas, canvasElement);
+}
+
+async function expectExpiredLessonWarning(
+  canvas: Canvas,
+  canvasElement: HTMLElement,
+) {
+  await expect(
+    await canvas.findByRole("heading", { name: "This lesson has ended" }),
+  ).toBeInTheDocument();
+  await expect(
+    canvas.getByText("You finished 1 of 4 cards."),
+  ).toBeInTheDocument();
+  await expect(canvas.queryByRole("button", { name: "Record" })).toBeNull();
+  await expectLearningActivityFrameGeometry(canvasElement);
+}
+
+async function reachExpiredLessonWarning(
+  canvas: Canvas,
+  canvasElement: HTMLElement,
+) {
+  await canvas.findByText("La luna sigue brillando sobre el mar");
+  await submitSpoken(canvas);
+  await expectExpiredLessonWarning(canvas, canvasElement);
+}
+
+async function expectLoadFailureWarning(
+  canvas: Canvas,
+  canvasElement: HTMLElement,
+) {
+  await expect(
+    await canvas.findByRole("heading", { name: "Study unavailable" }),
+  ).toBeInTheDocument();
+  await expect(
+    canvas.getByText("Connection lost while loading the lesson."),
+  ).toBeInTheDocument();
+  await expect(
+    canvas.getByRole("button", { name: "Try Again" }),
+  ).toBeEnabled();
+  await expect(
+    canvas.getByRole("button", { name: "Go Home" }),
+  ).toBeEnabled();
+  await expectLearningActivityFrameGeometry(canvasElement);
+}
+
+function recoveringLoadStudy() {
+  return () => {
+    const client = createRecoveringLoadClient();
+    return (
+      <StudyingRouteView
+        client={client}
+        onExit={noop}
+        postId={storyPostId}
+        recorder={createStoryRecorder()}
+      />
+    );
+  };
 }
 
 export const LessonFlow: Story = {
@@ -132,17 +214,7 @@ export const RecordingOutcomeUnknown: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await submitSpoken(canvas);
-    await expect(
-      await canvas.findByRole("heading", { name: "Couldn't get your result" }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByText("This lesson can't continue. Start a new one."),
-    ).toBeInTheDocument();
-    await expect(canvas.getByRole("alert")).toHaveTextContent(
-      "Couldn't get your result",
-    );
-    await expectLearningActivityFrameGeometry(canvasElement);
+    await reachRecordingOutcomeUnknownWarning(canvas, canvasElement);
 
     await userEvent.click(
       canvas.getByRole("button", { name: "New lesson" }),
@@ -154,6 +226,22 @@ export const RecordingOutcomeUnknown: Story = {
       canvas.queryByRole("heading", { name: "Couldn't get your result" }),
     ).toBeNull();
     await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
+  },
+};
+
+export const RecordingOutcomeUnknownWarning: Story = {
+  name: "Recording outcome unknown warning",
+  render: mountedStudy({ unresolvedRecording: true }),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Audit-facing companion to the recovery journey. It submits one uncertain upload and stops on the blocking warning instead of advancing to the replacement card.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await reachRecordingOutcomeUnknownWarning(within(canvasElement), canvasElement);
   },
 };
 
@@ -174,16 +262,7 @@ export const ExpiredLesson: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByText("La luna sigue brillando sobre el mar");
-    await submitSpoken(canvas);
-    await expect(
-      await canvas.findByRole("heading", { name: "This lesson has ended" }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByText("You finished 1 of 4 cards."),
-    ).toBeInTheDocument();
-    await expect(canvas.queryByRole("button", { name: "Record" })).toBeNull();
-    await expectLearningActivityFrameGeometry(canvasElement);
+    await reachExpiredLessonWarning(canvas, canvasElement);
 
     await userEvent.click(
       canvas.getByRole("button", { name: "New lesson" }),
@@ -195,6 +274,26 @@ export const ExpiredLesson: Story = {
       canvas.queryByRole("heading", { name: "This lesson has ended" }),
     ).toBeNull();
     await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
+  },
+};
+
+export const ExpiredLessonWarning: Story = {
+  name: "Lesson ended warning",
+  render: mountedStudy({
+    closeOnOpen: true,
+    resolvedBefore: 1,
+    firstPassCorrectBefore: 1,
+  }),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Audit-facing companion to the closure race. It reaches the terminal warning through an actual submission and stops there so screenshot and accessibility evidence cover the blocked lesson.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await reachExpiredLessonWarning(within(canvasElement), canvasElement);
   },
 };
 
@@ -262,17 +361,7 @@ export const MountedLoading: Story = {
 };
 
 export const LoadFailure: Story = {
-  render: () => {
-    const client = createRecoveringLoadClient();
-    return (
-      <StudyingRouteView
-        client={client}
-        onExit={noop}
-        postId={storyPostId}
-        recorder={createStoryRecorder()}
-      />
-    );
-  },
+  render: recoveringLoadStudy(),
   parameters: {
     docs: {
       description: {
@@ -283,14 +372,31 @@ export const LoadFailure: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await expectLoadFailureWarning(canvas, canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Try Again" }),
+      canvas.getByRole("button", { name: "Try Again" }),
     );
     await expect(
       await canvas.findByRole("button", { name: "Record" }),
     ).toBeEnabled();
     await expect(canvas.queryByText("Study unavailable")).toBeNull();
     await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
+  },
+};
+
+export const LoadFailureWarning: Story = {
+  name: "Load failure warning",
+  render: recoveringLoadStudy(),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Audit-facing companion to the retry journey. It stops on the initial load failure so screenshot and accessibility evidence cover the warning before recovery.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expectLoadFailureWarning(within(canvasElement), canvasElement);
   },
 };
 
