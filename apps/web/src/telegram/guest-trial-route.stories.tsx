@@ -38,6 +38,12 @@ function promptState(canvasElement: HTMLElement) {
   };
 }
 
+function referenceAudioSrc(canvasElement: HTMLElement) {
+  return currentPrompt(canvasElement)
+    ?.querySelector("[data-reference-audio] audio")
+    ?.getAttribute("src");
+}
+
 async function chooseMidnightWaves(canvas: Canvas) {
   await userEvent.click(
     await canvas.findByRole("button", { name: "Midnight Waves" }),
@@ -60,6 +66,7 @@ async function submitFixtureRecording(
 async function finishMidnightLesson(canvas: Canvas, canvasElement: HTMLElement, alreadyStarted = false) {
   if (!alreadyStarted) await chooseMidnightWaves(canvas);
   for (let index = 0; index < 6; index += 1) {
+    const previousAudio = referenceAudioSrc(canvasElement);
     await submitFixtureRecording(canvas, /correct fixture recording/);
     if (index < 5) {
       await waitFor(() =>
@@ -67,6 +74,9 @@ async function finishMidnightLesson(canvas: Canvas, canvasElement: HTMLElement, 
           String(index + 1),
         ),
       );
+      const nextAudio = referenceAudioSrc(canvasElement);
+      expect(nextAudio).toBeTruthy();
+      expect(nextAudio).not.toBe(previousAudio);
     }
   }
   await canvas.findByText(/Great work\. 83%/);
@@ -89,6 +99,9 @@ export const PlayableLessonAndAccountConnection: Story = {
     await expect(
       await canvas.findByText("Choose a song. Listen to a line, then say it back in English."),
     ).toBeInTheDocument();
+    expect(
+      (await canvas.findByRole("group", { name: "Songs" })).getBoundingClientRect().height,
+    ).toBeGreaterThan(200);
 
     await userEvent.click(await canvas.findByRole("button", { name: "Next (3)" }));
     await expect(
@@ -114,9 +127,20 @@ export const PlayableLessonAndAccountConnection: Story = {
       await canvas.findByRole("button", { name: "Connect account" }),
     );
     await expect(await canvas.findByText("Account connected")).toBeInTheDocument();
-    await expect(
+    await userEvent.click(
       canvas.getByRole("button", { name: "Choose another song" }),
-    ).toBeEnabled();
+    );
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Midnight Waves" }),
+    );
+    await waitFor(() =>
+      expect(promptState(canvasElement)).toEqual({
+        lineIndex: "0",
+        takeCount: "0",
+        line: "I saw the harbor light",
+      }),
+    );
+    await expect(canvas.getByRole("button", { name: "Record line" })).toBeEnabled();
   },
 };
 
@@ -141,19 +165,62 @@ export const RetryStatesPreservePositionAndTakes: Story = {
     expect(canvasElement.querySelector("[data-reference-audio] audio")).toBeInTheDocument();
     expect(promptState(canvasElement)).toEqual({
       lineIndex: "1",
-      takeCount: "2",
+      takeCount: "1",
       line: "And the light is low",
     });
 
+    const promptCountBeforeUnintelligible = canvasElement.querySelectorAll(
+      "[data-telegram-line-prompt]",
+    ).length;
     await submitFixtureRecording(canvas, /unintelligible fixture recording/);
     await expect(
       await canvas.findByText("Please record that line again."),
     ).toBeInTheDocument();
     expect(promptState(canvasElement)).toEqual({
       lineIndex: "1",
-      takeCount: "3",
+      takeCount: "1",
       line: "And the light is low",
     });
+    expect(canvasElement.querySelectorAll("[data-telegram-line-prompt]")).toHaveLength(
+      promptCountBeforeUnintelligible,
+    );
+  },
+};
+
+export const GradingServiceFailurePreservesSubmission: Story = {
+  render: () => {
+    let attempts = 0;
+    return renderFixture({
+      gradeAttempt: async (input) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("simulated grading outage");
+        void input;
+        return { outcome: "correct" };
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await chooseMidnightWaves(canvas);
+    await submitFixtureRecording(canvas, /correct fixture recording/);
+    await expect(
+      await canvas.findByText("The grading service is unavailable. Try again."),
+    ).toBeInTheDocument();
+    expect(promptState(canvasElement)).toEqual({
+      lineIndex: "0",
+      takeCount: "0",
+      line: "I saw the harbor light",
+    });
+    expect(canvasElement.querySelectorAll("[data-telegram-line-prompt]")).toHaveLength(1);
+    expect(canvasElement.querySelector("[data-telegram-voice]")).toBeInTheDocument();
+    await submitFixtureRecording(canvas, /correct fixture recording/);
+    await waitFor(() =>
+      expect(promptState(canvasElement)).toEqual({
+        lineIndex: "1",
+        takeCount: "1",
+        line: "And the light is low",
+      }),
+    );
   },
 };
 
@@ -289,6 +356,10 @@ export const ArabicLanguagePreservesPromptAndAudio: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: /\/language\s+Language/ }),
     );
+    expect(
+      (await canvas.findByText("Language for instructions")).closest("section")
+        ?.getBoundingClientRect().height,
+    ).toBeGreaterThan(150);
     await userEvent.click(await canvas.findByRole("button", { name: "العربية" }));
     await expect(await canvas.findByText("تم اختيار العربية.")).toBeInTheDocument();
     await expect(
@@ -300,6 +371,12 @@ export const ArabicLanguagePreservesPromptAndAudio: Story = {
     expect(
       prompt?.querySelector("[data-reference-audio] audio")?.getAttribute("src"),
     ).toBe(beforeAudio);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Pinned message\s+Songs/ }),
+    );
+    expect(
+      (await canvas.findByRole("group", { name: "Songs" })).getBoundingClientRect().height,
+    ).toBeGreaterThan(200);
   },
 };
 
@@ -374,8 +451,13 @@ export const TestnetRewardAndUnavailableLinkingEnding: Story = {
   },
 };
 
+let replacementFixture: ReturnType<typeof createTelegramGuestTrialFixture>;
+
 export const ReplacementAccountRequiresFreshConfirmation: Story = {
-  render: () => renderFixture({ account: "signed-in" }),
+  render: () => {
+    replacementFixture = createTelegramGuestTrialFixture({ account: "signed-in" });
+    return <TelegramGuestTrialRoute boundary={replacementFixture.boundary} />;
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await finishMidnightLesson(canvas, canvasElement);
@@ -392,10 +474,15 @@ export const ReplacementAccountRequiresFreshConfirmation: Story = {
         "Future lessons will use this account. This lesson stays in your guest history.",
       ),
     ).toBeInTheDocument();
-    await expect(
+    await userEvent.click(
       canvas.getByRole("button", { name: "Connect account" }),
-    ).toBeEnabled();
-    expect(canvas.queryByText("Account connected")).toBeNull();
+    );
+    expect(replacementFixture.links).toHaveLength(1);
+    expect(replacementFixture.links[0]?.account.address).toBe(
+      "0x9f03000000000000000000000000000000000077ad",
+    );
+    await expect(await canvas.findByText("Account connected")).toBeInTheDocument();
+    expect(replacementFixture.links).toHaveLength(1);
   },
 };
 

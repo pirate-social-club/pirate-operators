@@ -5,12 +5,11 @@ import {
   TELEGRAM_TRIAL_USER_ID,
   type TelegramGradeInput,
   type TelegramGradeResult,
-  type TelegramLinkInput,
   type TelegramRewardRead,
   type TelegramTrialAccount,
   type TelegramTrialBoundary,
 } from "./guest-trial-contract.ts";
-import { createTelegramGuestTrialPreviewBoundary } from "./guest-trial-boundary.ts";
+import { createTelegramGuestTrialPreviewBoundary, createTelegramTrialLinkMemory } from "./guest-trial-boundary.ts";
 
 export type TelegramTrialRewardMode = "empty" | "failed" | "testnet-unavailable";
 
@@ -32,10 +31,10 @@ export function createTelegramGuestTrialFixture(options: {
 } = {}) {
   const rewardReads: string[] = [];
   const signIns: Array<"initial" | "replacement"> = [];
-  const links: TelegramLinkInput[] = [];
   const gradingInputs: TelegramGradeInput[] = [];
   let confirmationAttempts = 0;
   const base = createTelegramGuestTrialPreviewBoundary();
+  const linkMemory = createTelegramTrialLinkMemory();
   const rewardMode = options.rewardMode ?? "empty";
   const reward: TelegramRewardRead =
     rewardMode === "failed"
@@ -65,19 +64,16 @@ export function createTelegramGuestTrialFixture(options: {
     },
     confirmLink: async (input) => {
       confirmationAttempts += 1;
-      if (input.telegramUserId !== TELEGRAM_TRIAL_USER_ID)
-        throw new Error("The originating Telegram user could not be verified.");
       if (options.failFirstConfirmation && confirmationAttempts === 1)
         throw new Error("The simulated server could not verify this confirmation.");
-      links.push(input);
-      return { linked: true };
+      return linkMemory.confirmLink(input);
     },
   };
   return {
     boundary,
     rewardReads,
     signIns,
-    links,
+    links: linkMemory.links,
     gradingInputs,
     confirmationAttempts: () => confirmationAttempts,
   };

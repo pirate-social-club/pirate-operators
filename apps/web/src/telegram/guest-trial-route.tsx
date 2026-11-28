@@ -33,6 +33,7 @@ type ChatEvent =
   | { id: number; kind: "correct" }
   | { id: number; kind: "mismatch"; transcript: string }
   | { id: number; kind: "unintelligible" }
+  | { id: number; kind: "grading-failure" }
   | { id: number; kind: "result"; songId: string; resultId: string }
   | { id: number; kind: "song-details"; songId: string; reward: TelegramRewardRead | null }
   | { id: number; kind: "language-picker" }
@@ -156,19 +157,22 @@ export function TelegramGuestTrialRoute(props: {
   }
 
   function selectSong(songId: string) {
-    const existing = lessons()[songId] ?? {
-      songId,
-      lineIndex: 0,
-      takes: 0,
-      completed: false,
-    };
-    if (!lessons()[songId])
+    const stored = lessons()[songId];
+    const existing = stored?.completed
+      ? { songId, lineIndex: 0, takes: 0, completed: false }
+      : stored ?? { songId, lineIndex: 0, takes: 0, completed: false };
+    if (!stored || stored.completed)
       setLessons((current) => ({ ...current, [songId]: existing }));
     setActiveSongId(songId);
     setSongContextId(songId);
     setMenuOpen(false);
     setRecordingOpen(false);
     appendPrompt(songId, existing);
+  }
+
+  function returnToSongPicker() {
+    setPickerPage(0);
+    requestAnimationFrame(() => scrollRegion?.scrollTo({ top: 0, behavior: "instant" }));
   }
 
   function chooseAnotherSong() {
@@ -184,13 +188,13 @@ export function TelegramGuestTrialRoute(props: {
     if (result.outcome === "correct") {
       pushEvent({ kind: "correct" });
       if (lineIndex + 1 >= song.lines.length) {
-        updateLesson(songId, (lesson) => ({ ...lesson, completed: true }));
+        updateLesson(songId, (lesson) => ({ ...lesson, takes: take + 1, completed: true }));
         setActiveSongId(null);
         setSongContextId(songId);
         pushEvent({ kind: "result", songId, resultId: `guest-result-${songId}` });
         return;
       }
-      const next = { lineIndex: lineIndex + 1, takes: take };
+      const next = { lineIndex: lineIndex + 1, takes: take + 1 };
       updateLesson(songId, (lesson) => ({
         ...lesson,
         lineIndex: next.lineIndex,
@@ -204,22 +208,21 @@ export function TelegramGuestTrialRoute(props: {
       });
       return;
     }
-    if (result.outcome === "mismatch")
+    if (result.outcome === "mismatch") {
       pushEvent({ kind: "mismatch", transcript: result.transcript });
-    else pushEvent({ kind: "unintelligible" });
-    appendPrompt(songId, {
-      songId,
-      lineIndex,
-      takes: take,
-      completed: false,
-    });
+      appendPrompt(songId, {
+        songId,
+        lineIndex,
+        takes: take,
+        completed: false,
+      });
+    } else pushEvent({ kind: "unintelligible" });
   }
 
   function submitSpeech(submission: TelegramSpeechSubmission) {
     const lesson = activeLesson();
     if (!lesson || pendingGrading()) return;
-    const take = lesson.takes + 1;
-    updateLesson(lesson.songId, (current) => ({ ...current, takes: take }));
+    const take = lesson.takes;
     setRecordingOpen(false);
     pushEvent({ kind: "voice", durationLabel: submission.durationLabel, songId: lesson.songId });
     const checkingId = pushEvent({ kind: "checking" });
@@ -242,7 +245,7 @@ export function TelegramGuestTrialRoute(props: {
         if (!mounted) return;
         setEvents((current) => current.filter((event) => event.id !== checkingId));
         setPendingGrading(null);
-        applyGrade({ outcome: "unintelligible" }, lesson.songId, lesson.lineIndex, take);
+        pushEvent({ kind: "grading-failure" });
       });
   }
 
@@ -565,6 +568,12 @@ export function TelegramGuestTrialRoute(props: {
           Please record that line again.
         </p>
       );
+    if (event.kind === "grading-failure")
+      return (
+        <p class="w-full max-w-[320px] rounded-2xl bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm" role="alert">
+          The grading service is unavailable. Try again.
+        </p>
+      );
     if (event.kind === "result") return <ResultBubble {...event} />;
     if (event.kind === "song-details") return <SongDetailsBubble {...event} />;
     if (event.kind === "language-picker") return <LanguagePicker />;
@@ -670,14 +679,18 @@ export function TelegramGuestTrialRoute(props: {
           <span class="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">NS</span>
         </header>
         <Show when={unfinishedLessons().length > 0}>
-          <div class="flex items-center gap-2 border-b border-border-soft px-3 py-1.5 text-xs text-muted-foreground">
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 border-b border-border-soft px-3 py-1.5 text-left text-xs text-muted-foreground"
+            onClick={returnToSongPicker}
+          >
             <span class="h-7 w-0.5 rounded bg-primary-text" aria-hidden="true" />
             <span>Pinned message</span>
             <span class="font-medium text-foreground">Songs</span>
-          </div>
+          </button>
         </Show>
         <div
-          class="flex flex-1 flex-col items-start gap-2.5 overflow-y-auto px-3 py-4"
+          class="flex flex-1 flex-col items-start gap-2.5 overflow-y-auto px-3 py-4 [&>*]:shrink-0"
           ref={(element) => {
             scrollRegion = element;
           }}
