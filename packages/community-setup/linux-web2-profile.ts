@@ -15,6 +15,7 @@ import {
   parseEnrollment,
   signature,
 } from "../community/hosted-enrollment.ts";
+import type { Web2InstallationReadbackBinding } from "../community/web2-installation-readback.ts";
 import {
   isWeb2Deployment,
   validateCommunityDeploymentProfile,
@@ -59,6 +60,7 @@ export interface LinuxWeb2PlanSelection {
 }
 export interface LinuxWeb2PlanSummary extends LinuxWeb2PlanSelection {
   installationId: string;
+  binding: Web2InstallationReadbackBinding;
   summary: {
     communityId: Hex;
     origin: string;

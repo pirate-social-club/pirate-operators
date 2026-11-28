@@ -12,16 +12,11 @@ import {
 import { web2Other } from "./fixtures/web2-first-song-chain.ts";
 import { enrollmentTypedData } from "../packages/community/hosted-enrollment.ts";
 import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
-import { setTimeout as delay } from "node:timers/promises";
-import {
-  createWeb2WizardClient,
-  type Web2Snapshot,
-} from "../apps/community-wizard/src/web2-api.ts";
 
 // Failure plan precedes production in the onboarding document. These exercise
 // the actual paired HTTP server, hosted handlers, D1, signatures and local RPC.
 test("paired Web2 Wizard retains one original across lost redeem reply and restart without Pirate-funded gas", async () => {
-  const f = await hostedWizardFixture();
+  const f = await hostedWizardFixture({ scriptedInstallation: true });
   try {
     const bad = await f.post("prepare", {
       ...f.prepareInput,
@@ -49,6 +44,7 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     assert(view.challenge);
     view = await f.send("authorize", { signature: await f.sign(view.challenge) });
     assert.equal(view.controllerAuthorized, true);
+    view = await f.install();
     f.dropRedeemReply();
     view = await f.send("redeem", {});
     assert.equal(view.phase, "unknown");
@@ -72,36 +68,6 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     assert.equal(topup.status, 409);
     assert.equal(topup.body.code, "hosted_request_refused");
     assert.equal(f.broadcasts(), funded);
-    const unavailable = await f.post("install", {});
-    assert.equal(unavailable.status, 503);
-    assert.equal(unavailable.body.code, "web2_installation_unavailable");
-    const current = await f.raw("GET", "/api/web2/state"),
-      slowClient = createWeb2WizardClient(async (resource, init) => {
-        const request = new Request(
-            resource instanceof Request
-              ? resource
-              : new URL(resource, f.origin),
-            init,
-          ),
-          headers = new Headers(request.headers);
-        // Keep the existing explicit fixture pairing channel. The actual
-        // runner still checks Origin, CSRF, revision and all request data.
-        headers.set("cookie", "wizard_fixture=paired");
-        headers.set("origin", f.origin);
-        const response = await fetch(new Request(request, { headers }));
-        // Delay the real unavailable-installer reply past the old deadline;
-        // no installer or successful installation response is substituted.
-        await delay(31_000, undefined, { signal: request.signal });
-        return response;
-      });
-    await assert.rejects(
-      slowClient.send(
-        "installation-prepare",
-        {},
-        current.body as unknown as Web2Snapshot,
-      ),
-      /The real Linux Web2 installer is unavailable/,
-    );
     assert.deepEqual((await f.state()).selection, identity);
     assert.equal(f.broadcasts(), funded);
     const publicText = JSON.stringify(await f.state());
@@ -143,6 +109,7 @@ test("the Wizard gates registration on a running installation and publishing on 
       planId: plan.planId,
       planDigest: plan.planDigest,
       approved: true,
+      installationSignature: await f.sign(view.installationChallenge),
     });
     assert.equal(view.observation?.state, "running");
     view = await f.send("redeem", {});
@@ -207,7 +174,7 @@ test("repeated real journal rename failures permit no hosted preparation until t
 });
 
 test("unexpected invitation input is refused and a wrong signature can be corrected without replacing the community", async () => {
-  const f = await hostedWizardFixture();
+  const f = await hostedWizardFixture({ scriptedInstallation: true });
   try {
     const malformed = await f.post("prepare", {
       ...f.prepareInput,
@@ -219,7 +186,9 @@ test("unexpected invitation input is refused and a wrong signature can be correc
     const wrong = await web2Other.signTypedData(
       view.challenge as ReturnType<typeof enrollmentTypedData>,
     );
-    const denied = await f.post("redeem", { signature: wrong });
+    view = await f.send("authorize", { signature: wrong });
+    view = await f.install();
+    const denied = await f.post("redeem", {});
     assert.equal(denied.status, 409);
     assert.equal(denied.body.code, "hosted_authorization_refused");
     assert.equal((await f.state()).controllerAuthorized, false);
@@ -355,10 +324,12 @@ test("Web2 Wizard requires paired authorization, exact host, Origin and CSRF and
 });
 
 test("contract controller uses actual ERC1271 enrollment authorization without collecting a key", async () => {
-  const f = await hostedWizardFixture({ contractController: true });
+  const f = await hostedWizardFixture({ contractController: true, scriptedInstallation: true });
   try {
     let view = await f.prepare();
-    view = await f.send("redeem", { signature: await f.sign(view.challenge!) });
+    view = await f.send("authorize", { signature: await f.sign(view.challenge!) });
+    view = await f.install();
+    view = await f.send("redeem", {});
     await f.mine();
     view = await f.send("reconcile", {});
     const proofs = await f.recipientProofs(view);

@@ -4,6 +4,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { Hex } from "viem";
 import { canonical, hashText } from "../packages/community/common.ts";
+import { installationReadbackMessage, installationReadbackTypedData } from "../packages/community/web2-installation-readback.ts";
 import { preparePin } from "../packages/community/ipfs.ts";
 import { enrollmentDocument } from "../packages/community/hosted-enrollment.ts";
 import { linuxWeb2DraftFrom } from "../packages/community-setup/linux-web2-profile.ts";
@@ -129,7 +130,7 @@ test(
       releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
       releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
       targetDigest: "d".repeat(64),
-      hostFingerprint: "empty-directory-fixture-host",
+      hostFingerprint: "fixture-installation",
       enrollment: installEvidence,
       registrationAuthority: {
         registrar: hosted.policy.registrar,
@@ -280,6 +281,58 @@ test(
     assert.equal(hosted.state.sendCount, 0);
     hosted.state.failRpc = false;
 
+    const chainReadback = async (nonce: string) =>
+      ingress.call(
+        `/.well-known/pirate-community.json?enrollmentId=${prepared.e.id}&communityId=${input.config.communityId}&installationId=${input.config.installationId}&nonce=${nonce}`,
+        { timeout: 10000 },
+      );
+    await hosted.rpc("anvil_setChainId", [31337]);
+    assert.equal((await chainReadback("0x" + "7".repeat(64))).status, 503);
+    await hosted.rpc("anvil_setChainId", [6343]);
+    const beforeFuture = await hosted.rpc("evm_snapshot");
+    await hosted.rpc("anvil_setNextBlockTimestamp", [
+      Math.floor(Date.now() / 1000) + 900,
+    ]);
+    await hosted.rpc("anvil_mine", ["0x8"]);
+    const futureSafe = await hosted.client.getBlock({ blockTag: "safe" });
+    assert(
+      futureSafe.timestamp > BigInt(Math.floor(Date.now() / 1000)),
+      `safe block is not future: ${futureSafe.number}:${futureSafe.timestamp}`,
+    );
+    assert.equal((await chainReadback("0x" + "8".repeat(64))).status, 503);
+    assert.equal(await hosted.rpc("evm_revert", [beforeFuture]), true);
+
+    const realInstallation = hosted.state.readInstallation;
+    hosted.state.readInstallation = async (url) => {
+      const requestUrl = new URL(String(url));
+      const message = installationReadbackMessage({
+        enrollmentId: requestUrl.searchParams.get("enrollmentId") as Hex,
+        config: input.config,
+        nonce: requestUrl.searchParams.get("nonce") as Hex,
+        installation: { ...probe, generation: 2 },
+      });
+      return Response.json(
+        {
+          schema: "pirate.web2-installation-readback-response/1",
+          configuration: input.config,
+          proof: {
+            schema: "pirate.web2-installation-readback/1",
+            ...message,
+            signature: await hosted.accounts.publisher.signTypedData(
+              installationReadbackTypedData(input.config, message),
+            ),
+          },
+        },
+        { headers: { "cache-control": "no-store" } },
+      );
+    };
+    const mismatched = await hosted.post("/redeem", prepared.auth);
+    assert.equal(mismatched.status, 409);
+    assert.equal(mismatched.body.error, "installation_plan_commitment_mismatch");
+    assert.equal(hosted.state.registrarSignatures, firstSignatures);
+    assert.equal(hosted.state.sendCount, 0);
+    hosted.state.readInstallation = realInstallation;
+
     ingress.replaceUpstreamTrust(false);
     assert.equal((await hosted.post("/redeem", prepared.auth)).status, 503);
     assert.equal(hosted.state.registrarSignatures, firstSignatures);
@@ -337,6 +390,8 @@ test(
         postReceiptDirectoryOutageRefused: true,
         preRegistrationHttpsReadback: true,
         outageTlsAndUnavailableChecksProducedZeroSignaturesAndBroadcasts: true,
+        substitutedGenerationProducedZeroSignaturesAndBroadcasts: true,
+        wrongChainAndFutureSafeBlockRefused: true,
         scope: "real application handler and pinned Caddy TLS edge on an empty disposable Directory; not full Docker installer acceptance",
       }, null, 2) + "\n",
     );

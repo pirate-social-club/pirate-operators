@@ -285,6 +285,15 @@ export async function createWeb2Installation(
     return {
       ...selectionFor(p),
       installationId: p.installationId,
+      binding: {
+        generation: p.generation,
+        planId: p.planId,
+        durableScope: p.durableScope,
+        releaseArtifactDigest: p.releaseArtifactDigest as Hex,
+        releaseSourceDigest: p.releaseSourceDigest as Hex,
+        targetDigest: p.targetDigest,
+        hostFingerprint: p.hostFingerprint,
+      },
       summary: {
         name: p.draft.name,
         origin: p.draft.origin,

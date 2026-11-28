@@ -23,6 +23,7 @@ import {
   signature,
   type HostedPolicy,
 } from "../community/hosted-enrollment.ts";
+import { parseInstallationPlanCommitment } from "../community/web2-installation-commitment.ts";
 import type { Web2RegistrationPlan } from "../community/web2-registration-chain.ts";
 import {
   hostedEnrollmentStatusFrom,
@@ -230,12 +231,33 @@ export function createHostedEnrollmentClient(
     prepared: PreparedHostedEnrollment,
     controllerSignature: unknown,
     proofs?: unknown,
+    installationCommitmentValue?: unknown,
   ): Promise<HostedEnrollmentStatus> {
-    const e = original(prepared),
-      auth = {
-        enrollmentId: e.id,
-        controllerSignature: signature(controllerSignature),
-      };
+    const e = original(prepared);
+    let installationCommitment;
+    if (installationCommitmentValue !== undefined) {
+      try {
+        installationCommitment = parseInstallationPlanCommitment(
+          installationCommitmentValue,
+        );
+      } catch {
+        throw new CommunityError("invalid_installation_commitment", 409);
+      }
+      insist(
+        installationCommitment.enrollmentId === e.id &&
+          installationCommitment.communityId === e.plan.profile.communityId &&
+          installationCommitment.installationId === e.plan.profile.installationId,
+        "installation_plan_commitment_mismatch",
+        409,
+      );
+    }
+    const auth = {
+      enrollmentId: e.id,
+      controllerSignature: signature(controllerSignature),
+      ...(installationCommitment === undefined
+        ? {}
+        : { installationCommitment }),
+    };
     const value = await post(
       path,
       proofs === undefined ? auth : { ...auth, recipientProofs: proofs },
@@ -269,8 +291,11 @@ export function createHostedEnrollmentClient(
       });
       return checkedHostedPreparation(value, plan, policy, clock());
     },
-    redeem: (prepared: PreparedHostedEnrollment, proof: unknown) =>
-      action("/redeem", prepared, proof),
+    redeem: (
+      prepared: PreparedHostedEnrollment,
+      proof: unknown,
+      installationCommitment: unknown,
+    ) => action("/redeem", prepared, proof, undefined, installationCommitment),
     status: (prepared: PreparedHostedEnrollment, proof: unknown) =>
       action("/status", prepared, proof),
     topup: (

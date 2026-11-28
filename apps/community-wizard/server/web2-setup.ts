@@ -46,6 +46,11 @@ import { initialRecipients } from "../../../packages/community/hosted-topup-chai
 import { parseEnrollment } from "../../../packages/community/hosted-enrollment.ts";
 import { createHostedEnrollmentClient } from "../../../packages/community-setup/hosted-enrollment-client.ts";
 import {
+  installationPlanCommitmentTypedData,
+  parseInstallationPlanCommitment,
+  unsignedInstallationPlanCommitment,
+} from "../../../packages/community/web2-installation-commitment.ts";
+import {
   linuxWeb2DraftFrom,
   type HostedEnrollmentStatus,
   type LinuxWeb2Installation,
@@ -97,6 +102,7 @@ export interface Web2WizardView {
   recipients: Array<{ address: Hex; value: string }>;
   installationAvailable: boolean;
   installPlan: LinuxWeb2PlanSummary | null;
+  installationChallenge: unknown | null;
   observation: LinuxWeb2Observation | null;
 }
 export interface Web2SetupInputs {
@@ -185,6 +191,26 @@ export async function createWeb2Setup(
     : null;
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
+  function unsignedCommitment() {
+    insist(
+      journal.prepared && journal.plan && journal.installPlan,
+      "web2_installation_review_required",
+      409,
+    );
+    return unsignedInstallationPlanCommitment({
+      enrollmentId: journal.prepared.enrollmentId,
+      communityId: journal.plan.profile.communityId,
+      installationId: journal.plan.profile.installationId,
+      ...journal.installPlan.binding,
+    });
+  }
+  function installationChallenge() {
+    if (!journal.prepared || !journal.plan || !journal.installPlan) return null;
+    return installationPlanCommitmentTypedData(
+      parsePlan(journal.plan).profile,
+      unsignedCommitment(),
+    );
+  }
   function snapshot(): Web2WizardView {
     const e = journal.prepared
       ? parseEnrollment(journal.prepared.enrollment)
@@ -226,6 +252,7 @@ export async function createWeb2Setup(
         : [],
       installationAvailable: Boolean(input.installation),
       installPlan: journal.installPlan,
+      installationChallenge: installationChallenge(),
       observation: journal.observation
         ? {
             planId: journal.observation.planId,
@@ -415,6 +442,17 @@ export async function createWeb2Setup(
             "web2_installation_required",
             409,
           );
+        if (
+          action === "redeem" &&
+          !journal.enrollment?.operations.some(
+            (op) => op.kind === "registration" && op.state === "consumed",
+          )
+        )
+          insist(
+            journal.installationCommitment !== null,
+            "web2_installation_commitment_required",
+            409,
+          );
         if (action === "topup" && Object.hasOwn(body, "proofs")) {
           insist(
             journal.recipientProofs !== null &&
@@ -494,7 +532,11 @@ export async function createWeb2Setup(
         await save();
         journal.enrollment =
           action === "redeem"
-            ? await client.redeem(journal.prepared, journal.controllerSignature)
+            ? await client.redeem(
+                journal.prepared,
+                journal.controllerSignature,
+                journal.installationCommitment ?? undefined,
+              )
             : action === "topup"
               ? await client.topup(
                   journal.prepared,
@@ -540,7 +582,11 @@ export async function createWeb2Setup(
         insist(input.installation, "web2_installation_unavailable", 503);
         exact(
           body,
-          action === "install" ? ["planId", "planDigest", "approved"] : [],
+          action === "install"
+            ? Object.hasOwn(body, "installationSignature")
+              ? ["planId", "planDigest", "approved", "installationSignature"]
+              : ["planId", "planDigest", "approved"]
+            : [],
         );
         if (action !== "installation-prepare")
           insist(journal.installPlan, "web2_installation_review_required", 409);
@@ -559,7 +605,7 @@ export async function createWeb2Setup(
         const p = journal.installPlan;
         checkInstallationPlan(p, journal.installDraft);
         const selection = { planId: p.planId, planDigest: p.planDigest };
-        if (action === "install")
+        if (action === "install") {
           insist(
             body.approved === true &&
               body.planId === p.planId &&
@@ -567,6 +613,28 @@ export async function createWeb2Setup(
             "web2_installation_review_changed",
             409,
           );
+          const supplied = Object.hasOwn(body, "installationSignature")
+            ? signature(body.installationSignature)
+            : null;
+          if (journal.installationCommitment === null)
+            insist(supplied, "web2_installation_commitment_required", 409);
+          const candidate = parseInstallationPlanCommitment({
+            schema: "pirate.web2-installation-plan-commitment/1",
+            ...unsignedCommitment(),
+            controllerSignature:
+              supplied ??
+              (journal.installationCommitment as { controllerSignature: Hex })
+                .controllerSignature,
+          });
+          if (journal.installationCommitment !== null)
+            insist(
+              canonical(candidate) ===
+                canonical(journal.installationCommitment),
+              "web2_original_authorization_changed",
+              409,
+            );
+          journal.installationCommitment = candidate;
+        }
         if (action !== "installation-prepare") {
           const observation =
             action === "install"

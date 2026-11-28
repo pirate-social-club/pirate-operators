@@ -776,13 +776,20 @@ async function communityFetchBusiness(
         if (!web2 || !env.NATIVE_APPLICATION_ORIGINAL_JSON) throw error;
         const client = ports.publicReads?.client;
         insist(client, "community_authority_unavailable", 503);
-        const profile = parseWeb2ProfileDocument(deployment.directoryProfile),
-          safe = await client.getBlock({ blockTag: "safe" });
+        const profile = parseWeb2ProfileDocument(deployment.directoryProfile);
+        insist(
+          (await client.getChainId()) === profile.chainId,
+          "wrong_application_chain",
+          503,
+        );
+        const safe = await client.getBlock({ blockTag: "safe" }),
+          now = BigInt(Math.floor(Date.now() / 1000));
         insist(
           typeof safe.number === "bigint" &&
             typeof safe.hash === "string" &&
             typeof safe.timestamp === "bigint" &&
-            BigInt(Math.floor(Date.now() / 1000)) - safe.timestamp <=
+            safe.timestamp <= now &&
+            now - safe.timestamp <=
               BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
           "community_authority_unavailable",
           503,

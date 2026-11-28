@@ -63,6 +63,7 @@ import {
   installationReadbackMessage,
   installationReadbackTypedData,
 } from "../../packages/community/web2-installation-readback.ts";
+import { installationPlanCommitmentTypedData } from "../../packages/community/web2-installation-commitment.ts";
 
 const fixtureAccounts = Array.from({ length: 6 }, (_, i) =>
   privateKeyToAccount(`0x${(i + 1).toString(16).padStart(64, "0")}`),
@@ -682,7 +683,26 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const controllerSignature = await signerAccount.signTypedData(
         enrollmentTypedData(e),
       );
-      return { e, auth: { enrollmentId: e.id, controllerSignature } };
+      const installation = {
+        enrollmentId: e.id,
+        communityId: e.plan.profile.communityId,
+        installationId: e.plan.profile.installationId,
+        generation: 1,
+        planId: "web2-" + e.id.slice(2),
+        durableScope: "a".repeat(64),
+        releaseArtifactDigest: ("0x" + "b".repeat(64)) as Hex,
+        releaseSourceDigest: ("0x" + "c".repeat(64)) as Hex,
+        targetDigest: "d".repeat(64),
+        hostFingerprint: "fixture-installation",
+      };
+      const installationCommitment = {
+        schema: "pirate.web2-installation-plan-commitment/1" as const,
+        ...installation,
+        controllerSignature: await signerAccount.signTypedData(
+          installationPlanCommitmentTypedData(e.plan.profile, installation),
+        ),
+      };
+      return { e, auth: { enrollmentId: e.id, controllerSignature, installationCommitment } };
     };
     return {
       runtime,

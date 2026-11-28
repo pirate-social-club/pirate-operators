@@ -44,7 +44,8 @@ test("permissionless enrollment registers once without an invite and admits no t
     assert.equal((await f.post("/redeem", prepared.auth)).status, 200);
     assert.equal(f.state.sendCount, sent);
     const topup = await f.post("/initial-topup", {
-      ...prepared.auth,
+      enrollmentId: prepared.auth.enrollmentId,
+      controllerSignature: prepared.auth.controllerSignature,
       recipientProofs: [],
     });
     assert.equal(topup.status, 409);

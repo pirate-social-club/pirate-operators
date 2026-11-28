@@ -46,6 +46,10 @@ import {
   installationReadbackMessage,
   installationReadbackTypedData,
 } from "../../packages/community/web2-installation-readback.ts";
+import {
+  installationPlanCommitmentTypedData,
+  unsignedInstallationPlanCommitment,
+} from "../../packages/community/web2-installation-commitment.ts";
 import { createHostedFundingService } from "../../services/hosted-community-funding.ts";
 import {
   web2SongChain,
@@ -359,6 +363,15 @@ export async function hostedWizardFixture(
             planId:"web2-"+draft.enrollment.enrollmentId.slice(2),
             planDigest:hashText(canonical(draft)).slice(2),
             installationId:"wizard-host-fixture",
+            binding:{
+              generation:1,
+              planId:"web2-" + draft.enrollment.enrollmentId.slice(2),
+              durableScope:"a".repeat(64),
+              releaseArtifactDigest:("0x" + "b".repeat(64)) as `0x${string}`,
+              releaseSourceDigest:("0x" + "c".repeat(64)) as `0x${string}`,
+              targetDigest:"d".repeat(64),
+              hostFingerprint:"fixture-installation",
+            },
             summary:{
               communityId:draft.configuration.communityId,
               origin:draft.configuration.app.origin,
@@ -415,7 +428,21 @@ export async function hostedWizardFixture(
       await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
       const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken!);
       const e=parseEnrollment(prepared.enrollment),proof=await web2Owner.signTypedData(enrollmentTypedData(e));
-      await oldClient.redeem(prepared,proof);await chain.rpc("anvil_mine",["0x40","0x0"]);
+      const unsigned=unsignedInstallationPlanCommitment({
+        enrollmentId:e.id,
+        communityId:e.plan.profile.communityId,
+        installationId:e.plan.profile.installationId,
+        generation:1,
+        planId:"web2-" + e.id.slice(2),
+        durableScope:"a".repeat(64),
+        releaseArtifactDigest:("0x" + "b".repeat(64)) as Hex,
+        releaseSourceDigest:("0x" + "c".repeat(64)) as Hex,
+        targetDigest:"d".repeat(64),
+        hostFingerprint:"fixture-installation",
+      });
+      const installationCommitment={schema:"pirate.web2-installation-plan-commitment/1",...unsigned,
+        controllerSignature:await web2Owner.signTypedData(installationPlanCommitmentTypedData(e.plan.profile,unsigned))};
+      await oldClient.redeem(prepared,proof,installationCommitment);await chain.rpc("anvil_mine",["0x40","0x0"]);
       await oldClient.topup(prepared,proof,[{recipient:controller,signature:proof}]);await chain.rpc("anvil_mine",["0x40","0x0"]);
       const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
       Object.assign(journal,{request:selected,plan:web2Wire(planDocument(plan)),deployment,prepared,
@@ -543,6 +570,20 @@ export async function hostedWizardFixture(
         ? web2Publisher
         : web2Owner
       ).signTypedData(typed as ReturnType<typeof enrollmentTypedData>);
+    const install = async () => {
+      let view = await send("installation-prepare", {});
+      const plan = view.installPlan;
+      assert(plan);
+      assert(view.installationChallenge);
+      view = await send("install", {
+        planId: plan.planId,
+        planDigest: plan.planDigest,
+        approved: true,
+        installationSignature: await sign(view.installationChallenge),
+      });
+      assert.equal(view.observation?.state, "running");
+      return view;
+    };
     const stopServer = async () => {
       await setup?.settled();
       if (server?.listening) {
@@ -573,6 +614,7 @@ export async function hostedWizardFixture(
       post,
       send,
       sign,
+      install,
       prepare: () => send("prepare", prepareInput),
       prepareResponse: () => post("prepare", prepareInput),
       dropRedeemReply: () => {

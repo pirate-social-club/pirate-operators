@@ -44,6 +44,7 @@ import {
   type LinuxWeb2Observation,
   type LinuxWeb2PlanSummary,
 } from "../../../packages/community-setup/linux-web2-profile.ts";
+import { parseInstallationPlanCommitment } from "../../../packages/community/web2-installation-commitment.ts";
 import {
   isWeb2Deployment,
   validateCommunityDeploymentProfile,
@@ -82,6 +83,7 @@ export interface Journal {
   enrollment: HostedEnrollmentStatus | null;
   installDraft: LinuxWeb2Draft | null;
   installPlan: LinuxWeb2PlanSummary | null;
+  installationCommitment: unknown | null;
   observation: LinuxWeb2Observation | null;
 }
 const MAX = 1_048_576;
@@ -184,6 +186,8 @@ export async function createWeb2Journal(
       insist(typeof legacy.invitationRefused === "boolean", "web2_original_changed", 503);
       delete legacy.invitationRefused;
     }
+    if (!Object.hasOwn(legacy, "installationCommitment"))
+      legacy.installationCommitment = null;
     exact(object(journal), [
       "schema",
       "revision",
@@ -200,6 +204,7 @@ export async function createWeb2Journal(
       "enrollment",
       "installDraft",
       "installPlan",
+      "installationCommitment",
       "observation",
     ]);
     insist(
@@ -336,6 +341,37 @@ export async function createWeb2Journal(
     if (journal.controllerSignature) signature(journal.controllerSignature);
     if (journal.installPlan)
       checkInstallationPlan(journal.installPlan, journal.installDraft);
+    if (journal.installationCommitment !== null) {
+      let commitment;
+      try {
+        commitment = parseInstallationPlanCommitment(
+          journal.installationCommitment,
+        );
+      } catch {
+        throw new CommunityError("web2_original_changed", 503);
+      }
+      insist(
+        journal.prepared &&
+          journal.plan &&
+          journal.installPlan &&
+          commitment.enrollmentId === journal.prepared.enrollmentId &&
+          commitment.communityId === journal.plan.profile.communityId &&
+          commitment.installationId === journal.plan.profile.installationId &&
+          commitment.generation === journal.installPlan.binding.generation &&
+          commitment.planId === journal.installPlan.binding.planId &&
+          commitment.durableScope === journal.installPlan.binding.durableScope &&
+          commitment.releaseArtifactDigest ===
+            journal.installPlan.binding.releaseArtifactDigest &&
+          commitment.releaseSourceDigest ===
+            journal.installPlan.binding.releaseSourceDigest &&
+          commitment.targetDigest === journal.installPlan.binding.targetDigest &&
+          commitment.hostFingerprint ===
+            journal.installPlan.binding.hostFingerprint,
+        "web2_original_changed",
+        503,
+      );
+      journal.installationCommitment = commitment;
+    }
     if (journal.observation)
       checkObservation(journal.observation, journal.installPlan);
     if (journal.pending) journal.phase = "unknown";
@@ -360,6 +396,7 @@ export async function createWeb2Journal(
       enrollment: null,
       installDraft: null,
       installPlan: null,
+      installationCommitment: null,
       observation: null,
     };
   }
@@ -367,7 +404,7 @@ export async function createWeb2Journal(
     p: LinuxWeb2PlanSummary,
     draft: LinuxWeb2Draft | null,
   ) {
-    exact(object(p), ["planId", "planDigest", "installationId", "summary"]);
+    exact(object(p), ["planId", "planDigest", "installationId", "binding", "summary"]);
     insist(
       draft &&
         /^[a-f0-9]{64}$/.test(p.planDigest) &&
@@ -378,6 +415,29 @@ export async function createWeb2Journal(
         p.installationId.length > 0 &&
         p.installationId.length <= 256 &&
         (!hostInstallationId || p.installationId === hostInstallationId),
+      "web2_installation_context_changed",
+      503,
+    );
+    exact(object(p.binding), [
+      "generation",
+      "planId",
+      "durableScope",
+      "releaseArtifactDigest",
+      "releaseSourceDigest",
+      "targetDigest",
+      "hostFingerprint",
+    ]);
+    insist(
+      Number.isSafeInteger(p.binding.generation) &&
+        p.binding.generation > 0 &&
+        p.binding.planId === p.planId &&
+        /^[0-9a-f]{64}$/.test(p.binding.durableScope) &&
+        /^0x[0-9a-f]{64}$/.test(p.binding.releaseArtifactDigest) &&
+        /^0x[0-9a-f]{64}$/.test(p.binding.releaseSourceDigest) &&
+        /^[0-9a-f]{64}$/.test(p.binding.targetDigest) &&
+        typeof p.binding.hostFingerprint === "string" &&
+        p.binding.hostFingerprint.length > 0 &&
+        p.binding.hostFingerprint.length <= 256,
       "web2_installation_context_changed",
       503,
     );

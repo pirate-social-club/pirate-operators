@@ -1,4 +1,6 @@
 import { recoverTypedDataAddress, type Hex } from "viem";
+import { verifyAccountTypedData } from "../packages/community/account-signature-verifier.ts";
+import { installationPlanCommitmentTypedData, parseInstallationPlanCommitment } from "../packages/community/web2-installation-commitment.ts";
 import { randomBytes } from "node:crypto";
 import {
   canonical,
@@ -163,6 +165,7 @@ export async function publicHostedStatus(r: HostedRuntime, e: Enrollment) {
 export async function verifyHostedInstallation(
   r: HostedRuntime,
   e: Enrollment,
+  commitmentValue: unknown,
 ): Promise<void> {
   const origin = new URL(e.plan.config.app.origin);
   insist(origin.protocol === "https:", "installation_origin_not_https", 409);
@@ -243,6 +246,40 @@ export async function verifyHostedInstallation(
     "installation_proof_invalid",
     409,
   );
+  let commitment;
+  try {
+    commitment = parseInstallationPlanCommitment(commitmentValue);
+  } catch {
+    throw new CommunityError("installation_plan_commitment_invalid", 409);
+  }
+  const { schema: _commitmentSchema, controllerSignature, ...plan } = commitment;
+  insist(
+    commitment.enrollmentId === e.id &&
+      commitment.communityId === installed.communityId &&
+      commitment.installationId === installed.installationId &&
+      commitment.generation === proof.generation &&
+      commitment.planId === proof.planId &&
+      commitment.durableScope === proof.durableScope &&
+      commitment.releaseArtifactDigest === proof.releaseArtifactDigest &&
+      commitment.releaseSourceDigest === proof.releaseSourceDigest &&
+      commitment.targetDigest === proof.targetDigest &&
+      commitment.hostFingerprint === proof.hostFingerprint,
+    "installation_plan_commitment_mismatch",
+    409,
+  );
+  const safe = await r.client.getBlock({ blockTag: "safe" });
+  const valid = await verifyAccountTypedData(r.client, {
+    data: installationPlanCommitmentTypedData(e.plan.profile, plan),
+    address: e.plan.config.controller,
+    signature: controllerSignature,
+    blockNumber: safe.number,
+  });
+  insist(
+    (await r.client.getBlock({ blockNumber: safe.number })).hash === safe.hash,
+    "hosted_chain_reorganized",
+    503,
+  );
+  insist(valid, "installation_plan_commitment_invalid", 409);
 }
 
 export function createHostedEnrollmentService(input: HostedRuntime) {
@@ -340,7 +377,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           typedData: enrollmentTypedData(e),
         });
       }
-      exact(body, ["enrollmentId", "controllerSignature"]);
+      exact(body, Object.hasOwn(body, "installationCommitment") ? ["enrollmentId", "controllerSignature", "installationCommitment"] : ["enrollmentId", "controllerSignature"]);
       const e = await authenticateHostedRequest(r, body);
       if (path === "/redeem") {
         insist(
@@ -349,7 +386,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           409,
         );
         await redeemEnrollment(r.db, e, r.now());
-        await executeHostedOperation(r, e, "registration", undefined, () => verifyHostedInstallation(r, e));
+        await executeHostedOperation(r, e, "registration", undefined, () => verifyHostedInstallation(r, e, body.installationCommitment));
       }
       return hostedResponse(await publicHostedStatus(r, e));
     } catch (error) {

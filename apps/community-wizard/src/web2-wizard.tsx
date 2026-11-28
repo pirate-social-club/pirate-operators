@@ -312,6 +312,9 @@ export function Web2Wizard() {
                       planId: view()!.installPlan!.planId,
                       planDigest: view()!.installPlan!.planDigest,
                       approved: true,
+                      installationSignature: await sign(
+                        view()!.installationChallenge,
+                      ),
                     }),
                   )
                 }
