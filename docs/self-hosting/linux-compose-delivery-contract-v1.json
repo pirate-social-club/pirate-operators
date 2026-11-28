@@ -229,7 +229,7 @@
     "externalRegistrationWorkflowContracts": "Separate conditional chain dependencies"
   },
   "storageRoles": {
-    "publicIpfs": "Filebase first, preserving pin token/CID semantics",
+    "publicIpfs": "The community VPS pins approved media directly to its community-owned Filebase bucket using its locally stored IPFS RPC token. The community pays storage and bandwidth.",
     "privateObjects": "Separate S3 access credentials; Filebase default where appropriate, B2/custom S3 optional; actual runtime binding still needs integration",
     "encryptedBackups": "Self-contained authenticated encryption before transport, separate recovery key; Files SDK transport does not provide encryption or prove privacy"
   },
