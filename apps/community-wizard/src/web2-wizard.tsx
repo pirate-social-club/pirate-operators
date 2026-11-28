@@ -7,6 +7,8 @@ import {
   type Web2Action,
   type Web2Snapshot,
 } from "./web2-api.ts";
+import { Web2StorageSection } from "./web2-storage.tsx";
+import type { Web2StorageOutcome } from "../server/web2-storage-setup.ts";
 
 export function Web2Wizard() {
   const api = createWeb2WizardClient();
@@ -69,6 +71,21 @@ export function Web2Wizard() {
       if (installation) setWaitingForInstallation(false);
     }
   };
+  // Storage actions funnel through the same busy serialization and error
+  // display as every other step. A thrown reply is unknown, never presumed:
+  // the retained request id and the reconcile step sort out what happened.
+  async function storageAct(
+    action: "storage-save" | "storage-check" | "storage-reconcile",
+    input: Record<string, unknown>,
+  ): Promise<Web2StorageOutcome | null> {
+    let outcome: Web2StorageOutcome | undefined;
+    await perform(async () => {
+      const snap = await send(action, input);
+      outcome = snap.view.outcome;
+      return snap;
+    });
+    return outcome ?? null;
+  }
   async function sign(
     data: unknown,
     requestDigest = hashJson(data),
@@ -243,6 +260,13 @@ export function Web2Wizard() {
           </form>
         </Show>
         <p role="status">Setup state: {view()!.phase}</p>
+        <Show when={view()!.selection}>
+          <Web2StorageSection
+            view={() => view()}
+            locked={locked}
+            act={(action, input) => storageAct(action, input)}
+          />
+        </Show>
         <Show when={view()!.selection && !view()!.challenge}>
           <Show when={view()!.invitationCorrectionRequired}>
             <label>

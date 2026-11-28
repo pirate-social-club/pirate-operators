@@ -1,9 +1,14 @@
-import type { Web2WizardView } from "../server/web2-setup.ts";
+import type {
+  Web2ActionView,
+  Web2WizardView,
+} from "../server/web2-setup.ts";
 export type { Web2WizardView };
 export interface Web2Snapshot {
   available: true;
   csrf: string;
-  view: Web2WizardView;
+  /** The action view: storage action replies carry their typed outcome here,
+   * part of the public contract rather than a cast. */
+  view: Web2ActionView;
 }
 export type Web2Action =
   | "prepare"

@@ -51,6 +51,7 @@ import {
 } from "./web2-first-song-chain.ts";
 import {
   createWeb2Setup,
+  type Web2ActionView,
   type Web2WizardView,
 } from "../../apps/community-wizard/server/web2-setup.ts";
 import { createWizardServer } from "../../apps/community-wizard/server/http.ts";
@@ -533,7 +534,7 @@ export async function hostedWizardFixture(
     const send = async (action: string, input: unknown) => {
       const r = await post(action, input);
       assert.equal(r.status, 200, JSON.stringify(r.body));
-      return r.body.view as unknown as Web2WizardView;
+      return r.body.view as unknown as Web2ActionView;
     };
     const sign = async (typed: unknown, actor = controller) =>
       (actor.toLowerCase() === web2Publisher.address.toLowerCase()

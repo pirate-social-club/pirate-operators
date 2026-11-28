@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
+import type { Web2ActionView } from "../apps/community-wizard/server/web2-setup.ts";
 
 // The paired operator saves the community-owned Filebase token through the
 // actual wizard HTTP surface into the real encrypted vault on the real key
@@ -16,17 +17,10 @@ test(
     const f = await hostedWizardFixture();
     try {
       const requestId = () => randomBytes(16).toString("hex");
-      type StorageView = {
-        busy?: boolean;
-        mediaStorage: {
-          state: string;
-          generation?: number;
-          pinCount?: number;
-          observation?: { outcome: string; pinCount?: number };
-        } | null;
-        outcome?: { state: string; generation?: number; recovered?: boolean };
-      };
-      const asStorage = (view: unknown) => view as StorageView;
+      // The public typed contract carries mediaStorage and the storage
+      // outcome: this pass-through cannot lie, because the compiler rejects
+      // any argument that is not already the contract shape. No cast anywhere.
+      const asStorage = (view: Web2ActionView): Web2ActionView => view;
 
       let view = asStorage(await f.state());
       assert.equal(view.mediaStorage?.state, "empty");
@@ -108,7 +102,9 @@ test(
       );
       assert.equal(view.outcome?.state, "saved");
       assert.equal(view.outcome?.generation, 2);
-      assert.equal(view.outcome?.recovered, false);
+      assert(
+        view.outcome?.action === "storage-save" && !view.outcome.recovered,
+      );
       assert.equal(view.mediaStorage?.generation, 2);
 
       // The acceptance case: the identical save repeated across a restart —
@@ -125,7 +121,9 @@ test(
       );
       assert.equal(view.outcome?.state, "saved");
       assert.equal(view.outcome?.generation, 2);
-      assert.equal(view.outcome?.recovered, true);
+      assert(
+        view.outcome?.action === "storage-save" && view.outcome.recovered,
+      );
       assert.equal(
         f.filebase.calls.length,
         probesBeforeRetry,

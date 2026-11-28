@@ -4,7 +4,11 @@ import {
   type Web2PublishingInputs,
   type Web2PublishingView,
 } from "./web2-publishing-setup.ts";
-import { createWeb2StorageSetup } from "./web2-storage-setup.ts";
+import {
+  createWeb2StorageSetup,
+  type Web2MediaStorageView,
+  type Web2StorageOutcome,
+} from "./web2-storage-setup.ts";
 import type { CommunityMediaStorage } from "../../../deploy/linux/community-media-storage.ts";
 import type { PublisherProofSigner } from "../../../deploy/linux/web2-operator-inputs.ts";
 import { ownerOnly } from "../../../packages/community/owner-policy.ts";
@@ -100,7 +104,16 @@ export interface Web2WizardView {
   installationAvailable: boolean;
   installPlan: LinuxWeb2PlanSummary | null;
   observation: LinuxWeb2Observation | null;
+  /** Secret-free community media credential state. Null only where no vault
+   * is configured at all; otherwise the exact committed generation state,
+   * with the durable provider observation kept visibly separate. */
+  mediaStorage: Web2MediaStorageView | null;
 }
+/** What an action reply adds to the view: storage actions carry their typed
+ * outcome alongside the composed snapshot, so the browser never casts. */
+export type Web2ActionView = Web2WizardView & {
+  outcome?: Web2StorageOutcome;
+};
 export interface Web2SetupInputs {
   policy: HostedPolicy;
   /** Exact public HTTPS helper origin, from authenticated host configuration. */
@@ -624,7 +637,7 @@ export async function createWeb2Setup(
     const body = object(structuredClone(value));
     delete body.revision;
     busy = true;
-    let outcome: Record<string, unknown>;
+    let outcome: Web2StorageOutcome;
     try {
       outcome = await storage.act(action, body);
       storageCache = await storage.read();
@@ -633,7 +646,8 @@ export async function createWeb2Setup(
     }
     // The snapshot is composed only after busy clears: the operator must never
     // receive a completed outcome wrapped in a still-busy view.
-    return Object.assign(snapshot(), { outcome });
+    const view: Web2ActionView = Object.assign(snapshot(), { outcome });
+    return view;
   }
   return {
     snapshot,

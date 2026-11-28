@@ -20,6 +20,18 @@ export interface Web2MediaStorageView {
   };
 }
 
+/** The typed result of a storage action, part of the public view contract.
+ * The browser reads it without casts; no secret material is ever present. */
+export type Web2StorageOutcome =
+  | { action: "storage-save"; state: "saved"; generation: number; recovered: boolean }
+  | { action: "storage-save"; state: "declined" }
+  | { action: "storage-save"; state: "unavailable" }
+  | { action: "storage-reconcile"; state: "saved"; generation: number }
+  | { action: "storage-reconcile"; state: "not-saved" }
+  | { action: "storage-check"; state: "ok"; pinCount: number }
+  | { action: "storage-check"; state: "declined" }
+  | { action: "storage-check"; state: "unavailable" };
+
 export function createWeb2StorageSetup(input: {
   storage: CommunityMediaStorage | null;
 }) {
@@ -41,7 +53,7 @@ export function createWeb2StorageSetup(input: {
     async act(
       action: string,
       body: Record<string, unknown>,
-    ): Promise<Record<string, unknown>> {
+    ): Promise<Web2StorageOutcome> {
       insist(input.storage, "media_storage_unavailable", 503);
       if (action === "storage-save") {
         exact(body, ["token", "requestId", "baseGeneration"]);
@@ -58,7 +70,7 @@ export function createWeb2StorageSetup(input: {
           token: body.token,
           baseGeneration: body.baseGeneration as number | null,
         });
-        return { action, ...outcome };
+        return { action, ...outcome } as Web2StorageOutcome;
       }
       if (action === "storage-reconcile") {
         exact(body, ["requestId"]);
@@ -66,7 +78,7 @@ export function createWeb2StorageSetup(input: {
         const outcome = await input.storage.reconcile({
           requestId: body.requestId,
         });
-        return { action, ...outcome };
+        return { action, ...outcome } as Web2StorageOutcome;
       }
       if (action === "storage-check") {
         exact(body, []);
@@ -76,7 +88,7 @@ export function createWeb2StorageSetup(input: {
           "media_storage_credential_missing",
           409,
         );
-        return { action, ...outcome };
+        return { action, ...outcome } as Web2StorageOutcome;
       }
       insist(false, "unknown_web2_action", 404);
     },
