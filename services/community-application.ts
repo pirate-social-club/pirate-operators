@@ -774,11 +774,18 @@ async function communityFetchBusiness(
         return await configuration();
       } catch (error) {
         if (!web2 || !env.NATIVE_APPLICATION_ORIGINAL_JSON) throw error;
+        insist(
+          /UnknownCommunity/.test(String(error)),
+          "community_authority_unavailable",
+          503,
+        );
         const original = await web2ApplicationOriginal(env),
           plan = original.record.body;
         insist(
           plan.enrollment.schema ===
             "pirate.linux-web2-installation-authorization/1" &&
+            plan.draft.enrollment.enrollmentId ===
+              url.searchParams.get("enrollmentId") &&
             plan.draft.enrollment.operations.every(
               (operation) =>
                 operation.kind !== "registration" ||
