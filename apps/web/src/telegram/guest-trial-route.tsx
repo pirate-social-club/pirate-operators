@@ -42,7 +42,7 @@ type ChatEvent =
   | { id: number; kind: "mismatch"; transcript: string }
   | { id: number; kind: "unintelligible" }
   | { id: number; kind: "grading-failure" }
-  | { id: number; kind: "result"; songId: string; resultId: string }
+  | { id: number; kind: "result"; songId: string; resultId: string; linked: boolean }
   | { id: number; kind: "song-details"; songId: string; reward: TelegramRewardRead | null }
   | { id: number; kind: "language-picker" }
   | { id: number; kind: "language-confirmation"; language: Language }
@@ -141,6 +141,7 @@ export function TelegramGuestTrialRoute(props: {
     const lesson = songId ? lessons()[songId] : undefined;
     return lesson && !lesson.completed ? lesson : null;
   };
+  const hasLessonHistory = () => Object.keys(lessons()).length > 0;
 
   createEffect(() => events().length, () => {
     if (website()) return;
@@ -193,13 +194,19 @@ export function TelegramGuestTrialRoute(props: {
 
   function applyGrade(result: TelegramGradeResult, songId: string, lineIndex: number, take: number) {
     const song = telegramTrialSong(songId);
+    const displayedLesson = activeSongId() === songId;
     if (result.outcome === "correct") {
       pushEvent({ kind: "correct" });
       if (lineIndex + 1 >= song.lines.length) {
         updateLesson(songId, (lesson) => ({ ...lesson, takes: take + 1, completed: true }));
-        setActiveSongId(null);
+        if (displayedLesson) setActiveSongId(null);
         setSongContextId(songId);
-        pushEvent({ kind: "result", songId, resultId: `guest-result-${songId}` });
+        pushEvent({
+          kind: "result",
+          songId,
+          resultId: `guest-result-${songId}`,
+          linked: boundary.hasRecordedLink(),
+        });
         return;
       }
       const next = { lineIndex: lineIndex + 1, takes: take + 1 };
@@ -208,22 +215,24 @@ export function TelegramGuestTrialRoute(props: {
         lineIndex: next.lineIndex,
         takes: next.takes,
       }));
-      appendPrompt(songId, {
-        songId,
-        lineIndex: next.lineIndex,
-        takes: next.takes,
-        completed: false,
-      });
+      if (displayedLesson)
+        appendPrompt(songId, {
+          songId,
+          lineIndex: next.lineIndex,
+          takes: next.takes,
+          completed: false,
+        });
       return;
     }
     if (result.outcome === "mismatch") {
       pushEvent({ kind: "mismatch", transcript: result.transcript });
-      appendPrompt(songId, {
-        songId,
-        lineIndex,
-        takes: take,
-        completed: false,
-      });
+      if (displayedLesson)
+        appendPrompt(songId, {
+          songId,
+          lineIndex,
+          takes: take,
+          completed: false,
+        });
     } else pushEvent({ kind: "unintelligible" });
   }
 
@@ -510,11 +519,11 @@ export function TelegramGuestTrialRoute(props: {
 
   function ResultBubble(props2: Extract<ChatEvent, { kind: "result" }>) {
     return (
-      <section class="w-full max-w-[320px] overflow-hidden rounded-2xl bg-card shadow-sm" aria-label="Guest result">
+      <section class="w-full max-w-[320px] overflow-hidden rounded-2xl bg-card shadow-sm" data-telegram-result>
         <h3 class="p-4 text-xl font-semibold leading-7 text-foreground">Great work. 83%</h3>
         <div class="border-t border-border-soft">
           <Show
-            when={linkingAvailable()}
+            when={linkingAvailable() && !props2.linked}
             fallback={
               <button
                 type="button"
@@ -692,7 +701,7 @@ export function TelegramGuestTrialRoute(props: {
           </div>
           <span class="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">NS</span>
         </header>
-        <Show when={unfinishedLessons().length > 0}>
+        <Show when={hasLessonHistory()}>
           <button
             type="button"
             class="flex w-full items-center gap-2 border-b border-border-soft px-3 py-1.5 text-left text-xs text-muted-foreground"
@@ -712,7 +721,7 @@ export function TelegramGuestTrialRoute(props: {
           <div class="self-end rounded-2xl rounded-br-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
             /start
           </div>
-          <Show when={unfinishedLessons().length > 0}>
+          <Show when={hasLessonHistory()}>
             <span class="self-center rounded-full border border-border bg-background px-3 py-0.5 text-xs text-muted-foreground">Today</span>
           </Show>
           <SongPicker />

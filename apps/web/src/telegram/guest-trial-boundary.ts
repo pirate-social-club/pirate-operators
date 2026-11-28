@@ -47,6 +47,7 @@ export function createTelegramTrialLinkMemory() {
       links.push({ ...input, account: { ...input.account } });
       return { linked: true };
     },
+    hasRecordedLink: () => links.length > 0,
   };
 }
 
@@ -82,6 +83,7 @@ export function createTelegramGuestTrialPreviewBoundary(
             shortAddress: "0x7a41…c892",
           },
     confirmLink: linkMemory.confirmLink,
+    hasRecordedLink: linkMemory.hasRecordedLink,
   };
   return { ...base, ...overrides };
 }

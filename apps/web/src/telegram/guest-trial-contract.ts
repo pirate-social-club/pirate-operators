@@ -182,6 +182,7 @@ export interface TelegramTrialBoundary {
   initialAccount(): TelegramTrialAccount | null;
   signIn(kind: "initial" | "replacement"): Promise<TelegramTrialAccount>;
   confirmLink(input: TelegramLinkInput): Promise<{ linked: true }>;
+  hasRecordedLink(): boolean;
 }
 
 export interface TelegramTrialLessonSeed {

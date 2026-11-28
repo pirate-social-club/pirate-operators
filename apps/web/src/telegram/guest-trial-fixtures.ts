@@ -68,6 +68,7 @@ export function createTelegramGuestTrialFixture(options: {
         throw new Error("The simulated server could not verify this confirmation.");
       return linkMemory.confirmLink(input);
     },
+    hasRecordedLink: linkMemory.hasRecordedLink,
   };
   return {
     boundary,

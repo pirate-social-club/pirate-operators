@@ -79,7 +79,9 @@ async function finishMidnightLesson(canvas: Canvas, canvasElement: HTMLElement, 
       expect(nextAudio).not.toBe(previousAudio);
     }
   }
-  await canvas.findByText(/Great work\. 83%/);
+  await waitFor(() =>
+    expect(canvas.getAllByText(/Great work\. 83%/)).not.toHaveLength(0),
+  );
 }
 
 function renderFixture(options: Parameters<typeof createTelegramGuestTrialFixture>[0] = {}, linkingAvailable = true) {
@@ -141,6 +143,13 @@ export const PlayableLessonAndAccountConnection: Story = {
       }),
     );
     await expect(canvas.getByRole("button", { name: "Record line" })).toBeEnabled();
+
+    await finishMidnightLesson(canvas, canvasElement, true);
+    const results = [...canvasElement.querySelectorAll("[data-telegram-result]")];
+    expect(results).toHaveLength(2);
+    expect(results.at(-1)).toHaveTextContent("Great work. 83%");
+    expect(results.at(-1)).toHaveTextContent("Choose another song");
+    expect(results.at(-1)).not.toHaveTextContent("Connect account");
   },
 };
 
@@ -434,6 +443,89 @@ export const ArabicLanguageDuringPendingGrading: Story = {
     resolvePendingGrade?.({ outcome: "correct" });
     await expect(await canvas.findByText(/Correct/)).toBeInTheDocument();
     expect(canvasElement.querySelector("[data-telegram-voice]")).toBeInTheDocument();
+  },
+};
+
+let resolveSwitchedGrade: ((result: TelegramGradeResult) => void) | undefined;
+let switchedGradeInputs: Array<{ songId: string }> = [];
+
+export const PendingGradeStaysWithOriginatingLesson: Story = {
+  render: () => {
+    switchedGradeInputs = [];
+    const fixture = createTelegramGuestTrialFixture({
+      gradeAttempt: (input) => {
+        switchedGradeInputs.push({ songId: input.songId });
+        if (switchedGradeInputs.length > 1) return Promise.resolve({ outcome: "correct" });
+        return new Promise<TelegramGradeResult>((resolve) => {
+          resolveSwitchedGrade = resolve;
+        });
+      },
+    });
+    return <TelegramGuestTrialRoute boundary={fixture.boundary} />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await chooseMidnightWaves(canvas);
+    await submitFixtureRecording(canvas, /correct fixture recording/);
+    await expect(await canvas.findByText("Checking your last answer")).toBeInTheDocument();
+
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Pinned message\s+Songs/ }),
+    );
+    await userEvent.click(await canvas.findByRole("button", { name: "Harbor Lights" }));
+    await canvas.findByText("The harbor lights are waking");
+
+    resolveSwitchedGrade?.({ outcome: "correct" });
+    await expect(await canvas.findByText(/Correct/)).toBeInTheDocument();
+    expect(promptState(canvasElement)).toEqual({
+      lineIndex: "0",
+      takeCount: "0",
+      line: "The harbor lights are waking",
+    });
+
+    await submitFixtureRecording(canvas, /correct fixture recording/);
+    await waitFor(() =>
+      expect(promptState(canvasElement)).toEqual({
+        lineIndex: "1",
+        takeCount: "1",
+        line: "The tide is turning slow",
+      }),
+    );
+    expect(switchedGradeInputs.map((input) => input.songId)).toEqual([
+      "midnight-waves",
+      "harbor-lights",
+    ]);
+
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Pinned message\s+Songs/ }),
+    );
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Midnight Waves · Resume" }),
+    );
+    await waitFor(() =>
+      expect(promptState(canvasElement)).toEqual({
+        lineIndex: "1",
+        takeCount: "1",
+        line: "And the light is low",
+      }),
+    );
+  },
+};
+
+export const PinnedSongsRemainAfterCompletion: Story = {
+  render: () => renderFixture(),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await finishMidnightLesson(canvas, canvasElement);
+    await expect(
+      await canvas.findByRole("button", { name: "Connect account" }),
+    ).toBeInTheDocument();
+    const pinned = await canvas.findByRole("button", { name: /Pinned message\s+Songs/ });
+    expect(pinned).toBeEnabled();
+    await userEvent.click(pinned);
+    expect(
+      (await canvas.findByRole("group", { name: "Songs" })).getBoundingClientRect().height,
+    ).toBeGreaterThan(200);
   },
 };
 
