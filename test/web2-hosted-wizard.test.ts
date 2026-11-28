@@ -116,6 +116,58 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
   }
 });
 
+
+test("the Wizard gates registration on a running installation and publishing on its receipt", async () => {
+  const f = await hostedWizardFixture({ publishing: true, scriptedInstallation: true });
+  try {
+    let view = await f.send("prepare", f.prepareInput);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    assert.equal(view.controllerAuthorized, true);
+    assert.equal(view.publishing, null);
+    const publishingEarly = await f.post("publishing-prepare", {
+      ownerWallet: f.nominatedOwner,
+      rolesReviewed: true,
+    });
+    assert.equal(publishingEarly.status, 409);
+    assert.equal(publishingEarly.body.code, "safe_registration_required");
+    const redeemEarly = await f.post("redeem", {});
+    assert.equal(redeemEarly.status, 409);
+    assert.equal(redeemEarly.body.code, "web2_installation_required");
+    assert.equal(f.broadcasts(), 0);
+
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    assert.equal(plan.summary.registrationTransaction, null);
+    view = await f.send("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+    });
+    assert.equal(view.observation?.state, "running");
+    view = await f.send("redeem", {});
+    assert.equal(f.broadcasts(), 1);
+    await f.mine();
+    view = await f.send("reconcile", {});
+    assert.equal(
+      view.enrollment?.operations.some(
+        (operation) =>
+          operation.kind === "registration" && operation.state === "consumed",
+      ),
+      true,
+    );
+    assert.equal(view.installPlan?.installationId, plan.installationId);
+    assert.equal(view.installPlan?.planDigest, plan.planDigest);
+    view = await f.send("publishing-prepare", {
+      ownerWallet: f.nominatedOwner,
+      rolesReviewed: true,
+    });
+    assert(view.publishing);
+  } finally {
+    await f.close();
+  }
+});
+
 test("unknown preparation resumes after reconstruction using the retained original community", async () => {
   const f = await hostedWizardFixture();
   try {
