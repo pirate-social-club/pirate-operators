@@ -25,7 +25,9 @@ export type Web2Action =
   | "installation-status"
   | "storage-save"
   | "storage-check"
-  | "storage-reconcile";
+  | "storage-reconcile"
+  | "dns-select"
+  | "dns-check";
 const actions: readonly string[] = [
   "prepare",
   "resume-prepare",
@@ -42,6 +44,8 @@ const actions: readonly string[] = [
   "storage-save",
   "storage-check",
   "storage-reconcile",
+  "dns-select",
+  "dns-check",
 ];
 const record = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);

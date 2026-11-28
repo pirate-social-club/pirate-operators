@@ -61,8 +61,10 @@ export function Web2StorageSection(props: {
 
   const media = () => props.view()?.mediaStorage;
   const step = (): Step => {
-    if (replacing()) return "replace";
+    // A lost reply outranks replacement mode: the operator must be able to
+    // recover the original save immediately, not after a refresh.
     if (pending()) return "interrupted";
+    if (replacing()) return "replace";
     const state = media();
     if (!state || state.state === "empty") return "entry";
     if (state.observation?.outcome === "declined") return "revoked";
@@ -87,6 +89,7 @@ export function Web2StorageSection(props: {
       if (!outcome) return;
       if (outcome.state === "saved") {
         clearPending();
+        setReplacing(false);
       } else {
         // The save provably never committed, or has not landed yet. The
         // operator may check again or re-enter; neither is coerced.
@@ -134,6 +137,12 @@ export function Web2StorageSection(props: {
   return (
     <section class="media-storage" aria-label="Media storage">
       <h2>Connect media storage</h2>
+      <Show when={media() !== null && media() !== undefined} fallback={
+        <p>
+          Media storage is not available on this installation. The community
+          credential vault is not configured here.
+        </p>
+      }>
       <Switch
         fallback={
           <>
@@ -240,10 +249,20 @@ export function Web2StorageSection(props: {
         </Match>
         <Match when={step() === "saved"}>
           <h3>Token saved</h3>
-          <p>
-            The token could list pins in Filebase. Your first publication will
-            check uploading.
-          </p>
+          <Show
+            when={media()?.observation?.outcome === "ok" || !media()?.observation}
+            fallback={
+              <p role="alert">
+                Token stored. Filebase could not be checked. The stored token
+                stays in place; you can check again or replace it.
+              </p>
+            }
+          >
+            <p>
+              The token could list pins in Filebase. Your first publication
+              will check uploading.
+            </p>
+          </Show>
           <details>
             <summary>Replace or revoke this token</summary>
             <p>
@@ -263,6 +282,7 @@ export function Web2StorageSection(props: {
           </details>
         </Match>
       </Switch>
+      </Show>
     </section>
   );
 }

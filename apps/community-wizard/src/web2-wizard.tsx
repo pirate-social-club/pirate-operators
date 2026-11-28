@@ -9,6 +9,8 @@ import {
 } from "./web2-api.ts";
 import { Web2StorageSection } from "./web2-storage.tsx";
 import type { Web2StorageOutcome } from "../server/web2-storage-setup.ts";
+import { Web2DnsSection } from "./web2-dns.tsx";
+import type { DnsView } from "../server/web2-dns-setup.ts";
 
 export function Web2Wizard() {
   const api = createWeb2WizardClient();
@@ -85,6 +87,21 @@ export function Web2Wizard() {
       return snap;
     });
     return outcome ?? null;
+  }
+  // DNS actions carry no secret material and no separate outcome: the journaled
+  // dns state inside the refreshed snapshot is the whole reply. Null still
+  // means unknown, exactly like storage.
+  async function dnsAct(
+    action: "dns-select" | "dns-check",
+    input: Record<string, unknown>,
+  ): Promise<DnsView | null> {
+    let dns: DnsView | null | undefined;
+    await perform(async () => {
+      const snap = await send(action, input);
+      dns = snap.view.dns;
+      return snap;
+    });
+    return dns ?? null;
   }
   async function sign(
     data: unknown,
@@ -260,7 +277,12 @@ export function Web2Wizard() {
           </form>
         </Show>
         <p role="status">Setup state: {view()!.phase}</p>
-        <Show when={view()!.selection}>
+        <Web2DnsSection
+          view={() => view()}
+          locked={locked}
+          act={(action, input) => dnsAct(action, input)}
+        />
+        <Show when={view()!.selection || view()!.dns?.verifiedHostname}>
           <Web2StorageSection
             view={() => view()}
             locked={locked}

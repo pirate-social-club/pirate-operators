@@ -54,6 +54,7 @@ import {
   type Web2ActionView,
   type Web2WizardView,
 } from "../../apps/community-wizard/server/web2-setup.ts";
+import { createWeb2DnsSetup } from "../../apps/community-wizard/server/web2-dns-setup.ts";
 import { createWizardServer } from "../../apps/community-wizard/server/http.ts";
 import { LinuxInputError } from "../../packages/community-setup/shared-linux-profile.ts";
 import {
@@ -301,7 +302,7 @@ export async function hostedWizardFixture(
     // Real key-agent custody for the community media credential vault, the
     // same construction the Linux bootstrap performs. The Filebase transport
     // is the one injected boundary; the test controls token acceptance.
-    for (const name of ["media-operation", "media-keys", "media-agent", "media-vault", "media-cohort"])
+    for (const name of ["media-operation", "media-keys", "media-agent", "media-vault", "media-cohort", "dns-journal"])
       await mkdir(join(directory, name), { mode: 0o700 });
     const mediaFrame = await processIdentity(process.pid);
     assert(mediaFrame);
@@ -393,6 +394,7 @@ export async function hostedWizardFixture(
       },
       transport,
       mediaStorage: undefined as CommunityMediaStorage | undefined,
+      dns: undefined as import("../../apps/community-wizard/server/web2-dns-setup.ts").Web2DnsSetup | undefined,
       async pinConfiguration(value: { uri: string; bytes: Uint8Array }) {
         chain.contents.set(value.uri.slice(7), value.bytes);
       },
@@ -411,6 +413,27 @@ export async function hostedWizardFixture(
         enrollment:await oldClient.status(prepared,proof),phase:"funded"});
       await save();
     }
+    const dnsAnswers = {
+      txt: new Map<string, string[]>(),
+      a: new Map<string, string[]>(),
+    };
+    const dnsError = (code: string) =>
+      Object.assign(new Error(code), { code });
+    const dnsResolver = {
+      async resolveTxt(name: string) {
+        const found = dnsAnswers.txt.get(name);
+        if (!found) throw dnsError("ENODATA");
+        return found.map((value) => [value]);
+      },
+      async resolve4(name: string) {
+        const found = dnsAnswers.a.get(name);
+        if (!found) throw dnsError("ENODATA");
+        return found;
+      },
+      async resolve6() {
+        throw dnsError("ENODATA");
+      },
+    };
     const start = async () => {
       inputs.mediaStorage?.dispose();
       inputs.mediaStorage = await createCommunityMediaStorage({
@@ -421,6 +444,10 @@ export async function hostedWizardFixture(
         keyGeneration: 1,
         installationId: "wizard-host-fixture",
         send: filebaseTransport,
+      });
+      inputs.dns = await createWeb2DnsSetup({
+        directory: join(directory, "dns-journal"),
+        resolver: dnsResolver,
       });
       setup = await createWeb2Setup(directory, inputs);
       server = createWizardServer(
@@ -565,6 +592,7 @@ export async function hostedWizardFixture(
       custodyUnavailable:()=>signing.custodyUnavailable(),
       changeGrantSelection:(kind:"publisher")=>signing!.changeGrantSelection(kind),
       journal: join(directory, "web2-wizard-original.json"),
+      dnsAnswers,
       inviteToken,
       prepareInput,
       raw,

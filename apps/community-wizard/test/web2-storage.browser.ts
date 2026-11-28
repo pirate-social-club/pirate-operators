@@ -77,8 +77,12 @@ test("operator saves the media token, loses the reply, and recovers the same gen
     // Hostname and community details first; the storage section appears only
     // after the prepared selection exists.
     await expect(page.getByLabel("Filebase IPFS RPC API token")).toHaveCount(0);
-    await page.getByLabel("Community name", { exact: true }).fill(f.prepareInput.name);
-    await page.getByLabel("HTTPS community origin").fill(f.prepareInput.origin);
+    // The enrollment form keeps its own copy of these fields in the interim:
+    // the DNS section above is the first-class name and hostname entry, and
+    // the sequence rebuild will have enrollment consume that selection.
+    const enrollment = page.locator("form", { hasText: "HTTPS community origin" });
+    await enrollment.getByLabel("Community name", { exact: true }).fill(f.prepareInput.name);
+    await enrollment.getByLabel("HTTPS community origin").fill(f.prepareInput.origin);
     await initiateWindow("Connect MOSS");
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
     await page.getByLabel("Pilot invitation").fill(f.inviteToken);

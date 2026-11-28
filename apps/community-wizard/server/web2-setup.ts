@@ -10,6 +10,10 @@ import {
   type Web2StorageOutcome,
 } from "./web2-storage-setup.ts";
 import type { CommunityMediaStorage } from "../../../deploy/linux/community-media-storage.ts";
+import type {
+  DnsView,
+  Web2DnsSetup,
+} from "./web2-dns-setup.ts";
 import type { PublisherProofSigner } from "../../../deploy/linux/web2-operator-inputs.ts";
 import { ownerOnly } from "../../../packages/community/owner-policy.ts";
 import {
@@ -108,6 +112,10 @@ export interface Web2WizardView {
    * is configured at all; otherwise the exact committed generation state,
    * with the durable provider observation kept visibly separate. */
   mediaStorage: Web2MediaStorageView | null;
+  /** Community-owned DNS verification state. Control proof and routing
+   * observation are deliberately separate facts; null only where no DNS
+   * module is configured. */
+  dns: DnsView | null;
 }
 /** What an action reply adds to the view: storage actions carry their typed
  * outcome alongside the composed snapshot, so the browser never casts. */
@@ -142,6 +150,7 @@ export interface Web2SetupInputs {
   /** Community-owned media credential custody, constructed by the bootstrap
    * with the real key channel. Absent only where no vault exists. */
   mediaStorage?: CommunityMediaStorage;
+  dns?: Web2DnsSetup;
   /** Trusted persistent host identity; distinct from the Directory installation ID. */
   hostInstallationId?: string;
   transport?: typeof fetch;
@@ -223,6 +232,7 @@ export async function createWeb2Setup(
       serverPublisher,
       publishing: publishing.snapshot(),
       mediaStorage: storageCache,
+      dns: input.dns?.snapshot() ?? null,
       notice,
       policy: {
         chainId: policy.deployment.chainId,
@@ -649,6 +659,25 @@ export async function createWeb2Setup(
     const view: Web2ActionView = Object.assign(snapshot(), { outcome });
     return view;
   }
+  // DNS actions never touch the enrollment journal: the DNS module carries
+  // its own journaled proof state, and verification must be possible before
+  // any wallet connection or enrollment preparation. They share the busy
+  // serialization for the same reason storage actions do.
+  async function runDns(action: string, value: unknown) {
+    insist(input.dns, "web2_dns_unavailable", 503);
+    const dns = input.dns;
+    const body = object(structuredClone(value));
+    delete body.revision;
+    busy = true;
+    try {
+      if (action === "dns-select") await dns.select(body);
+      else if (action === "dns-check") await dns.check();
+      else throw new CommunityError("web2_action_unknown", 400);
+    } finally {
+      busy = false;
+    }
+    return snapshot();
+  }
   return {
     snapshot,
     publishingAttachment: publishing.attachment,
@@ -657,7 +686,9 @@ export async function createWeb2Setup(
         return Promise.reject(new CommunityError("web2_revision_changed", 409));
       const task = action.startsWith("storage-")
         ? runStorage(action, value)
-        : run(action, value);
+        : action.startsWith("dns-")
+          ? runDns(action, value)
+          : run(action, value);
       active = task.catch(() => {});
       return task;
     },
