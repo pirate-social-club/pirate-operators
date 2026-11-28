@@ -1,0 +1,96 @@
+name: Pirate VM install-only diagnostic
+on:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  install-only:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record run identity
+        run: |
+          python3 .github/ci/record-run-identity.py \
+            --pin .github/ci/vm-fixtures-r20.json \
+            --output "$RUNNER_TEMP/pirate-install-only-ci/RUN-IDENTITY.json"
+      - name: Check fixture tooling
+        run: python3 .github/ci/test-vm-fixture-tools.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install VM tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage p7zip-full gnupg ubuntu-cloudimage-keyring
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Download pinned fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["release"])')
+          unchanged=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["unchangedAssetRelease"])')
+          expected=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["manifestSha256"])')
+          mkdir -p "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-install-only-ci" "$RUNNER_TEMP/pirate-vm-scratch"
+          gh release download "$release" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*'
+          python3 .github/ci/verify-vm-fixtures.py "$RUNNER_TEMP/pirate-vm-assets/ASSET-SHA256SUMS" "$expected"
+          gh release download "$unchanged" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*' --skip-existing
+          cd "$RUNNER_TEMP/pirate-vm-assets"
+          smoke_pin=$(awk '$2 == "smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          final_smoke_pin=$(awk '$2 == "final-smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          if [[ -n "$smoke_pin" && "$smoke_pin" == "$final_smoke_pin" ]]; then
+            ln -f smoke-inputs.iso final-smoke-inputs.iso
+          fi
+          sha256sum -c --strict ASSET-SHA256SUMS
+      - name: Adapt sealed host runner
+        run: |
+          set -euo pipefail
+          tar -xf "$RUNNER_TEMP/pirate-vm-assets/install-only-host.tar" -C "$RUNNER_TEMP/pirate-install-only-ci"
+          cp "$RUNNER_TEMP/pirate-vm-assets/install-diagnostic.iso" "$RUNNER_TEMP/pirate-install-only-ci/install-diagnostic.iso"
+          python3 .github/ci/adapt-install-only-runner.py "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-install-only-ci"
+          bash -n "$RUNNER_TEMP/pirate-install-only-ci/run-install-only.sh"
+      - name: Preflight
+        run: bash "$RUNNER_TEMP/pirate-install-only-ci/run-install-only.sh" --check
+      - name: Run install-only diagnostic
+        id: run
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/pirate-install-only-ci"
+          expiry=$(date -u -d '+45 minutes' +%s)
+          rc=0
+          bash "$bundle/run-install-only.sh" --run "$expiry" 2>&1 | tee "$bundle/run-console.txt" || rc=$?
+          run_dir=$(find "$bundle" -maxdepth 1 -type d -name 'run.*' -print -quit)
+          test -n "$run_dir"
+          test -s "$run_dir/RESULT.json"
+          test "$(cat "$run_dir/QEMU-PROCESS.txt")" = absent
+          printf 'diagnosticRc=%s\nrunDir=%s\n' "$rc" "$run_dir" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pirate-install-only-diagnostic
+          path: |
+            ${{ runner.temp }}/pirate-install-only-ci/run-console.txt
+            ${{ runner.temp }}/pirate-install-only-ci/RUN-IDENTITY.json
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/RESULT.json
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/SERIAL.log
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/guest-evidence.tar
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/QEMU-*.txt
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/QEMU-IDENTITY.json
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/WORKER-CUTOFF-MS.txt
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/MEMORY-*.txt
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/QEMU.log
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/OVERLAY.json
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/DISPATCH-EXPIRY-*.txt
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/EXECUTION-PIN.txt
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/SEED-SHA256SUMS
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/HOST-SHA256SUMS
+            ${{ runner.temp }}/pirate-install-only-ci/run.*/evidence/**
+          include-hidden-files: true
+          if-no-files-found: warn

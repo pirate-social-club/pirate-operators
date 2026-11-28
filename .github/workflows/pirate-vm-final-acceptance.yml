@@ -1,0 +1,110 @@
+name: Pirate VM final acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      memory_mb:
+        description: Guest memory in MiB. Any value other than 4096 is a non-qualifying diagnostic.
+        required: false
+        default: "4096"
+        type: choice
+        options:
+          - "4096"
+          - "8192"
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  final-acceptance:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record run identity
+        run: |
+          python3 .github/ci/record-run-identity.py \
+            --pin .github/ci/vm-fixtures-r20.json \
+            --output "$RUNNER_TEMP/pirate-final-ci/RUN-IDENTITY.json"
+      - name: Check fixture tooling
+        run: python3 .github/ci/test-vm-fixture-tools.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install VM tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage p7zip-full gnupg ubuntu-cloudimage-keyring
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Download pinned fixtures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["release"])')
+          unchanged=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["unchangedAssetRelease"])')
+          expected=$(python3 -c 'import json; print(json.load(open(".github/ci/vm-fixtures-r20.json"))["manifestSha256"])')
+          mkdir -p "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-final-ci/selected" "$RUNNER_TEMP/pirate-final-ci/materialization" "$RUNNER_TEMP/pirate-final-vm-scratch"
+          gh release download "$release" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*'
+          python3 .github/ci/verify-vm-fixtures.py "$RUNNER_TEMP/pirate-vm-assets/ASSET-SHA256SUMS" "$expected"
+          gh release download "$unchanged" --dir "$RUNNER_TEMP/pirate-vm-assets" --pattern '*' --skip-existing
+          cd "$RUNNER_TEMP/pirate-vm-assets"
+          smoke_pin=$(awk '$2 == "smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          final_smoke_pin=$(awk '$2 == "final-smoke-inputs.iso" {print $1}' ASSET-SHA256SUMS)
+          if [[ -n "$smoke_pin" && "$smoke_pin" == "$final_smoke_pin" ]]; then
+            ln -f smoke-inputs.iso final-smoke-inputs.iso
+          fi
+          sha256sum -c --strict ASSET-SHA256SUMS
+      - name: Adapt sealed final runner
+        env:
+          PIRATE_VM_MEMORY_MB: ${{ github.event.inputs.memory_mb || '4096' }}
+        run: |
+          set -euo pipefail
+          tar -xf "$RUNNER_TEMP/pirate-vm-assets/final-media-host.tar" -C "$RUNNER_TEMP/pirate-final-ci/selected"
+          cp "$RUNNER_TEMP/pirate-vm-assets/final-smoke-inputs.iso" "$RUNNER_TEMP/pirate-final-ci/materialization/smoke-inputs.iso"
+          cp "$RUNNER_TEMP/pirate-vm-assets/final-notes-entry.iso" "$RUNNER_TEMP/pirate-final-ci/selected/notes-entry.iso"
+          python3 .github/ci/adapt-final-notes-runner.py "$RUNNER_TEMP/pirate-vm-assets" "$RUNNER_TEMP/pirate-final-ci/selected"
+          python3 .github/ci/test-final-evidence-verifier.py "$RUNNER_TEMP/pirate-final-ci/selected/verify-notes-run.py"
+          python3 .github/ci/test-native-terminal-ownership.py
+          bash -n "$RUNNER_TEMP/pirate-final-ci/selected/run-notes.sh"
+          bash -n "$RUNNER_TEMP/pirate-final-ci/selected/guest-notes-bootstrap.sh"
+      - name: Preflight
+        run: bash "$RUNNER_TEMP/pirate-final-ci/selected/run-notes.sh" --check
+      - name: Run final acceptance
+        id: run
+        run: |
+          set -uo pipefail
+          bundle="$RUNNER_TEMP/pirate-final-ci/selected"
+          expiry=$(date -u -d '+60 minutes' +%s)
+          rc=0
+          bash "$bundle/run-notes.sh" --run "$expiry" 2>&1 | tee "$RUNNER_TEMP/pirate-final-ci/run-console.txt" || rc=$?
+          run_dir=$(find "$RUNNER_TEMP/pirate-final-vm-scratch" -maxdepth 1 -type d -name 'pirate-offline-native-notes-run.*' -print -quit)
+          test -n "$run_dir"
+          test -s "$run_dir/RESULT.json"
+          test "$(cat "$run_dir/QEMU-PROCESS.txt")" = absent
+          printf 'acceptanceRc=%s\nrunDir=%s\n' "$rc" "$run_dir" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pirate-final-acceptance
+          path: |
+            ${{ runner.temp }}/pirate-final-ci/run-console.txt
+            ${{ runner.temp }}/pirate-final-ci/RUN-IDENTITY.json
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/RESULT.json
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/SERIAL.log
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/guest-evidence.tar
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/QEMU-*.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/QEMU-IDENTITY.json
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/WORKER-CUTOFF-MS.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/MEMORY-*.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/QEMU.log
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/OVERLAY.json
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/DISPATCH-EXPIRY-*.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/EXECUTION-PIN.txt
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/SEED-SHA256SUMS
+            ${{ runner.temp }}/pirate-final-vm-scratch/pirate-offline-native-notes-run.*/HOST-SHA256SUMS
+          include-hidden-files: true
+          if-no-files-found: warn

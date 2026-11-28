@@ -1,0 +1,9 @@
+{
+  "fixtureImageId": "sha256:84810e0f0024474e2fc8a9aa6065a3494808f391d62855d5aaaeeb00c0b6eeae",
+  "manifestSha256": "eb73942465cb2ad94757a3ff26bf22c8afa6c8081b03e560428fe05cdb32bdd2",
+  "productSourceHead": "c99644d870e92f465a396f42497d203913a55e58",
+  "productSourceTree": "11e0616e371d31ddfb4e3635a1bcc370a9fb0586",
+  "release": "pirate-v1-staging-vm-fixtures-20261127-r24",
+  "schema": "pirate.vm-fixture-pin/1",
+  "unchangedAssetRelease": "pirate-v1-staging-vm-fixtures-20261125-r13"
+}
