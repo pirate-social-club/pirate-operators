@@ -7,7 +7,7 @@ This app owns its catalog, configuration and audits. Stories import the same pro
 The sidebar groups by feature, because that is how a reviewer reaches for it: one place per feature, no duplicates. Under each feature the tiers order themselves:
 
     Studying / Screens / Route
-    Studying / Flows  / Session
+    Studying / Parts  / Surface
 
 The design system's shared tiers follow the features, since those are not tied to one feature:
 

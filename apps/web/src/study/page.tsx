@@ -57,7 +57,6 @@ export function StudyPage(props: StudyPageProps) {
       fallback={
         <StudyAuthRequiredState
           title="Sign in to study"
-          description="Study packs follow the song's community. Sign in to pick up your lesson and streak."
           onConnect={props.onConnect}
           onExit={props.onExit}
         />

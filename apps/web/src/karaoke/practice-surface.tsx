@@ -4,17 +4,36 @@ import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from
 import {
   IconArrowCounterClockwise,
   IconMicrophoneStage,
+  IconPause,
   Spinner,
+  Type,
 } from "./ui.ts";
 import { ActivityProgressHeader } from "../ui/activity-progress-header.tsx";
 import { ActivityResults } from "./activity-results.tsx";
 import { ActivityFooter } from "../ui/activity-footer.tsx";
 import { LearningActivityFrame } from "../ui/learning-activity-frame.tsx";
+import { ErrorState, type ErrorStateTone } from "../ui/error-state.tsx";
 import { karaokeResultsView, type KaraokeResultsSummary } from "./results-model.ts";
 import { getLyricDurationMs } from "../../../../packages/karaoke/karaoke-timing.ts";
 import { KaraokeLyricStage } from "./lyric-stage.tsx";
 import type { KaraokeLineRating, KaraokeStageLine } from "./lyric-stage.tsx";
 import { createKaraokePlaybackRenewal, type KaraokePlaybackAccess } from "./playback-renewal.ts";
+
+export interface KaraokeCenteredStatus {
+  title: string;
+  tone?: ErrorStateTone;
+  error?: boolean;
+  loading?: boolean;
+  icon?: JSX.Element;
+}
+
+export interface KaraokeCenteredStatusAction {
+  label: string;
+  onClick?: () => void;
+  armsPlayback?: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+}
 
 export interface KaraokePracticeSurfaceProps {
   title: string;
@@ -51,6 +70,8 @@ export interface KaraokePracticeSurfaceProps {
   startError?: string;
   /** Route-owned recovery status rendered above the activity actions. */
   statusSlot?: JSX.Element;
+  centeredStatus?: KaraokeCenteredStatus;
+  centeredStatusAction?: KaraokeCenteredStatusAction;
 }
 
 interface AudioElementRef {
@@ -158,13 +179,34 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
   });
   onCleanup(() => { clearInterval(clockTimer); playbackRenewal?.dispose(); props.onPlaybackElement?.(null); disposed = true; playRequest += 1; audioRef.current?.pause(); });
 
-  const footerKind = createMemo(() => props.playbackInterrupted && props.singingStatus === "active"
-    ? "interrupted"
-    : playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active"
-      ? "issue"
-      : props.onStartSinging && props.singingStatus !== "active"
-        ? "start"
-        : undefined);
+  const centeredStatus = createMemo((): KaraokeCenteredStatus | undefined => {
+    if (ended()) return undefined;
+    if (props.centeredStatus) return props.centeredStatus;
+    if (props.playbackInterrupted && props.singingStatus === "active")
+      return {
+        title: "Audio paused",
+        tone: "resumable",
+        error: false,
+        icon: <IconPause aria-hidden="true" class="size-6 text-muted-foreground" />,
+      };
+    if (playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active")
+      return { title: "Couldn't play audio", tone: "retryable", error: true };
+    if (
+      props.startError &&
+      (props.singingStatus === undefined || props.singingStatus === "idle" || props.singingStatus === "error")
+    )
+      return { title: props.startError, tone: "retryable", error: true };
+    return undefined;
+  });
+  const footerKind = createMemo(() => props.centeredStatus
+    ? props.centeredStatusAction ? "status" : undefined
+    : props.playbackInterrupted && props.singingStatus === "active"
+      ? "interrupted"
+      : playbackIssue() && !props.playbackInterrupted && props.singingStatus === "active"
+        ? "issue"
+        : props.onStartSinging && props.singingStatus !== "active"
+          ? "start"
+          : undefined);
   const startAction = () => {
     pendingPlay = true;
     if (!ended()) { props.onStartSinging?.(currentTimeMs()); return; }
@@ -173,11 +215,16 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
     setCurrentTimeMs(0);
     props.onStartSinging?.(0);
   };
-  const startLabel = () => ended() ? "Sing again" : busy() ? "Start singing" : "Start karaoke";
+  const startLabel = () => ended() ? "Sing again" : busy() ? "Start singing" : props.startError ? "Try again" : "Start karaoke";
   const resultsFooter = () => Boolean(ended() && props.onExit);
   const showHeader = createMemo(() => !ended());
   const primaryFooterAction = () => {
     const kind = footerKind();
+    if (kind === "status") {
+      const action = props.centeredStatusAction;
+      if (action?.armsPlayback) return startAction();
+      return action?.onClick?.();
+    }
     if (kind === "interrupted") return resumeInterruptedPlayback();
     if (kind === "issue") return playBackingTrack();
     if (resultsFooter()) return props.onExit?.();
@@ -197,24 +244,28 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
       contentLabel={ended() ? "Results" : undefined}
       footer={footerKind() || props.statusSlot ? (
         <ActivityFooter
-          error={footerKind() === "start" ? props.startError : undefined}
-          notice={footerKind() === "interrupted"
-            ? "Audio was interrupted. Tap to continue your take."
-            : footerKind() === "issue"
-              ? "The backing track could not start. Press play to continue."
-              : undefined}
           onPrimaryAction={primaryFooterAction}
           onSecondaryAction={startAction}
-          primaryDisabled={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
-          primaryIcon={footerKind() === "start" && !resultsFooter() ? <IconMicrophoneStage class="size-5" /> : undefined}
-          primaryLabel={footerKind() ? (footerKind() === "interrupted"
-            ? "Tap to continue"
-            : footerKind() === "issue"
-              ? "Start backing track"
-              : resultsFooter()
-                ? "Continue"
-                : startLabel()) : undefined}
-          primaryLoading={footerKind() === "interrupted" ? resuming() : !resultsFooter() && busy()}
+          primaryDisabled={footerKind() === "status"
+            ? props.centeredStatusAction?.disabled
+            : footerKind() === "interrupted"
+              ? resuming()
+              : !resultsFooter() && busy()}
+          primaryIcon={footerKind() === "start" && !resultsFooter() && !props.startError ? <IconMicrophoneStage class="size-5" /> : undefined}
+          primaryLabel={footerKind() ? (footerKind() === "status"
+            ? props.centeredStatusAction?.label
+            : footerKind() === "interrupted"
+              ? "Resume"
+              : footerKind() === "issue"
+                ? "Try again"
+                : resultsFooter()
+                  ? "Continue"
+                  : startLabel()) : undefined}
+          primaryLoading={footerKind() === "status"
+            ? props.centeredStatusAction?.loading
+            : footerKind() === "interrupted"
+              ? resuming()
+              : !resultsFooter() && busy()}
           primaryVariant="default"
           results={footerKind() === "start" && resultsFooter()}
           secondaryDisabled={resultsFooter() && busy()}
@@ -254,17 +305,45 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
             );
           }}
         </Show>
-        <Show when={!ended() && !isLoading()} fallback={<Show when={!ended()}><div class="grid flex-1 place-items-center"><Spinner class="size-8" /></div></Show>}>
-          <Show when={props.lines.length > 0}>
-            <div class="min-h-0 flex-1">
-              <KaraokeLyricStage
-                currentTimeMs={currentTimeMs()}
-                lines={props.lines}
-                primed={!isPlaying() && currentTimeMs() <= firstLineStartMs}
-                rating={props.rating}
-                ratingPersistent={props.ratingPersistent}
-              />
-            </div>
+        <Show when={!ended() && (!isLoading() || Boolean(centeredStatus()))} fallback={<Show when={!ended()}><div class="grid flex-1 place-items-center"><Spinner class="size-8" /></div></Show>}>
+          <Show
+            when={centeredStatus()}
+            fallback={
+              <Show when={props.lines.length > 0}>
+                <div class="min-h-0 flex-1">
+                  <KaraokeLyricStage
+                    currentTimeMs={currentTimeMs()}
+                    lines={props.lines}
+                    primed={!isPlaying() && currentTimeMs() <= firstLineStartMs}
+                    rating={props.rating}
+                    ratingPersistent={props.ratingPersistent}
+                  />
+                </div>
+              </Show>
+            }
+          >
+            {(status) => (
+              <div class="flex min-h-full flex-1 items-center justify-center px-4 py-8">
+                <Show
+                  when={status().loading}
+                  fallback={
+                    <ErrorState
+                      centered
+                      error={status().error}
+                      headingLevel="h2"
+                      icon={status().icon}
+                      title={status().title}
+                      tone={status().tone}
+                    />
+                  }
+                >
+                  <div class="flex flex-col items-center gap-3 text-center" role="status">
+                    <Type as="h2" variant="h3">{status().title}</Type>
+                    <Spinner class="size-5" decorative />
+                  </div>
+                </Show>
+              </div>
+            )}
           </Show>
         </Show>
       </div>

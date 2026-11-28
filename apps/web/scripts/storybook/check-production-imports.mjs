@@ -11,6 +11,7 @@ const codePattern = /\.[cm]?[jt]sx?$/u;
 // is explicit and traversed, rather than exempted by its filename.
 const supportPaths = [
   "src/study/studying-story-fixtures.ts",
+  "src/study/studying-mounted-story-fixtures.ts",
   "src/karaoke/story-fixtures.ts",
   "src/test-support/activity-frame-geometry.ts",
   "src/shell/community-shell-story-client.ts",

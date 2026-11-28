@@ -1,8 +1,9 @@
 // Source route-state composition from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db.
-// Decentralized service doubles below are story-only; no provider or microphone.
+// Service doubles below are story-only; no provider or microphone.
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { createSignal } from "solid-js";
 import { KaraokePage } from "./page.tsx";
+import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
 import {
   KARAOKE_START_UNKNOWN_MESSAGE,
   type OperatorKaraokePort,
@@ -17,7 +18,7 @@ import type { KaraokePlaybackGraph } from "./playback-graph.ts";
 import { expect, userEvent, within } from "storybook/test";
 
 const meta = {
-  title: "Karaoke/Screens/Decentralized route",
+  title: "Karaoke/Screens/Song",
   // The tier lives in metadata so the sidebar can group feature-first.
   tags: ["screen"],
   component: KaraokePage,
@@ -170,7 +171,7 @@ export const AuthHold: Story = {
 export const Loading: Story = { render: example("loading") };
 export const Empty: Story = { render: example("empty") };
 export const Error: Story = { render: example("error") };
-export const StartUnknown: Story = {
+export const CouldntStart: Story = {
   render: example("unknown"),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -182,21 +183,48 @@ export const StartUnknown: Story = {
     ).toBeVisible();
     await expect(
       await canvas.findByText(
-        "Karaoke didn't start. Try again.",
+        "Karaoke didn't start",
         {},
         { timeout: 15_000 },
       ),
     ).toBeVisible();
     await expect(
-      canvas.getByRole("button", { name: "Start karaoke" }),
+      canvas.getByRole("button", { name: "Try again" }),
     ).toBeEnabled();
-    await expect(canvas.getByText("Meet me by the old harbor")).toBeVisible();
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
     await expect(
       canvas.queryByRole("button", { name: "Check status" }),
     ).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Start karaoke" }),
+    ).toBeNull();
   },
 };
-export const StartUnknownUnresolved: Story = {
+export const StartUnconfirmed: Story = {
+  render: () => (
+    <ActivityStatusShell
+      title="Couldn't check if Karaoke started"
+      tone="retryable"
+      error
+      exitIcon="back"
+      exitLabel="Exit karaoke"
+      onExit={() => {}}
+      primaryAction={{ label: "Check again", onClick: () => {} }}
+      secondaryAction={{ label: "Back", onClick: () => {} }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(
+      canvas.getByRole("heading", { name: "Couldn't check if Karaoke started" }),
+    ).toBeVisible();
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Couldn't check if Karaoke started",
+    );
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+  },
+};
+export const StartUnconfirmedRecovery: Story = {
   render: example("unknown-unresolved"),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -209,17 +237,22 @@ export const StartUnknownUnresolved: Story = {
     await expect(
       await canvas.findByRole(
         "heading",
-        { name: "Couldn't start karaoke" },
+        { name: "Couldn't check if Karaoke started" },
         { timeout: 15_000 },
       ),
     ).toBeVisible();
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Check again" }));
     await expect(
-      canvas.getByText("Go back and try again in a minute."),
+      await canvas.findByRole("heading", { name: "Starting karaoke…" }),
     ).toBeVisible();
-    await userEvent.click(canvas.getByRole("button", { name: "Back" }));
     await expect(
-      canvas.getByRole("button", { name: "Start karaoke" }),
-    ).toBeEnabled();
+      await canvas.findByRole(
+        "heading",
+        { name: "Couldn't check if Karaoke started" },
+        { timeout: 15_000 },
+      ),
+    ).toBeVisible();
   },
 };
 export const RecoveredOpenTake: Story = {

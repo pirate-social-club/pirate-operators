@@ -7,7 +7,6 @@ import { expectInsideLearningActivityColumn, expectLearningActivityFrameGeometry
 import type { KaraokeResultsSummary } from "./results-model.ts";
 
 import { KaraokePracticeSurface } from "./practice-surface.tsx";
-import { Button } from "./ui.ts";
 import { storyArtworkSrc, storyStageLines } from "./story-fixtures.ts";
 
 const meta = {
@@ -251,7 +250,8 @@ export const EndedUnmeasuredLines: Story = {
         "2 lines couldn't be measured, so they don't count toward your score.",
       ),
     ).toBeInTheDocument();
-    await expect(canvas.getByText("Not scored")).toBeInTheDocument();
+    await expect(canvas.getByText("—")).toBeInTheDocument();
+    expect(canvas.getByText("—").closest("dd")).toHaveAttribute("aria-label", "Not scored");
   },
 };
 
@@ -315,44 +315,12 @@ export const PlaybackRefused: Story = {
       canvas.getByRole("button", { name: "Start karaoke" }),
     );
     await expect(
-      await canvas.findByRole("button", { name: "Start backing track" }),
+      await canvas.findByRole("button", { name: "Try again" }),
     ).toBeInTheDocument();
-    await expect(canvas.getByRole("status")).toHaveTextContent(
-      "The backing track could not start",
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Couldn't play audio",
     );
-  },
-};
-
-function RecoveryNoticeSlot() {
-  const [checked, setChecked] = createSignal(false);
-  return (
-    <div role="alert" class="rounded-lg bg-card p-4 text-center">
-      <p>Your result is still unavailable. Check the same take again.</p>
-      <Button variant="secondary" onClick={() => setChecked(true)}>
-        {checked() ? "Checked" : "Check status"}
-      </Button>
-    </div>
-  );
-}
-
-export const ActiveRecoveryNotice: Story = {
-  args: {
-    ...PausedPrimed.args,
-    singingStatus: "active",
-  },
-  render: (args) => (
-    <KaraokePracticeSurface
-      {...args}
-      lines={args.lines ?? storyStageLines}
-      statusSlot={<RecoveryNoticeSlot />}
-    />
-  ),
-  play: async ({ canvasElement }) => {
-    const column = await expectLearningActivityFrameGeometry(canvasElement);
-    const action = within(canvasElement).getByRole("button", { name: "Check status" });
-    await expectInsideLearningActivityColumn(action, column);
-    await userEvent.click(action);
-    await expect(within(canvasElement).getByRole("button", { name: "Checked" })).toBeVisible();
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
   },
 };
 
@@ -372,14 +340,31 @@ export const PlaybackInterrupted: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement);
     await expect(
-      canvas.getByText("Audio was interrupted. Tap to continue your take."),
+      canvas.getByText("Audio paused"),
     ).toBeVisible();
     await expect(
       canvas.queryByRole("button", { name: "Start karaoke" }),
     ).not.toBeInTheDocument();
     await userEvent.click(
-      canvas.getByRole("button", { name: "Tap to continue" }),
+      canvas.getByRole("button", { name: "Resume" }),
     );
     await expect(args.onResumePlayback).toHaveBeenCalledOnce();
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+  },
+};
+
+export const ResultUnavailable: Story = {
+  args: {
+    ...PausedPrimed.args,
+    singingStatus: "active",
+    centeredStatus: { title: "Couldn't get your result", tone: "retryable", error: true },
+    centeredStatusAction: { label: "Check again", onClick: fn() },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("alert")).toHaveTextContent("Couldn't get your result");
+    await expect(canvas.queryByText("Meet me by the old harbor")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Check again" }));
+    await expect(args.centeredStatusAction?.onClick).toHaveBeenCalledOnce();
   },
 };

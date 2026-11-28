@@ -303,7 +303,9 @@ test("an unknown provider outcome blocks recording and offers only an explicit n
   await vi.waitFor(() =>
     expect(button(container, "New lesson")?.disabled).toBe(false),
   );
-  expect(container.textContent).toContain("Couldn't get your result");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    "Couldn't get your result",
+  );
   expect(container.textContent).toContain(
     "This lesson can't continue. Start a new one.",
   );

@@ -19,7 +19,6 @@ import type {
   KaraokeLineFeedback as LineFeedback,
 } from "../api-contract.ts";
 import { useKaraokeCapture } from "./use-karaoke-capture.ts";
-import { Button } from "../design-system.ts";
 import { ActivityStatusShell } from "../ui/activity-status-shell.tsx";
 import { deriveKaraokeFeedback } from "./scoring-feedback.ts";
 import { ScoringResponseWatch } from "./scoring-response-watch.ts";
@@ -164,6 +163,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
     [startError, setStartError] = createSignal<string | null>(null),
+    [resultPhase, setResultPhase] = createSignal<"checking" | "unavailable" | null>(null),
+    [resultError, setResultError] = createSignal<string | null>(null),
     [startPhase, setStartPhase] = createSignal<"idle" | "checking" | "unknown">("idle"),
     [restoredRatingKey, setRestoredRatingKey] = createSignal<string | null>(
       null,
@@ -260,6 +261,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     setFeedback(null);
     setResume(null);
     setNotice(null);
+    setResultError(null);
+    setResultPhase(null);
     setStartError(message ?? null);
   }
   async function recoverUnknownStart() {
@@ -288,7 +291,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     }
     if (!isCurrentOwner()) return;
     if (last !== "error" && last.state === "none") {
-      returnToStart("Karaoke didn't start. Try again.");
+      returnToStart("Karaoke didn't start");
       return;
     }
     setStartPhase("unknown");
@@ -308,6 +311,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   function apply(view: AttemptView) {
     if (!isCurrentOwner()) return;
     if (view.state === "open") {
+      setResultError(null);
       setTake({
         ticketId: view.ticket.body.ticketId,
         socketUrl: view.socketUrl,
@@ -318,6 +322,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       if (view.elapsedMs !== null)
         setResume({ elapsedMs: view.elapsedMs, at: performance.now() });
     } else if (view.state === "finished") {
+      setResultError(null);
+      setResultPhase(null);
       setResume(null);
       setStarting(false);
       setTake(null);
@@ -338,6 +344,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     setLoaded(false);
     setNotice(null);
     setStartError(null);
+    setResultError(null);
+    setResultPhase(null);
     setStartPhase("idle");
     try {
       const loaded = await port.song();
@@ -415,7 +423,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
           }
         } else
           stopFailedScoring(
-            "The scoring connection stopped. Press Start karaoke to try again.",
+            "Scoring stopped",
           );
       }
     },
@@ -439,14 +447,14 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       )
         return null;
       return state.micError?.code === "permission_denied"
-        ? "Microphone access is blocked. Allow microphone access in your browser and try again."
+        ? "Microphone access is blocked"
         : state.micError?.code === "no_device"
-          ? "No microphone is available. Connect a microphone and try again."
+          ? "No microphone found"
           : state.micError
-            ? "Audio capture could not start. Refresh Karaoke and try again."
+            ? "Couldn't start audio capture"
             : state.error?.code === "karaoke_audio_closed"
-              ? "Audio stopped. Refresh Karaoke before starting another take."
-              : "Scoring could not connect. Try starting your take again.";
+              ? "Audio stopped"
+              : "Couldn't connect scoring";
     },
     (message) => {
       if (message) {
@@ -480,7 +488,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         }
       }
       stopFailedScoring(
-        "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
+        "Scoring stopped",
       );
     }
   }
@@ -589,6 +597,9 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   async function start(fromMs: number) {
     if (!isCurrentOwner() || starting()) return;
     setStartError(null);
+    setNotice(null);
+    setResultError(null);
+    setResultPhase(null);
     setPlayingOutro(false);
     finishing = undefined;
     cancelPlaybackPosition?.();
@@ -771,14 +782,13 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       if (!ticketId) return;
       cancelPlaybackPosition?.();
       await capture.controls.noteFinish(atMs);
+      if (isCurrentOwner()) setResultPhase("checking");
       const confirmed = await refreshUntil(
         (view) => view.state === "finished",
         ticketId,
       );
-      if (!confirmed && isCurrentOwner())
-        setNotice(
-          "Your take ended, but its result has not been confirmed. Check the same take again.",
-        );
+      if (!isCurrentOwner()) return;
+      setResultPhase(confirmed ? null : "unavailable");
     })());
   }
   async function downloadHistory(ticketId: string) {
@@ -811,21 +821,26 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             ? value.result.body.ticketId
             : null;
       if (expected && actual !== expected) {
-        setNotice(
-          "This take's result is still unavailable. Your saved take has not been replaced.",
-        );
+        if (finished()) setResultError("Couldn't check publication.");
+        else setResultPhase("unavailable");
         return;
       }
       apply(value);
       setStartPhase("idle");
-      setNotice(null);
+      if (value.state === "finished") {
+        setResultPhase(null);
+        setResultError(null);
+        setNotice(null);
+      } else if (!finished() && resultPhase() !== null) {
+        setResultPhase("unavailable");
+      } else {
+        setResultError(null);
+      }
     } catch (error) {
       if (isCurrentOwner()) {
         if (isLearningAuthorityLoss(error)) loseAuthority(error);
-        else
-          setNotice(
-            "Your result is still unavailable. Check the same take again.",
-          );
+        else if (finished()) setResultError("Couldn't check publication.");
+        else setResultPhase("unavailable");
       }
     }
   }
@@ -867,10 +882,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             fallback={
               <ActivityStatusShell
                 title="Karaoke unavailable"
-                description={
-                  notice() ?? "Karaoke couldn't be loaded for this song."
-                }
                 tone="retryable"
+                error
                 exitIcon="back"
                 exitLabel="Back"
                 onExit={props.onExit}
@@ -890,13 +903,14 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                       when={startPhase() === "checking"}
                       fallback={
                         <ActivityStatusShell
-                          title="Couldn't start karaoke"
-                          description="Go back and try again in a minute."
-                          tone="blocked"
+                          title="Couldn't check if Karaoke started"
+                          tone="retryable"
+                          error
                           exitIcon="back"
                           exitLabel="Exit karaoke"
                           onExit={props.onExit}
-                          primaryAction={{ label: "Back", onClick: () => returnToStart() }}
+                          primaryAction={{ label: "Check again", onClick: () => void recoverUnknownStart() }}
+                          secondaryAction={{ label: "Back", onClick: () => returnToStart() }}
                         />
                       }
                     >
@@ -917,6 +931,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                     <>
                       <KaraokeCompletionStatus
                         state={finished()?.record.publication?.state ?? null}
+                        error={finished() ? resultError() : null}
                         onCheck={() => void checkResult()}
                       />
                       {props.rewardSlot}
@@ -928,16 +943,22 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                   singingStatus={singingStatus()}
                   summary={finished()?.result.presentation ?? null}
                   startError={startError() ?? undefined}
-                  statusSlot={notice() && song() && startPhase() === "idle" && (take() || finished()) ? (
-                    <div role="alert" class="rounded-lg bg-card p-4 text-center">
-                      <p>{notice()}</p>
-                      <Show when={song() && !starting()}>
-                        <Button variant="secondary" onClick={() => void checkResult()}>
-                          Check status
-                        </Button>
-                      </Show>
-                    </div>
-                  ) : undefined}
+                  centeredStatus={
+                    resultPhase() === "checking"
+                      ? { title: "Checking your result…", loading: true }
+                      : resultPhase() === "unavailable"
+                        ? { title: "Couldn't get your result", tone: "retryable", error: true }
+                        : notice() && !finished() && take()
+                          ? { title: notice()!, tone: "retryable", error: true }
+                          : undefined
+                  }
+                  centeredStatusAction={
+                    resultPhase() === "unavailable"
+                      ? { label: "Check again", onClick: () => void checkResult() }
+                      : notice() && !finished() && take()
+                        ? { label: "Try again", armsPlayback: true }
+                        : undefined
+                  }
                   bestCombo={
                     finished()?.result.presentation?.bestCombo ??
                     currentFeedback().bestCombo

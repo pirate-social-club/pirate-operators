@@ -63,5 +63,5 @@ export function danceError(e: unknown) {
     return "This recording is unavailable with your current access.";
   if (/admission_held/.test(code))
     return "Community Dance admission is still pending.";
-  return "The review status couldn’t be confirmed. Check again.";
+  return "Couldn’t check your recording";
 }

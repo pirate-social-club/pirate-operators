@@ -736,7 +736,7 @@ test("ordinary Karaoke503 retains the actual result and later explicit status us
   api.fail("attempt", json({ error: "temporary_outage" }, 503));
   await press(app.node, "Check again");
   await vi.waitFor(() =>
-    expect(app.node.textContent).toContain("Your result is still unavailable"),
+    expect(app.node.textContent).toContain("Couldn't check publication."),
   );
   expect(app.node.textContent).toContain("Great work!");
   expect(app.action()).not.toBeNull();
@@ -744,7 +744,7 @@ test("ordinary Karaoke503 retains the actual result and later explicit status us
   await press(app.node, "Check again");
   await vi.waitFor(() =>
     expect(app.node.textContent).not.toContain(
-      "Your result is still unavailable",
+      "Couldn't check publication.",
     ),
   );
   expect(app.node.textContent).toContain("Great work!");

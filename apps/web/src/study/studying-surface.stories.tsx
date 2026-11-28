@@ -14,9 +14,9 @@ import {
 } from "./studying-story-fixtures";
 
 const meta = {
-  title: "Studying/Flows/Session",
+  title: "Studying/Parts/Surface",
   // The tier lives in metadata so the sidebar can group feature-first.
-  tags: ["flow"],
+  tags: ["part"],
   parameters: {
     layout: "fullscreen",
     // Fragment tier: this surface renders below page level. In the real app
@@ -37,8 +37,10 @@ const meta = {
           "Presentational studying activity surface, ported from the legacy React `SongStudySurface`. " +
           "Every state is injected: the say-it-back phase machine (idle/listening/checking/wrong), " +
           "multiple choice with reveal styling, and completion. Recording, network, " +
-          "and timers live at the route-view seam, never in this component. The production completion " +
-          "sequence and exact-attempt streak reads are covered by Flows/Studying/Completion.",
+          "and timers live at the route-view seam, never in this component. Multiple-choice fragments document " +
+          "the retained legacy surface capability; the operator does not serve those cards. These fragments " +
+          "are not a session flow: the production-shaped spoken operator sequence and its score are covered " +
+          "by the mounted Lesson Flow and Completion stories in Studying/Screens/Route.",
       },
     },
   },
@@ -306,7 +308,7 @@ export const MultipleChoiceSubmitError: Story = {
     kind: "multiple_choice",
     attemptNumber: 1,
     exercise: storyMultipleChoiceExercise,
-    submitError: "Could not record this answer. Try again.",
+    submitError: "Couldn't save your answer",
   }),
 };
 

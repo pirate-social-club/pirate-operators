@@ -9,6 +9,7 @@ export type ActivityResultTone = "success" | "primary" | "warning";
 export interface ActivityResultStat {
   readonly label: string;
   readonly value: string;
+  readonly accessibilityValue?: string;
   readonly tone: ActivityResultTone;
 }
 
@@ -65,7 +66,7 @@ export function ActivityResults(props: ActivityResultsProps) {
             {(stat) => (
               <div class={cn("overflow-hidden rounded-[var(--radius-lg)] border-2 text-center", toneClasses[stat.tone].tile)}>
                 <dt class={cn("px-2 py-1 text-xs font-bold uppercase tracking-wide", toneClasses[stat.tone].label)}>{stat.label}</dt>
-                <dd class="px-2 py-3 text-xl font-bold tabular-nums">{stat.value}</dd>
+                <dd aria-label={stat.accessibilityValue} class="whitespace-nowrap px-2 py-3 text-xl font-bold tabular-nums">{stat.value}</dd>
               </div>
             )}
           </For>

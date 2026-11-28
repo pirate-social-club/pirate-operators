@@ -19,6 +19,20 @@ import type {
   KaraokeCaptureController as KaraokeScoringController,
   KaraokeCaptureState as KaraokeScoringState,
 } from "../../../packages/karaoke/capture-controller.ts";
+import type { KaraokeStageLine } from "../../../packages/karaoke/lyric-transform.ts";
+
+const lyricLines: KaraokeStageLine[] = [
+  {
+    id: "line-1",
+    text: "Meet me by the old harbor",
+    startMs: 1000,
+    endMs: 4000,
+    tokens: [
+      { text: "Meet", startMs: 1000, endMs: 1500, trailing: " " },
+      { text: "me", startMs: 1500, endMs: 4000 },
+    ],
+  },
+];
 
 const mountUi = (ui: () => JSX.Element, host: HTMLElement) =>
   solidRender(ui, host);
@@ -34,6 +48,8 @@ function mount(
   resumePlayback = vi.fn(async () => true),
   playbackAccess?: KaraokePlaybackAccess,
   statusSlot?: JSX.Element,
+  lines: KaraokeStageLine[] = [],
+  startError?: string,
 ) {
   const [status, setStatus] = createSignal<
     | "idle"
@@ -56,7 +72,7 @@ function mount(
     () => (
       <KaraokePracticeSurface
         title="Fixture song"
-        lines={[]}
+        lines={lines}
         instrumentalAudioUrl={playbackAccess?.grant.url ?? "/fixture.mp3"}
         playbackAccess={playbackAccess}
         playbackInterrupted={interrupted()}
@@ -68,6 +84,7 @@ function mount(
         onTimeChange={onTimeChange}
         onPlaybackElement={onPlaybackElement}
         statusSlot={statusSlot}
+        startError={startError}
       />
     ),
     host,
@@ -89,6 +106,8 @@ const button = (host: HTMLElement, name: string) =>
   [...host.querySelectorAll("button")].find(
     (element) => element.textContent?.trim() === name,
   );
+const mediaReady = (host: HTMLElement) =>
+  host.querySelector("audio")?.dispatchEvent(new Event("canplay"));
 
 test("starts the backing track once the scored microphone session becomes active", async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
@@ -124,7 +143,7 @@ test("keeps route recovery status visible and actionable while a take is active"
   expect(onCheck).toHaveBeenCalledOnce();
 });
 
-test("offers gesture recovery and waits for a running context before restarting media", async () => {
+test("centers an ordinary pause and waits for a running context before restarting media", async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   let resolve: ((value: boolean) => void) | undefined;
@@ -134,21 +153,30 @@ test("offers gesture recovery and waits for a running context before restarting 
         resolve = r;
       }),
   );
-  const { host, setStatus, setInterrupted } = mount(resume);
+  const { host, setStatus, setInterrupted } = mount(
+    resume,
+    undefined,
+    undefined,
+    lyricLines,
+  );
+  mediaReady(host);
   setStatus("active");
   setInterrupted(true);
-  await vi.waitFor(() => expect(button(host, "Tap to continue")).toBeDefined());
-  button(host, "Tap to continue")!.click();
+  await vi.waitFor(() => expect(button(host, "Resume")).toBeDefined());
+  expect(host.textContent).toContain("Audio paused");
+  expect(host.textContent).not.toContain("Meet me by the old harbor");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  button(host, "Resume")!.click();
   expect(resume).toHaveBeenCalledOnce();
   expect(play).not.toHaveBeenCalled();
   await vi.waitFor(() =>
-    expect(button(host, "Tap to continue")!.disabled).toBe(true),
+    expect(button(host, "Resume")!.disabled).toBe(true),
   );
   resolve?.(false);
   await vi.waitFor(() =>
-    expect(button(host, "Tap to continue")!.disabled).toBe(false),
+    expect(button(host, "Resume")!.disabled).toBe(false),
   );
-  button(host, "Tap to continue")!.click();
+  button(host, "Resume")!.click();
   await vi.waitFor(() => expect(resume).toHaveBeenCalledTimes(2));
   resolve?.(true);
   await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
@@ -168,15 +196,32 @@ test("a recovery resolving after the take ends never restarts playback", async (
   );
   setStatus("active");
   setInterrupted(true);
-  await vi.waitFor(() => expect(button(host, "Tap to continue")).toBeDefined());
-  button(host, "Tap to continue")!.click();
+  await vi.waitFor(() => expect(button(host, "Resume")).toBeDefined());
+  button(host, "Resume")!.click();
   setStatus("ended");
   resolve?.(true);
   await Promise.resolve();
   expect(play).not.toHaveBeenCalled();
 });
 
-test("offers a direct playback retry and pauses scoring when the browser refuses the backing track", async () => {
+test("a blocking start failure stays visible while media is still loading", async () => {
+  const { host } = mount(
+    vi.fn(async () => true),
+    undefined,
+    undefined,
+    lyricLines,
+    "Karaoke didn't start",
+  );
+  await vi.waitFor(() =>
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Karaoke didn't start",
+    ),
+  );
+  expect(button(host, "Try again")).toBeDefined();
+  expect(host.querySelector("audio")).not.toBeNull();
+});
+
+test("centers a direct playback retry and pauses scoring when the browser refuses audio", async () => {
   const play = vi
     .spyOn(HTMLMediaElement.prototype, "play")
     .mockRejectedValueOnce(
@@ -184,18 +229,32 @@ test("offers a direct playback retry and pauses scoring when the browser refuses
     )
     .mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const { host, setStatus, onPause } = mount();
+  const { host, setStatus, onPause } = mount(
+    vi.fn(async () => true),
+    undefined,
+    undefined,
+    lyricLines,
+  );
+  mediaReady(host);
+  await vi.waitFor(() =>
+    expect(host.textContent).toContain("Meet me by the old harbor"),
+  );
   button(host, "Start karaoke")!.click();
   setStatus("active");
   await vi.waitFor(() =>
-    expect(host.textContent).toContain("Start backing track"),
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't play audio",
+    ),
   );
+  expect(host.textContent).not.toContain("Meet me by the old harbor");
+  expect(host.textContent).not.toContain("Press play to continue");
   expect(onPause).toHaveBeenCalledWith(0);
-  button(host, "Start backing track")!.click();
+  button(host, "Try again")!.click();
   await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(2));
   await vi.waitFor(() =>
-    expect(host.textContent).not.toContain("Start backing track"),
+    expect(host.querySelector('[role="alert"]')).toBeNull(),
   );
+  expect(host.textContent).toContain("Meet me by the old harbor");
 });
 
 test("capture waits for playing and suspends on waiting and stalled", () => {
@@ -526,12 +585,12 @@ test("a renewed media failure offers a same-take reload and restores the held so
   await h.resolve();
   h.audio.dispatchEvent(new Event("error"));
   await vi.waitFor(() =>
-    expect(button(h.host, "Start backing track")).toBeDefined(),
+    expect(button(h.host, "Try again")).toBeDefined(),
   );
   expect(h.play).not.toHaveBeenCalled();
   h.audio.dispatchEvent(new Event("timeupdate"));
   expect(h.onTimeChange).toHaveBeenLastCalledWith(12_500);
-  button(h.host, "Start backing track")!.click();
+  button(h.host, "Try again")!.click();
   await vi.waitFor(() => expect(h.load).toHaveBeenCalledTimes(2));
   expect(h.audio.src).toBe("https://media.test/renewed");
   expect(h.renew).toHaveBeenCalledOnce();
@@ -545,7 +604,7 @@ test("a renewed media failure offers a same-take reload and restores the held so
   expect(h.onStartSinging).toHaveBeenCalledOnce();
   expect(h.host.querySelector("audio")).toBe(h.audio);
   await vi.waitFor(() =>
-    expect(button(h.host, "Start backing track")).toBeUndefined(),
+    expect(button(h.host, "Try again")).toBeUndefined(),
   );
 });
 
@@ -556,9 +615,9 @@ test.each(["take completion", "route cleanup"])(
     await h.resolve();
     h.audio.dispatchEvent(new Event("error"));
     await vi.waitFor(() =>
-      expect(button(h.host, "Start backing track")).toBeDefined(),
+      expect(button(h.host, "Try again")).toBeDefined(),
     );
-    button(h.host, "Start backing track")!.click();
+    button(h.host, "Try again")!.click();
     await vi.waitFor(() => expect(h.load).toHaveBeenCalledTimes(2));
     if (ending === "route cleanup") h.dispose();
     else {
@@ -624,13 +683,13 @@ test("an audio interruption while renewed metadata loads cancels automatic conti
   await h.resolve();
   h.setInterrupted(true);
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")).toBeDefined(),
+    expect(button(h.host, "Resume")).toBeDefined(),
   );
   h.audio.dispatchEvent(new Event("loadedmetadata"));
   expect(h.play).not.toHaveBeenCalled();
   h.setInterrupted(false);
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")).toBeUndefined(),
+    expect(button(h.host, "Resume")).toBeUndefined(),
   );
   expect(h.play).not.toHaveBeenCalled();
   expect(h.audio.currentTime).toBe(12.5);
@@ -780,7 +839,7 @@ async function mountProductionRecovery() {
   audio.dispatchEvent(new Event("playing"));
   expect(controller.notePlay).toHaveBeenCalledOnce();
   transition("suspended");
-  await vi.waitFor(() => expect(button(host, "Tap to continue")).toBeDefined());
+  await vi.waitFor(() => expect(button(host, "Resume")).toBeDefined());
   expect(scoring.playbackInterrupted()).toBe(true);
   return {
     host,
@@ -803,7 +862,7 @@ async function mountProductionRecovery() {
 
 test("production interruption recovery resumes the same take only after a successful context gesture and playing", async () => {
   const h = await mountProductionRecovery();
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   expect(h.resumeContext).toHaveBeenCalledOnce();
   await vi.waitFor(() => expect(h.play).toHaveBeenCalledTimes(2));
   expect(h.controller.notePlay).toHaveBeenCalledOnce();
@@ -828,17 +887,17 @@ test("production interruption recovery refuses a failed context resume and permi
         reject = no;
       }),
   );
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")?.disabled).toBe(true),
+    expect(button(h.host, "Resume")?.disabled).toBe(true),
   );
   reject!(new DOMException("Not allowed", "NotAllowedError"));
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")?.disabled).toBe(false),
+    expect(button(h.host, "Resume")?.disabled).toBe(false),
   );
   expect(h.play).toHaveBeenCalledOnce();
   expect(h.scoring.playbackInterrupted()).toBe(true);
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() => expect(h.play).toHaveBeenCalledTimes(2));
   expect(h.controller.notePlay).toHaveBeenCalledOnce();
   expect(h.createSession).toHaveBeenCalledOnce();
@@ -864,7 +923,7 @@ test.each([
           resolve = yes;
         }),
     );
-    button(h.host, "Tap to continue")!.click();
+    button(h.host, "Resume")!.click();
     expect(h.resumeContext).toHaveBeenCalledOnce();
     if (boundary === "unmounted") h.dispose();
     else if (boundary === "detached")
@@ -895,21 +954,21 @@ test("a second production interruption invalidates an earlier gesture even when 
         resolve = yes;
       }),
   );
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")?.disabled).toBe(true),
+    expect(button(h.host, "Resume")?.disabled).toBe(true),
   );
   h.transition("running");
   h.transition("suspended");
   h.transition("running");
   resolve!();
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")?.disabled).toBe(false),
+    expect(button(h.host, "Resume")?.disabled).toBe(false),
   );
   expect(h.scoring.playbackInterrupted()).toBe(true);
   expect(h.play).toHaveBeenCalledOnce();
   expect(h.controller.notePlay).toHaveBeenCalledOnce();
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() => expect(h.play).toHaveBeenCalledTimes(2));
   expect(h.createSession).toHaveBeenCalledOnce();
   expect(h.renew).not.toHaveBeenCalled();
@@ -944,7 +1003,7 @@ test("context closure during paused production recovery aborts the take and reje
         resolve = yes;
       }),
   );
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   h.transition("closed");
   expect(h.controller.abort).toHaveBeenCalledWith("karaoke_audio_closed");
   resolve!();
@@ -973,7 +1032,7 @@ test.each(["idle", "finishing", "ended", "error"] as const)(
 
 test("production interruption during renewed metadata preserves the held capture clock and waits for a new gesture", async () => {
   const h = await mountProductionRecovery();
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() => expect(h.play).toHaveBeenCalledTimes(2));
   h.audio.dispatchEvent(new Event("playing"));
   const now = Date.now() + 70_000;
@@ -990,7 +1049,7 @@ test("production interruption during renewed metadata preserves the held capture
   const pauses = vi.mocked(h.controller.notePause).mock.calls.length;
   h.transition("suspended");
   await vi.waitFor(() =>
-    expect(button(h.host, "Tap to continue")).toBeDefined(),
+    expect(button(h.host, "Resume")).toBeDefined(),
   );
   expect(h.controller.notePause).toHaveBeenCalledTimes(pauses);
   h.audio.dispatchEvent(new Event("loadedmetadata"));
@@ -1000,7 +1059,7 @@ test("production interruption during renewed metadata preserves the held capture
   await Promise.resolve();
   expect(h.play).toHaveBeenCalledTimes(2);
   expect(h.scoring.playbackInterrupted()).toBe(true);
-  button(h.host, "Tap to continue")!.click();
+  button(h.host, "Resume")!.click();
   await vi.waitFor(() => expect(h.play).toHaveBeenCalledTimes(3));
   expect(h.controller.notePlay).toHaveBeenCalledTimes(2);
   h.audio.dispatchEvent(new Event("playing"));

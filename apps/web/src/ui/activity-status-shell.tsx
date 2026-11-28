@@ -14,6 +14,7 @@ export interface ActivityStatusShellProps {
   mainLabel?: string;
   label?: string;
   tone?: ErrorStateTone;
+  error?: boolean;
   status?: string;
   notice?: string;
   onExit?: () => void;
@@ -72,6 +73,8 @@ export function ActivityStatusShell(props: ActivityStatusShellProps) {
               status={props.status}
               title={props.title}
               tone={props.tone}
+              error={props.error}
+              centered
               headingLevel={props.asMain ? "h1" : "h2"}
             />
           }

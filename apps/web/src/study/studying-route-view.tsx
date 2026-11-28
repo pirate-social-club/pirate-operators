@@ -330,7 +330,7 @@ function LoadedStudyingLesson(
               selectedOptionId: undefined,
               submitError: errorMessage(
                 rejection,
-                "Could not record this answer. Try again.",
+                "Couldn't save your answer",
               ),
               submitting: false,
             },
@@ -627,6 +627,7 @@ function LoadedStudyingLesson(
           title="Couldn't get your result"
           description={STUDY_PROVIDER_REVIEW_MESSAGE}
           tone="blocked"
+          error
           exitIcon="close"
           exitLabel="Exit study"
           onExit={props.onExit}
@@ -663,16 +664,14 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     loadError() && !loading()
       ? "A new lesson could not start. Try again."
       : undefined;
-  const [authDescription, setAuthDescription] = createSignal(
-    "Study packs follow the song's community. Sign in to pick up your lesson and streak.",
-  );
+  const [authDescription, setAuthDescription] = createSignal<string>();
   const holdForAuth = (rejection: StudyingAttemptRejection) => {
     // Carry only an allowlisted nonprivate reason across the authority mask.
     // Never preserve a response message, lesson body or disposed page action.
     setAuthDescription(
       rejection.code === "study_account_changed"
         ? "You are signed in with a different account. Reload to continue."
-        : "Study packs follow the song's community. Sign in to pick up your lesson and streak.",
+        : undefined,
     );
     setAuthRequired(true);
     setPayload(undefined);

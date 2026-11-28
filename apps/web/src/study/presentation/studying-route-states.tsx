@@ -77,7 +77,7 @@ export function StudyRouteLoadFailureState(props: StudyRouteLoadFailureStateProp
 
 export interface StudyAuthRequiredStateProps {
   ctaLabel?: string;
-  description: string;
+  description?: string;
   onConnect?: () => void;
   onConnectIntent?: () => void;
   onConnectPreload?: () => void;
@@ -100,16 +100,15 @@ export function StudyAuthRequiredState(props: StudyAuthRequiredStateProps) {
         />
       ) : undefined}
     >
-      <div class="flex flex-1 flex-col px-5 pt-6">
-        <Type as="h1" class="text-lg" variant="h4">
+      <div class="flex flex-1 flex-col items-center justify-center px-5 text-center">
+        <Type as="h1" variant="h4">
           {props.title}
         </Type>
-        <Type as="h2" class="mt-6 text-base" variant="body-strong">
-          Sign in
-        </Type>
-        <Type as="p" class="mt-1 max-w-[350px] text-[15px] leading-5 text-muted-foreground" variant="body">
-          {props.description}
-        </Type>
+        {props.description ? (
+          <Type as="p" class="mt-2 max-w-[350px] text-muted-foreground" variant="body">
+            {props.description}
+          </Type>
+        ) : null}
       </div>
     </LearningActivityFrame>
   );
