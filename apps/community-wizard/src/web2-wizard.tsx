@@ -307,16 +307,20 @@ export function Web2Wizard() {
               <button
                 disabled={locked() || !reviewed()}
                 onClick={() =>
-                  void perform(async () =>
-                    send("install", {
-                      planId: view()!.installPlan!.planId,
-                      planDigest: view()!.installPlan!.planDigest,
+                  void perform(async () => {
+                    const current = view()!;
+                    const installationSignature = current.installationApproved
+                      ? undefined
+                      : await sign(current.installationChallenge);
+                    return send("install", {
+                      planId: current.installPlan!.planId,
+                      planDigest: current.installPlan!.planDigest,
                       approved: true,
-                      installationSignature: await sign(
-                        view()!.installationChallenge,
-                      ),
-                    }),
-                  )
+                      ...(installationSignature === undefined
+                        ? {}
+                        : { installationSignature }),
+                    });
+                  })
                 }
               >
                 Install reviewed community

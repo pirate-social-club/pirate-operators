@@ -702,7 +702,15 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
           installationPlanCommitmentTypedData(e.plan.profile, installation),
         ),
       };
-      return { e, auth: { enrollmentId: e.id, controllerSignature, installationCommitment } };
+      return {
+        e,
+        auth: { enrollmentId: e.id, controllerSignature },
+        registrationAuth: {
+          enrollmentId: e.id,
+          controllerSignature,
+          installationCommitment,
+        },
+      };
     };
     return {
       runtime,

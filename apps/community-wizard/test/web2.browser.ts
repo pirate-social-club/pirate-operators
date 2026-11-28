@@ -13,7 +13,7 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
   // The real native chain fixture consumes repository-owned compiled artifacts.
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin="https://signing.fixture.example";
-  const f = await hostedWizardFixture({ publishing: true, signingOrigin, scriptedInstallation: true });
+  const f = await hostedWizardFixture({ publishing: true, signingOrigin, scriptedInstallation: true, failFirstApply: true });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -101,8 +101,17 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
     await expect(page.getByText("using the authorized controller and publisher", { exact: false })).toBeVisible();
     await page.getByLabel("I reviewed this installation on the selected host.").check();
     const broadcastsBeforeRegistration = f.broadcasts();
-    f.dropRedeemReply();
     await initiateWindow("Install reviewed community");
+    expect(signedTypes.filter((type) => type === "InstallationPlan")).toHaveLength(1);
+    expect(f.broadcasts()).toBe(broadcastsBeforeRegistration);
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Install reviewed community" }),
+    ).toBeVisible();
+    await page.getByLabel("I reviewed this installation on the selected host.").check();
+    f.dropRedeemReply();
+    await page.getByRole("button", { name: "Install reviewed community" }).click();
+    expect(signedTypes.filter((type) => type === "InstallationPlan")).toHaveLength(1);
     await expect.poll(() => f.broadcasts()).toBe(broadcastsBeforeRegistration + 1);
     await expect.poll(async () => (await f.state()).busy).toBe(false);
     await f.mine();

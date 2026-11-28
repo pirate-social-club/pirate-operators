@@ -70,6 +70,9 @@ export async function hostedWizardFixture(
   options: {
     contractController?: boolean;
     sameRecipient?: boolean;
+    /** Seed only the service-admitted funding enrollment preparation. The test
+     * still uses the Wizard's real authorize/install/registration sequence. */
+    fundedEnrollment?: boolean;
     invalidDeployment?: boolean;
     publishing?: boolean;
     grantWindowSeconds?:number;
@@ -291,7 +294,7 @@ export async function hostedWizardFixture(
       await client.waitForTransactionReceipt({ hash: init });
       await chain.rpc("anvil_mine", ["0x40", "0x0"]);
     }
-    const inviteToken = options.sameRecipient ? token() : undefined;
+    const inviteToken = options.sameRecipient || options.fundedEnrollment ? token() : undefined;
     if (inviteToken)
       await provisionHostedInvite(
         db,
@@ -425,6 +428,15 @@ export async function hostedWizardFixture(
         chain.contents.set(value.uri.slice(7), value.bytes);
       },
     };
+    if(options.fundedEnrollment) {
+      const selected={name:prepareInput.name,origin:prepareInput.origin,controller,publisher:prepareInput.publisher as Hex};
+      const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
+      await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
+      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken!);
+      const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
+      Object.assign(journal,{request:selected,plan:web2Wire(planDocument(plan)),deployment,prepared,phase:"prepared"});
+      await save();
+    }
     if(options.sameRecipient) {
       const selected={name:prepareInput.name,origin:prepareInput.origin,controller,publisher:controller};
       const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);

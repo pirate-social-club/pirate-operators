@@ -28,7 +28,7 @@ test("permissionless enrollment registers once without an invite and admits no t
     const repeat = await f.post("/prepare", input.body);
     assert.equal(repeat.status, 200, JSON.stringify(repeat));
     assert.equal(repeat.body.enrollmentId, prepared.e.id);
-    assert.equal((await f.post("/redeem", prepared.auth)).status, 200);
+    assert.equal((await f.post("/redeem", prepared.registrationAuth)).status, 200);
     await f.mine();
     const status = await f.post("/status", prepared.auth);
     assert.equal(status.status, 200, JSON.stringify(status));
@@ -41,7 +41,7 @@ test("permissionless enrollment registers once without an invite and admits no t
       "consumed",
     );
     const sent = f.state.sendCount;
-    assert.equal((await f.post("/redeem", prepared.auth)).status, 200);
+    assert.equal((await f.post("/redeem", prepared.registrationAuth)).status, 200);
     assert.equal(f.state.sendCount, sent);
     const topup = await f.post("/initial-topup", {
       enrollmentId: prepared.auth.enrollmentId,
@@ -67,7 +67,7 @@ test("hosted controller enrollment registers once, stays unlisted and exposes no
   try {
     const i = await f.invite(),
       p = await f.prepare(i);
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     const status = await f.post("/status", p.auth);
     assert.equal(status.status, 200, JSON.stringify(status));
@@ -95,7 +95,7 @@ test("hosted controller enrollment registers once, stays unlisted and exposes no
     ])
       assert(!publicText.includes(privateText));
     const sent = f.state.sendCount;
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     assert.equal(f.state.sendCount, sent);
     console.log(
       JSON.stringify({
@@ -115,7 +115,7 @@ test("failed installation readback produces zero registrar signatures and broadc
     const i = await f.invite(),
       p = await f.prepare(i);
     f.state.installationStatus = 503;
-    assert.deepEqual(await f.post("/redeem", p.auth), {
+    assert.deepEqual(await f.post("/redeem", p.registrationAuth), {
       status: 503,
       body: { error: "installation_https_unavailable" },
     });
@@ -125,7 +125,7 @@ test("failed installation readback produces zero registrar signatures and broadc
 
     f.state.installationStatus = 200;
     f.state.installationMismatch = true;
-    assert.deepEqual(await f.post("/redeem", p.auth), {
+    assert.deepEqual(await f.post("/redeem", p.registrationAuth), {
       status: 409,
       body: { error: "installation_configuration_mismatch" },
     });
@@ -135,7 +135,7 @@ test("failed installation readback produces zero registrar signatures and broadc
 
     f.state.installationMismatch = false;
     f.state.installationProofInvalid = true;
-    assert.deepEqual(await f.post("/redeem", p.auth), {
+    assert.deepEqual(await f.post("/redeem", p.registrationAuth), {
       status: 409,
       body: { error: "installation_proof_invalid" },
     });
@@ -144,12 +144,12 @@ test("failed installation readback produces zero registrar signatures and broadc
     assert.equal((await allOperations(f.db, p.e.id)).length, 0, "a substituted installation key reserved no operation");
 
     f.state.installationProofInvalid = false;
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     assert.equal(f.state.registrarSignatures, 1, "successful readback produced exactly one registrar signature");
     assert.equal(f.state.sendCount, 1, "successful readback produced exactly one broadcast");
     await f.mine();
     f.state.installationStatus = 503;
-    assert.equal((await f.post("/redeem", p.auth)).status, 200, "receipt recovery does not depend on the installation staying up");
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200, "receipt recovery does not depend on the installation staying up");
     assert.equal(f.state.registrarSignatures, 1);
     assert.equal(f.state.sendCount, 1);
     const operations = await allOperations(f.db, p.e.id);
@@ -169,7 +169,7 @@ test("concurrent exact redeem shares original nonce and one send; conflicting pr
     altered.profile.installationId = publicId();
     assert.notEqual((await f.post("/prepare", altered)).status, 200);
     const results = await Promise.all(
-      Array.from({ length: 4 }, () => f.post("/redeem", p.auth)),
+      Array.from({ length: 4 }, () => f.post("/redeem", p.registrationAuth)),
     );
     for (const r of results) assert.equal(r.status, 200, JSON.stringify(r));
     assert.equal(f.state.sendCount, 1);
@@ -186,13 +186,13 @@ test("expiry and revocation stop new registration without losing prepared identi
     const i = await f.invite({ ttl: 20 }),
       p = await f.prepare(i);
     f.state.clock += 20;
-    assert.notEqual((await f.post("/redeem", p.auth)).status, 200);
+    assert.notEqual((await f.post("/redeem", p.registrationAuth)).status, 200);
     assert.equal(f.state.sendCount, 0);
     f.state.clock -= 20;
     const j = await f.invite(),
       q = await f.prepare(j);
     await revokeHostedInvite(f.db, j.id);
-    assert.notEqual((await f.post("/redeem", q.auth)).status, 200);
+    assert.notEqual((await f.post("/redeem", q.registrationAuth)).status, 200);
     assert.equal(f.state.sendCount, 0);
   } finally {
     await f.close();
@@ -226,7 +226,7 @@ test("wrong source, CID bytes, policy acknowledgement and typed domain are refus
       domain: { ...typed.domain, chainId: 6343 },
     });
     assert.equal(
-      (await f.post("/redeem", { ...p.auth, controllerSignature: wrong })).body
+      (await f.post("/redeem", { ...p.registrationAuth, controllerSignature: wrong })).body
         .error,
       "enrollment_authentication_failed",
     );
@@ -240,7 +240,7 @@ test("wrong source, CID bytes, policy acknowledgement and typed domain are refus
     assert.equal(
       (
         await f.post("/redeem", {
-          ...p.auth,
+          ...p.registrationAuth,
           controllerSignature: wrongContract,
         })
       ).body.error,
@@ -264,7 +264,7 @@ test("real deployed ERC1271 controller proof succeeds and wrong signer fails wit
     const account = lower(receipt.contractAddress),
       i = await f.invite({ controller: account }),
       p = await f.prepare(i);
-    assert.notEqual((await f.post("/redeem", p.auth)).status, 200);
+    assert.notEqual((await f.post("/redeem", p.registrationAuth)).status, 200);
     const init = await f.wallet.writeContract({
       address: account,
       abi: a.abi,
@@ -277,11 +277,11 @@ test("real deployed ERC1271 controller proof succeeds and wrong signer fails wit
       enrollmentTypedData(p.e),
     );
     assert.equal(
-      (await f.post("/redeem", { ...p.auth, controllerSignature: wrong })).body
+      (await f.post("/redeem", { ...p.registrationAuth, controllerSignature: wrong })).body
         .error,
       "enrollment_authentication_failed",
     );
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     assert.equal((await f.post("/status", p.auth)).status, 200);
   } finally {
@@ -362,11 +362,11 @@ test("replacement invite and installation cannot reset a redeemed lifetime allow
   try {
     const i = await f.invite(),
       p = await f.prepare(i);
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     const j = await f.invite({ allowanceId: i.allowanceId }),
       q = await f.prepare(j);
-    assert.notEqual((await f.post("/redeem", q.auth)).status, 200);
+    assert.notEqual((await f.post("/redeem", q.registrationAuth)).status, 200);
     assert.equal(f.state.sendCount, 1);
     assert.equal((await allOperations(f.db, q.e.id)).length, 0);
   } finally {
@@ -433,7 +433,7 @@ test("a slow real signer cannot dispatch against an expired safe-view age", asyn
       },
     });
     assert.equal(
-      (await f.post("/redeem", p.auth, slow)).body.error,
+      (await f.post("/redeem", p.registrationAuth, slow)).body.error,
       "hosted_safe_view_unavailable",
     );
     assert.equal(f.state.sendCount, 0);
@@ -444,7 +444,7 @@ test("a slow real signer cannot dispatch against an expired safe-view age", asyn
     const j = await f.invite(),
       q = await f.prepare(j);
     assert.equal(
-      (await f.post("/redeem", q.auth)).body.error,
+      (await f.post("/redeem", q.registrationAuth)).body.error,
       "hosted_sender_unresolved_original",
     );
     assert.equal(f.state.sendCount, 0);
@@ -466,7 +466,7 @@ test("an inclusion-time revert charges the full bound and meters actual gas with
       });
       await f.local.waitForTransactionReceipt({ hash });
     };
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     assert.equal((await f.post("/status", p.auth)).status, 200);
     const op = (await allOperations(f.db, p.e.id))[0]!;
@@ -499,7 +499,7 @@ test("real RPC transport outage is unavailable rather than invalid controller an
   try {
     const i = await f.invite(),
       p = await f.prepare(i);
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
     await f.mine();
     const before = await allOperations(f.db, p.e.id),
       sends = f.state.sendCount;
@@ -509,7 +509,7 @@ test("real RPC transport outage is unavailable rather than invalid controller an
     assert.deepEqual(status.body, {
       error: "enrollment_authentication_unavailable",
     });
-    assert.equal((await f.post("/redeem", p.auth)).status, 503);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 503);
     assert.equal(f.state.sendCount, sends);
     assert.deepEqual(await allOperations(f.db, p.e.id), before);
     f.state.failRpc = false;
@@ -530,7 +530,7 @@ test("actual wrong-chain RPC and corrupt stored evidence are unavailable, not in
     const i = await f.invite(),
       p = await f.prepare(i);
     await f.rpc("anvil_setChainId", [6343]);
-    assert.deepEqual(await f.post("/redeem", p.auth), {
+    assert.deepEqual(await f.post("/redeem", p.registrationAuth), {
       status: 503,
       body: { error: "enrollment_authentication_unavailable" },
     });
@@ -556,7 +556,7 @@ test("actual wrong-chain RPC and corrupt stored evidence are unavailable, not in
       .prepare("UPDATE hosted_preparations SET body=? WHERE id=?")
       .bind(saved.body, p.e.id)
       .run();
-    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal((await f.post("/redeem", p.registrationAuth)).status, 200);
   } finally {
     await f.close();
   }

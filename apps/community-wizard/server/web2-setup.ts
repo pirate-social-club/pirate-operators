@@ -102,6 +102,7 @@ export interface Web2WizardView {
   recipients: Array<{ address: Hex; value: string }>;
   installationAvailable: boolean;
   installPlan: LinuxWeb2PlanSummary | null;
+  installationApproved: boolean;
   installationChallenge: unknown | null;
   observation: LinuxWeb2Observation | null;
 }
@@ -252,6 +253,7 @@ export async function createWeb2Setup(
         : [],
       installationAvailable: Boolean(input.installation),
       installPlan: journal.installPlan,
+      installationApproved: journal.installationCommitment !== null,
       installationChallenge: installationChallenge(),
       observation: journal.observation
         ? {

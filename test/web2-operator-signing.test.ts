@@ -9,8 +9,28 @@ import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
 import { web2Other } from "./fixtures/web2-first-song-chain.ts";
 import { createWeb2Wallet } from "../apps/community-wizard/src/web2-wallet.ts";
 
+async function installAndRegister(
+  f: Awaited<ReturnType<typeof hostedWizardFixture>>,
+  proof?: string,
+) {
+  let v = await f.prepare();
+  v = await f.send("authorize", {
+    signature: proof ?? (await f.sign(v.challenge)),
+  });
+  v = await f.install();
+  await f.mine();
+  v = await f.send("reconcile", {});
+  assert.deepEqual(
+    v.enrollment?.operations.map((op) => op.kind),
+    ["registration"],
+    "ordinary install registration produces no top-up",
+  );
+  assert.equal(v.enrollment?.operations[0]?.state, "consumed");
+  return v;
+}
+
 test("paired signing retains controller proof and separately reviewed V2 authority across lost attachment reply and restart", async () => {
-  const f = await hostedWizardFixture({ publishing: true });
+  const f = await hostedWizardFixture({ publishing: true, scriptedInstallation: true, fundedEnrollment: true });
   try {
     let v = await f.prepare();
     const identity = v.selection;
@@ -30,9 +50,7 @@ test("paired signing retains controller proof and separately reviewed V2 authori
     });
     assert.equal(proof.status, "success");
     if (proof.status !== "success") throw Error("proof required");
-    v = await f.send("redeem", { signature: proof.signature });
-    await f.mine();
-    v = await f.send("reconcile", {});
+    v = await installAndRegister(f, proof.signature);
     // Browser-supplied publisher proof cannot become a fresh original.
     assert.equal(
       (
@@ -147,12 +165,9 @@ test("SDK cancellation and changed connected account cannot submit retained enro
 });
 
 test("missing trusted issuer or managed key binding is explicitly unavailable without invented authority", async () => {
-  const f = await hostedWizardFixture();
+  const f = await hostedWizardFixture({ scriptedInstallation: true });
   try {
-    let v = await f.prepare();
-    v = await f.send("redeem", { signature: await f.sign(v.challenge) });
-    await f.mine();
-    await f.send("reconcile", {});
+    await installAndRegister(f);
     assert.equal(
       (
         await f.post("publishing-prepare", {
@@ -185,13 +200,10 @@ test("fresh preparation without configured publisher custody refuses before reta
 });
 
 test("changed configured grant or publisher cannot replace a retained selection or enter an installation", async () => {
-  const f = await hostedWizardFixture({ publishing: true });
+  const f = await hostedWizardFixture({ publishing: true, scriptedInstallation: true });
   try {
-    let v = await f.prepare();
-    await f.send("redeem", { signature: await f.sign(v.challenge) });
-    await f.mine();
-    await f.send("reconcile", {});
-    v = await f.send("publishing-prepare", {
+    const installed = await installAndRegister(f);
+    const v = await f.send("publishing-prepare", {
       ownerWallet: f.prepareInput.controller,
       rolesReviewed: true,
     });
@@ -199,7 +211,11 @@ test("changed configured grant or publisher cannot replace a retained selection 
     f.changeGrantSelection("publisher");
     assert.equal((await f.post("publishing-reconcile", {})).status, 409);
     assert.equal(await readFile(f.signingJournal, "utf8"), original);
-    assert.equal((await f.post("installation-prepare", {})).status, 503);
+    const survival = await f.send("installation-status", {});
+    assert.equal(
+      survival.observation?.installationId,
+      installed.observation?.installationId,
+    );
     assert.equal(f.attachmentEffects(), 0);
   } finally {
     await f.close();
@@ -209,13 +225,10 @@ test("changed configured grant or publisher cannot replace a retained selection 
 // Losing current observations can be reconciled; losing all immutable signing
 // originals must not invite another owner selection or extend its window.
 test("missing signing originals refuse reconstruction after restart", async () => {
-  const f = await hostedWizardFixture({ publishing: true });
+  const f = await hostedWizardFixture({ publishing: true, scriptedInstallation: true });
   try {
-    let v = await f.prepare();
-    await f.send("redeem", { signature: await f.sign(v.challenge) });
-    await f.mine();
-    await f.send("reconcile", {});
-    v = await f.send("publishing-prepare", {
+    await installAndRegister(f);
+    const v = await f.send("publishing-prepare", {
       ownerWallet: f.prepareInput.controller,
       rolesReviewed: true,
     });
@@ -242,9 +255,9 @@ test("missing signing originals refuse reconstruction after restart", async () =
 // window closes; authenticated absence must allow an explicit same-byte retry;
 // unknown must remain held, and absent-after-expiry must never permit an attach.
 for (const outcome of ["before","after"] as const) test(`lost ${outcome}-acceptance grant reply reconciles the same authorization after restart`,async()=>{
-  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,observeInstallationAttempts:true});
+  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,scriptedInstallation:true});
   try {
-    let v=await f.prepare();await f.send("redeem",{signature:await f.sign(v.challenge)});await f.mine();await f.send("reconcile",{});
+    let v=await installAndRegister(f);
     v=await f.send("publishing-prepare",{ownerWallet:f.prepareInput.controller,rolesReviewed:true});
     v=await f.send("publishing-authorize",{signature:await f.sign(v.publishing!.typedData),requestDigest:v.publishing!.requestDigest,reviewed:true});
     const original=await readFile(f.signingJournal,"utf8");f.loseAttachmentReply(outcome);
@@ -255,8 +268,12 @@ for (const outcome of ["before","after"] as const) test(`lost ${outcome}-accepta
     } else {
       await f.waitForGrantExpiry();v=await f.send("publishing-reconcile",{});
       assert.equal(v.publishing!.attached,true);assert.equal(v.publishing!.live,false);
-      assert.equal((await f.post("installation-prepare",{})).status,403);
-      assert.equal(f.installationAttempts(),0);
+      const attachmentEffects=f.attachmentEffects();
+      const survival=await f.send("installation-status",{});
+      assert.equal(survival.observation?.installationId,v.observation?.installationId);
+      const repeat=await f.send("publishing-attach",{});
+      assert.equal(repeat.publishing?.live,false);
+      assert.equal(f.attachmentEffects(),attachmentEffects);
     }
     assert.equal(f.attachmentEffects(),1);
     assert.deepEqual(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted,JSON.parse(original).accepted);
@@ -265,9 +282,9 @@ for (const outcome of ["before","after"] as const) test(`lost ${outcome}-accepta
 });
 
 test("unknown attachment holds, and authoritative absence after expiry cannot authorize a retry",async()=>{
-  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,observeInstallationAttempts:true});
+  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,scriptedInstallation:true});
   try {
-    let v=await f.prepare();await f.send("redeem",{signature:await f.sign(v.challenge)});await f.mine();await f.send("reconcile",{});
+    let v=await installAndRegister(f);
     v=await f.send("publishing-prepare",{ownerWallet:f.prepareInput.controller,rolesReviewed:true});
     v=await f.send("publishing-authorize",{signature:await f.sign(v.publishing!.typedData),requestDigest:v.publishing!.requestDigest,reviewed:true});
     const original=JSON.parse(await readFile(f.signingJournal,"utf8")).accepted;
@@ -280,6 +297,8 @@ test("unknown attachment holds, and authoritative absence after expiry cannot au
     f.attachmentUnknown(false);await f.waitForGrantExpiry();
     v=await f.send("publishing-reconcile",{});
     assert.equal(v.publishing!.pending,false);assert.equal(v.publishing!.attached,false);assert.equal(v.publishing!.live,false);
+    const survival=await f.send("installation-status",{});
+    assert.equal(survival.observation?.installationId,v.observation?.installationId);
     assert.equal((await f.post("publishing-attach",{})).status,403);
     assert.equal(f.attachmentEffects(),0);
     assert.deepEqual(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted,original);
