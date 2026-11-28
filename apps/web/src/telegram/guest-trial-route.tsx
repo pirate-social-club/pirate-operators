@@ -8,6 +8,7 @@ import {
   telegramTrialSongs,
   type TelegramGradeResult,
   type TelegramRewardRead,
+  type TelegramSpeechKind,
   type TelegramSpeechSubmission,
   type TelegramTrialAccount,
   type TelegramTrialBoundary,
@@ -28,7 +29,14 @@ type LessonState = {
 type ChatEvent =
   | { id: number; kind: "outgoing"; text: string }
   | { id: number; kind: "prompt"; songId: string; lineIndex: number; take: number; language: Language }
-  | { id: number; kind: "voice"; durationLabel: string; songId: string }
+  | {
+      id: number;
+      kind: "voice";
+      durationLabel: string;
+      songId: string;
+      lineIndex: number;
+      submissionKind: TelegramSpeechKind;
+    }
   | { id: number; kind: "checking" }
   | { id: number; kind: "correct" }
   | { id: number; kind: "mismatch"; transcript: string }
@@ -224,7 +232,13 @@ export function TelegramGuestTrialRoute(props: {
     if (!lesson || pendingGrading()) return;
     const take = lesson.takes;
     setRecordingOpen(false);
-    pushEvent({ kind: "voice", durationLabel: submission.durationLabel, songId: lesson.songId });
+    pushEvent({
+      kind: "voice",
+      durationLabel: submission.durationLabel,
+      songId: lesson.songId,
+      lineIndex: lesson.lineIndex,
+      submissionKind: submission.kind,
+    });
     const checkingId = pushEvent({ kind: "checking" });
     setPendingGrading({ songId: lesson.songId, lineIndex: lesson.lineIndex, take });
     void boundary
@@ -371,7 +385,7 @@ export function TelegramGuestTrialRoute(props: {
       <audio
         class="h-10 w-full min-w-0 accent-primary"
         controls
-        preload="none"
+        preload="metadata"
         src={props2.src}
         aria-label={props2.label}
         data-telegram-audio
@@ -539,7 +553,7 @@ export function TelegramGuestTrialRoute(props: {
           class="w-full max-w-[260px] self-end rounded-2xl rounded-br-md bg-primary p-2 text-primary-foreground"
           data-telegram-voice
         >
-          <AudioControl src={boundary.mediaUrl("voice", event.songId)} label="Your fixture voice recording" />
+          <AudioControl src={boundary.mediaUrl("voice", event.songId, event.lineIndex, event.submissionKind)} label="Your fixture voice recording" />
           <p class="mt-1 text-right text-xs">{event.durationLabel}</p>
         </div>
       );

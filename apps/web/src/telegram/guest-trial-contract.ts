@@ -172,7 +172,12 @@ export interface TelegramLinkInput {
 export interface TelegramTrialBoundary {
   speechOptions(): readonly TelegramSpeechSubmission[];
   gradeAttempt(input: TelegramGradeInput): Promise<TelegramGradeResult>;
-  mediaUrl(kind: "line" | "voice" | "song", songId: string, lineIndex?: number): string;
+  mediaUrl(
+    kind: "line" | "voice" | "song",
+    songId: string,
+    lineIndex?: number,
+    speechKind?: TelegramSpeechKind,
+  ): string;
   rewardRead(song: TelegramTrialSong): Promise<TelegramRewardRead>;
   initialAccount(): TelegramTrialAccount | null;
   signIn(kind: "initial" | "replacement"): Promise<TelegramTrialAccount>;
