@@ -108,6 +108,47 @@ test("hosted controller enrollment registers once, stays unlisted and exposes no
     await f.close();
   }
 });
+test("failed installation readback produces zero registrar signatures and broadcasts before one successful registration", async () => {
+  const f = await hostedFixture();
+  try {
+    const i = await f.invite(),
+      p = await f.prepare(i);
+    f.state.installationStatus = 503;
+    assert.deepEqual(await f.post("/redeem", p.auth), {
+      status: 503,
+      body: { error: "installation_https_unavailable" },
+    });
+    assert.equal(f.state.registrarSignatures, 0, "unavailable installation produced no registrar signature");
+    assert.equal(f.state.sendCount, 0, "unavailable installation produced no broadcast");
+    assert.equal((await allOperations(f.db, p.e.id)).length, 0, "unavailable installation reserved no operation");
+
+    f.state.installationStatus = 200;
+    f.state.installationMismatch = true;
+    assert.deepEqual(await f.post("/redeem", p.auth), {
+      status: 409,
+      body: { error: "installation_configuration_mismatch" },
+    });
+    assert.equal(f.state.registrarSignatures, 0, "mismatched installation produced no registrar signature");
+    assert.equal(f.state.sendCount, 0, "mismatched installation produced no broadcast");
+    assert.equal((await allOperations(f.db, p.e.id)).length, 0, "mismatched installation reserved no operation");
+
+    f.state.installationMismatch = false;
+    assert.equal((await f.post("/redeem", p.auth)).status, 200);
+    assert.equal(f.state.registrarSignatures, 1, "successful readback produced exactly one registrar signature");
+    assert.equal(f.state.sendCount, 1, "successful readback produced exactly one broadcast");
+    await f.mine();
+    f.state.installationStatus = 503;
+    assert.equal((await f.post("/redeem", p.auth)).status, 200, "receipt recovery does not depend on the installation staying up");
+    assert.equal(f.state.registrarSignatures, 1);
+    assert.equal(f.state.sendCount, 1);
+    const operations = await allOperations(f.db, p.e.id);
+    assert.equal(operations.length, 1);
+    assert.equal(operations[0]!.state, "consumed");
+  } finally {
+    await f.close();
+  }
+});
+
 test("concurrent exact redeem shares original nonce and one send; conflicting prepare cannot steal binding", async () => {
   const f = await hostedFixture();
   try {

@@ -197,6 +197,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     ...(journal ? { d1Persist: journal } : {}),
   });
   const pins = new Map<string, Uint8Array>(),
+    installations = new Map<string, Web2CommunityConfig>(),
     state = {
       dropSend: 0,
       dropBeforeSend: 0,
@@ -204,6 +205,10 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       clock: options.packaged ? Math.floor(Date.now() / 1000) : 1800000030,
       invalidPin: false,
       redirectPin: false,
+      installationStatus: 200,
+      installationMismatch: false,
+      registrarSignatures: 0,
+      funderSignatures: 0,
       failRpc: false,
       beforeSend: undefined as (() => Promise<void>) | undefined,
     };
@@ -470,7 +475,11 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
     const worker = pkg && cwd ? { context: pkg.profile.configuration.schemaContext, pkg, cwd, restart, repeatMigrations, collectProfile, configurationFault, request: requestWorker, evidence } : undefined;
     const signer = (a: typeof admin): HostedSigner => ({
       address: lower(a.address),
-      signTransaction: async (tx) => a.signTransaction(tx),
+      signTransaction: async (tx) => {
+        if (a === registrar) state.registrarSignatures++;
+        if (a === funder) state.funderSignatures++;
+        return a.signTransaction(tx);
+      },
     });
     const runtime: HostedRuntime = {
       db,
@@ -482,6 +491,16 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       funder: signer(funder),
       readConfiguration: async (uri) =>
         fetch(`${proxyUrl}/ipfs/${uri.slice(7)}`),
+      readInstallation: async (url) => {
+        const id = new URL(String(url)).searchParams.get("communityId");
+        const installed = id ? installations.get(id as `0x${string}`) : undefined;
+        if (!installed || state.installationStatus !== 200)
+          return Response.json({ error: "installation unavailable" }, { status: state.installationStatus, headers: { "cache-control": "no-store" } });
+        return Response.json(
+          state.installationMismatch ? { ...installed, app: { ...installed.app, label: "substituted" } } : installed,
+          { headers: { "cache-control": "no-store" } },
+        );
+      },
     };
     const enrollment = createHostedEnrollmentService(runtime),
       funding = createHostedFundingService(runtime);
@@ -547,6 +566,7 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const bytes = new TextEncoder().encode(canonical(config)),
         pin = await preparePin(bytes, "application/json");
       pins.set(pin.uri, bytes);
+      installations.set(config.communityId, config);
       return {
         profile,
         config,

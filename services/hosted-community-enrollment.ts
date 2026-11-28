@@ -9,6 +9,7 @@ import {
   object,
 } from "../packages/community/common.ts";
 import { preparePin, readBounded } from "../packages/community/ipfs.ts";
+import { validateWeb2Configuration } from "../packages/community/web2-config-manifest.ts";
 import { sharedBytes32 } from "../packages/community/shared-identity.ts";
 import {
   parseWeb2ProfileDocument,
@@ -149,6 +150,62 @@ export async function publicHostedStatus(r: HostedRuntime, e: Enrollment) {
     operations: states,
   };
 }
+/** Verify that the exact controller-authorized installation is the live public
+ * HTTPS site immediately before the registrar signs or broadcasts registration.
+ * The response is not evidence transported across time: it must be a fresh
+ * no-store readback from the enrollment's exact origin, and every validated
+ * configuration field must equal the configuration committed in the enrollment. */
+export async function verifyHostedInstallation(
+  r: HostedRuntime,
+  e: Enrollment,
+): Promise<void> {
+  const origin = new URL(e.plan.config.app.origin);
+  insist(origin.protocol === "https:", "installation_origin_not_https", 409);
+  const url = new URL("/.well-known/pirate-community.json", origin);
+  url.searchParams.set("enrollmentId", e.id);
+  url.searchParams.set("communityId", e.plan.profile.communityId);
+  url.searchParams.set("installationId", e.plan.profile.installationId);
+  const transport = r.readInstallation ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  let response: Response;
+  try {
+    response = await transport(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      redirect: "error",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw new CommunityError("installation_https_unavailable", 503);
+  }
+  insist(response.status === 200, "installation_https_unavailable", 503);
+  insist(
+    response.headers.get("content-type")?.split(";")[0] === "application/json" &&
+      response.headers.get("cache-control")?.toLowerCase().includes("no-store") &&
+      (!response.headers.has("age") || response.headers.get("age") === "0"),
+    "installation_response_not_fresh",
+    503,
+  );
+  const bytes = await readBounded(response, 128 * 1024);
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new CommunityError("installation_readback_invalid", 503);
+  }
+  let installed;
+  try {
+    installed = validateWeb2Configuration(body, e.plan.profile);
+  } catch {
+    throw new CommunityError("installation_readback_invalid", 503);
+  }
+  insist(
+    canonical(installed) === canonical(e.plan.config),
+    "installation_configuration_mismatch",
+    409,
+  );
+}
+
 export function createHostedEnrollmentService(input: HostedRuntime) {
   const r = ownHostedRuntime(input);
   return async function fetch(request: Request): Promise<Response> {
@@ -253,7 +310,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           409,
         );
         await redeemEnrollment(r.db, e, r.now());
-        await executeHostedOperation(r, e, "registration");
+        await executeHostedOperation(r, e, "registration", undefined, () => verifyHostedInstallation(r, e));
       }
       return hostedResponse(await publicHostedStatus(r, e));
     } catch (error) {
