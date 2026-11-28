@@ -1,0 +1,399 @@
+# Ordered HTTPS setup and separate HNS onboarding
+
+## Hosted Wizard failure plan, November 15
+
+Before implementing the consumer, qualify the actual paired HTTP controller,
+hosted service, D1 and disposable chain together. A changed signing domain,
+registration commitment, controller, publisher, origin, configuration URI,
+notice, policy, enrollment ID or lifetime must be rejected before the browser
+receives a signing request. Unknown replies retain the original preparation and
+authorization. Restart and explicit reconciliation must not create another
+community, registration or transfer. Distinct nonzero funding recipients each
+authorize the exact enrollment; a shared account signs once.
+
+The private original must survive ordinary runner reconstruction. Missing,
+corrupt, oversized, symlinked or public state must fail closed without deleting
+it. Public state never includes the invitation, signatures or signed raw
+transactions. Concurrent tabs serialize against the same revision. Host,
+paired-channel authorization, Origin and CSRF checks precede mutation; bounded
+request and response reads must also bound stalled transports.
+
+Installation requires the Linux-owned port and actual consumed registration.
+Persist the exact draft and returned plan before apply; later funding status is
+a separate view and must not change that draft on retry. An unavailable native
+port reports unavailable, never installed. Tests must retain actual receipt,
+identity, request and browser artifacts. Simulated external wallet/content
+transport is named and is not native installation or public-host acceptance.
+
+Native installation preparation, application and status requests allow a bounded
+three-minute client wait. The Wizard displays that it is waiting for the result;
+other state, registration and funding requests retain their thirty-second wait.
+This changes no server authority window, approval or original-operation rule.
+An interrupted reply still requires reconciliation of the saved original.
+
+The later approved [checkpoint 1 delivery decisions](self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+govern the invited pilot's hosting, gas funding, service responsibilities and
+checkpoint order. Pirate funds capped publisher/controller top-ups; those
+community accounts submit their own publications/configuration changes. Pirate
+does not become the community publisher. The runtime gaps below remain open.
+
+## Status and precedence, 2026-11-15
+
+This is the required onboarding contract. The application/runtime and standalone
+hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
+The hosted Wizard client/server/UI source has scoped local qualification below.
+It does not establish a supported installed host. Current acceptance evidence is recorded in [First-song acceptance status](self-hosting/checkpoint-1-pilot-delivery-20261114.md#first-song-acceptance-status); the controlled VM pass does not qualify live staging.
+
+Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
+context and private host-only paths, without a prebound community identity.
+The Wizard persists its actual community/Directory installation IDs and exact
+configuration before external effects, then prepares/signs/redeems/reconciles
+the hosted enrollment. It persists the receipt-bearing LinuxWeb2Draft before
+calling the Linux-owned installation prepare port. That producer must bind and
+authenticate the actual runtime and host admission from this original draft;
+a strict installer requiring that future draft during bootstrap would be circular.
+The host installation reference remains distinct from the Directory installation
+ID. Closing this Wizard borrows no right to release the persistent service lease.
+Public status is a view, not chain authority or a fresh native-health proof.
+
+## Scoped consumer qualification, November 15
+
+At `a1c22e7`, root and Wizard types pass. Eleven real HTTP/D1/local-chain
+integration cases pass in 10.66 seconds, the three retained Linux HTTP cases pass,
+the build passes in 998 milliseconds, and the new Web2 plus retained legacy browser
+cases pass in 10.3 seconds. The Web2 browser uses actual hosted handlers, D1 and
+DirectoryV3/Posts on a disposable local 6343 chain. External wallet transport,
+the test pairing issuer and immutable content transport are explicit fixtures.
+The ERC1271 case uses a real deployed test account; its nonpayable account has
+zero top-up allocation rather than a fabricated successful transfer.
+
+The first focused invocation remains failed: ten passed and the Host assertion
+received 200 instead of 403. An independent wire probe confirmed Node fetch
+replaced the supplied Host with the URL host. The fixture now sends actual
+node:http bytes; the production guard and expected 403 remain unchanged, and
+all eleven cases pass. The original log and JUnit remain retained separately.
+
+The UI successor `29dc9bf` keeps read-only refresh available when an earlier
+browser reply was lost and the real server operation is still busy. Mutation
+controls remain locked. A held actual hosted response verifies refresh and
+subsequent recovery without another broadcast; the Web2 plus retained browser
+cases pass in 8.8 seconds after a 549-millisecond build. Types pass. The unchanged
+server cases retain their source-bound qualification above. The initial `8fe54d8`
+hosted run passed all six suites, but the corrected UI successor still requires
+its own exact-head hosted qualification before merge.
+
+Repeat with the repository's pinned Node, Foundry and Chromium prerequisites:
+`forge build --offline`, then
+`node --test --test-concurrency=1 test/web2-hosted-wizard.test.ts` from the root.
+Build the Wizard and run its `test:browser` command with the Web2 case selected.
+The cases write `.local/web2-hosted-wizard/evidence/*.json`; the browser also
+attaches its complete execution evidence, request list and screenshot under
+`apps/community-wizard/test-results/`. Evidence includes the exact public plan,
+policy, configuration, consumed disposable-fixture transactions and receipt costs.
+The artifact permits independent CID/configuration SHA-256, registration calldata,
+transaction Keccak/signer and cost-bound checks. Public product status never
+contains invitations, authorization signatures or signed raw transactions.
+Separate fresh chains produce different identities and receipts; repeatability
+means the same verified behavior, not identical bytes across new communities.
+
+The private original and its initialized marker are both durable before effects.
+Losing the original while that marker remains refuses reconstruction. This is
+not backup or recovery from erasing the entire state directory. Installation
+prepare/apply/status, distinct host/Directory identity and persistent-service
+survival after closing setup still require the actual Linux producer join.
+No installed success is simulated in these consumer cases. Exact current-base
+hosted CI and all six suites plus release-ready remain required before merge.
+
+The workspace instructions dated 2026-11-14 select one documented Linux profile,
+fresh installation, browser operator setup, real authentication and eligible
+naming, first-song publication/playback, ordinary restart and safe retry. Guided
+restore, cross-machine migration, second-host acceptance, automated upgrade and
+disaster recovery, and a broad host matrix are deferred. Their historical source,
+tests and failures remain evidence, not v1 prerequisites or claimed passes.
+
+The later owner direction permits a usable ordinary Web2 HTTPS community while
+HNS verification is pending. It requires automatic community registration after
+actual Wizard checks, without manual Pirate approval. This supersedes older
+mandatory-TLD-before-deployment wording and the operator registry-clone,
+recognition-provider-account and wallet-funding setup journeys. Pirate manages
+shared contracts and recognition and funds eligible operations through bounded
+managed services. The operator is not asked to fund a transaction wallet or create an
+ACRCloud account. Actual TLD-owner consent remains a separate necessary action.
+
+## Ordered operator journey
+
+### 1. Open the installed setup on the selected server
+
+Document the exact supported OS/architecture, runtime versions, image/artifact
+digests, ports, persistent directories and selected full application profile.
+Do not promise support for every Docker server or select a VPS vendor implicitly.
+The package must supply its real bootstrap command and report actual failures.
+Do not present an illustrative command as an installed entrypoint.
+
+On a VPS, the helper runs on the server and the ordinary browser runs on the
+operator's computer. After actual authenticated startup, print one copyable SSH
+forwarding command and its matching loopback URL. Preserve the installed Host,
+Origin, pairing and CSRF checks; a loopback listener alone is not authentication.
+Keep the server endpoint, temporary setup URL, public application origin and
+requested issuance TLD visibly distinct. Do not publish the setup listener.
+
+### 2. Choose a supported HTTPS path and prove control
+
+Show only genuinely implemented full-application hosting paths. The operator
+chooses a provider-assigned HTTPS address or an existing custom Web2 hostname
+where the selected adapter supports it. Neither path is qualified by this prose.
+Domain purchase and native HNS-browser access are not v1 setup requirements.
+
+For provider-assigned HTTPS, verify current authority over the actual selected
+account and any existing or allocated resource before approval. Bind the intended
+resource identity to the reviewed installation plan. After provisioning, verify
+the created resource's genuine provenance and full-app release binding; account
+access alone is not completion. A provider suffix, accessible setup Worker,
+workers.dev URL or generic HTTP 200 does not prove control or deployment of the
+community application. If the provider manages DNS, say so instead of inventing
+operator DNS instructions.
+
+For a custom hostname, issue a fresh, expiring ownership challenge for that exact
+selected host and installation. Display its actual record type, complete record
+name, value, TTL and proxy setting when applicable, as returned by the supported
+adapter. Provide separate copy controls and explain where to enter the record.
+Retain the challenge identity and observations. Show required versus observed
+values, observer/time, last check, expiry and the next actionable correction.
+No hardcoded example address, guessed record value or saved DNS token proves
+ownership. Control of one SLD never establishes parent or sibling authority.
+
+This ownership check precedes provisioning approval. It is distinct from the
+later routing, certificate and application checks. Failed or expired control
+requires a new valid challenge or supported reconciliation, not an override.
+
+### 3. Register and enroll automatically
+
+Before registration, collect every input the registration prepare call binds: the neutral human community title, canonical HTTPS origin, controller and publisher addresses, invitation token and required pilot notice acceptance. The HTTPS control proof establishes the selected origin; it does not defer choosing that origin until installation review. These values become part of the original registration draft and cannot be silently changed later.
+
+Before installation preparation begins, the scoped automatic registrar registers or reconciles the same community and configuration, then hosted enrollment produces its required evidence.
+Use the original idempotency key and retain the canonical receipt/checkpoint.
+There is no manual Pirate approval queue. A missing registrar implementation is
+an implementation gap, not a new operator instruction to contact staff.
+
+The registrar may create only the admitted neutral HTTPS community binding for
+the exact authorized installation/source/profile. Its credentials cannot grant
+namespace issuance, registry administration or HNS attester authority. Directory
+registration is not verified namespace discovery. Read back the actual accepted
+community/configuration through the selected reader before reporting its success.
+
+The Wizard must retain the registration receipt/readback and enrollment evidence required by the selected profile before it prepares installation. Do not fabricate a receipt or infer registration from a running website. HNS verification is not an appReady condition. Show distinct website, registration and naming statuses.
+
+### 4. Review and provision one complete installation
+
+Use the community title and canonical HTTPS origin already bound by registration.
+Use the portable community key, chain-specific community identity and installation
+identifier generated during registration; keep their details under Advanced.
+Preserve those identities, resource IDs, selected source/ABI/artifact digests
+and explicit installation mapping. A requested TLD and a hosting address do not generate these identities.
+
+The operator may start separate HNS preparation now or later. Until verification,
+the Wizard omits the requested TLD from public community profiles, titles,
+ownership badges, namespace usernames and verified namespace discovery; saving
+preparation intent reserves nothing. This interface restriction does not guarantee
+confidentiality: DNS/HNS publication and external observations may reveal the
+requested TLD before verification. Public pending identity is the neutral title
+and the genuinely provisioned HTTPS address. Membership and ordinary community
+use do not require obtaining a name.
+
+The canonical origin must be real before final application/configuration signing
+and consent. A provider that returns its address only after initial allocation
+needs an explicit bounded allocation/final-review join. Preserve that allocation's
+original identity and obtain review of the actual origin before app activation;
+do not guess an address or replace an immutable operational origin silently.
+
+Discover the selected shared publication/recognition configuration and only the
+credentials required by selected features. Use established scoped Alchemy and
+Infisical authentication and secret-reference workflows. Alchemy owns its
+Cloudflare resources; cf is for supported authentication/diagnostics, not a second
+reconciler. Do not introduce Wrangler configuration. Values, private keys and
+raw credential-bearing errors never enter browser output, patches or public logs.
+
+Review the complete app, database, object roles, jobs, ingress, persistent state,
+selected services, current authority and exact source. Distinguish saved access,
+verified services and readiness. Show actual hosting/storage charges separately
+from Pirate-funded eligible operations, with real ceilings and depletion behavior.
+A provider budget proposal is not an enforced cap. Do not add operator funding
+steps or assume that free names authorize unlimited gas or new credentials.
+
+Persist the reviewed signed plan, original operation and resource identities
+before effects. One approving operation wins concurrent submissions. Dirty
+settings invalidate unstarted approval. Provision through the genuine owning
+backend; a setup page, empty callback or a capability declaration is insufficient.
+
+### 5. Configure routing and TLS, verify the installation, and open the actual site
+
+After provisioning yields the real ingress, show the actual routing records
+needed for the selected host. Ownership and routing records have separate check
+statuses even where a provider combines them. Show type/name/value/TTL/proxy
+setting and copy controls for every required record. Show current observable
+resolution and propagation state; never promise a fixed propagation duration.
+
+Verify exact-host DNS and routing from the selected observer path, real TLS
+hostname/SNI and certificate validity, and the expected HTTPS origin. A valid
+certificate alone proves neither installation identity nor application readiness.
+Wrong account, stale challenge, wrong ingress/certificate/Host routing and a
+setup-worker response must fail with a concrete correction.
+
+Issue a fresh one-use installation-bound nonce with a finite expiry. The actual
+app must return the supported authenticated readback binding that nonce and the
+original installation, community, generation, source/release, profile and resource
+identities. Verify its signature/provenance and persisted business result using
+the selected protocol. A nonce echo, health flag, response hash or arbitrary 200
+is not a substitute. Reject replay, wrong installation/origin, stale generation
+and substituted source or resource. Recheck current authorization at effects.
+
+Read back the full selected app and required service state, including actual
+authentication, media/publication and jobs under the selected profile. Private
+checks must use their real authentication; public checks must reach the public
+origin. Neither provider control nor an HNS ceremony result supplies this proof.
+
+
+Report appReady only from actual HTTPS/full-app checks plus the already retained registration and enrollment evidence. Expose Open actual site only for the verified provisioned origin, never the setup listener.
+### 6. Use the community and survive an ordinary restart
+
+Prove real member authentication and a different operator-published first song
+that plays, seeks and remains available after reload. Names are optional for
+membership and use. Once genuine namespace authority and the actual member path
+are available, offer eligible free 8+ names under the selected label rules;
+show term, expiry and renewal truthfully. Require effective zero name cost and
+the admitted Pirate-funded gas policy, with no paid fallback or funding screen.
+
+Restart the selected installation ordinarily and read back the same community,
+resource, member, song and pending-operation identities. A lost reply or browser
+timeout must retain the original operation, transaction and gas reservation.
+Reconcile before another send; do not reset journals or allocate replacement
+resources. Document persistent directories and recovery limitations. This is not
+a claim of supported restore, automated upgrade or disaster recovery.
+
+## Separate HNS preparation, verification and attachment
+
+Use the existing HNS service through a thin authenticated same-origin adapter.
+The installed trusted service endpoint, exact binding and signing identities
+come from genuine managed configuration, not browser-selected endpoints or keys.
+The HNS boundary note dated 2026-11-14 owns the wire mapping. Its fixed create,
+consent, status, observe and cancel operations must preserve signed method/path/
+body bytes, nonce, controller consent and installation-request authorization.
+API request signatures have a maximum five-minute lifetime. The Wizard does not
+collect an HNS private key or manufacture a second ceremony service.
+
+Display AwaitingConsent, AwaitingPublication, Maturing and ReadyToSubmit as
+preparation states with actual reasons, observations and absolute deadlines.
+ReadyToSubmit is not NamespaceAuthorityProof, on-chain admission, verified
+listing or permission to mint. Current service capabilities still report actual
+admission/submission/installation-proof functions unavailable. Do not disguise a
+stored readiness response as a fresh local namespace challenge result.
+
+Progress must be finite and resumable. Keep one active preparation job per exact
+installation/request binding and one leased observer execution per ceremony.
+Concurrent tabs reuse its idempotency identity. A validated installed policy
+must supply finite attempt/batch/concurrency limits, retry delays and job expiry;
+missing bounds make scheduling unavailable, not unlimited. Persist retryAt,
+attempt count and absolute deadlines before scheduling. Observe at the bounded
+scheduled time or explicit operator action. Status GET reads stored progress
+without triggering fresh RPC or advancing authority. Use bounded backoff and
+respect the actual service retryAt, limits and disagreement refusal.
+
+The current ceremony contract allows 48 hours for publication and an initial
+24-hour maturity wait after timely inclusion. Use its stored absolute deadlines;
+refresh/reload does not extend them. Confirmation depends on observed inclusion,
+tip/safe heights, ownership epoch and configured safe-root policy, not a fixed
+confirmation count or promised duration. After expiry stop that job's automatic
+polling and offer an explicit supported restart/re-observation. Preserve the
+community, audit trail, timely original publication and unresolved effects.
+Cancellation or expiry never proves a transaction unsent or releases a retained
+gas reservation. Explicit restart/re-observation retains the same ceremony and
+original operation when the service supports recovery of timely publication.
+Renew its bounded local attempt and required consent explicitly; do not reuse an
+expired signature. Any genuinely new ceremony needs a distinct idempotency key,
+an audit link and reconciliation of the original effects first. It cannot bypass
+unknown transactions, changed ownership or cancellation.
+
+Only genuine admission plus current HNS evidence, canonical receipt/source/
+binding/revision checks and the real challenge-bound proof producer may attach
+verified authority. Short grants and member issuance follow verification and
+fresh scope/policy checks. The separate P0 Registry56 scope-validity repair must
+close its expiry gap; this document grants no exception to it. Naming revalidates
+authority at the actual effect boundaries, including after final asynchronous
+work. Directory registration cannot elevate ceremony preparation into authority.
+
+If verification lapses or namespace control is lost, pause relevant new issuance
+and verified namespace listing. Keep the otherwise healthy Web2 community usable
+under its neutral HTTPS identity. Preserve NFTs, holder rights, receipts and
+locked renewal terms; do not burn, seize, silently reattach or claim that existing
+names were migrated. Exact namespace reassociation needs a new authorized action.
+
+## Smallest pending-HTTPS representation and attachment join
+
+This section proposes interfaces for joint review, not an accepted codec or ABI.
+Use a new explicit signed profile/configuration and Directory source version for
+pending HTTPS communities. A proposed discriminator is
+`pirate.community-pending-https/1`; its final name/version belongs to W6/core.
+Do not extend V2 or relabel the existing proof-qualified profile/3 implicitly.
+
+The closed pending record binds the same portable community key, chain-specific
+community ID, actual installation mapping, original deployment/resource IDs,
+HTTPS origin, source/ABI/runtime/profile digests, generation, current policy and
+signature. Its public namespace state is explicitly unattached and contains no
+requested TLD, namespace proof or ownership assertion. A separate private,
+versioned preparation record holds the optional requested TLD, ceremony binding,
+attempt/deadlines and original journal references. Saving it reserves nothing.
+
+Core/Directory must provide an actual accepted pending-community record and
+configuration reader/cache, plus a scoped automatic registrar. W6/Storage must
+provide its exact signed template, current-authority policy, plan/readback and
+constructor branch. These branches authorize only ordinary HTTPS installation
+and neutral registration. Strict verified-proof decoders still reject every
+pending record for verified namespace listing, grant creation and member issuance.
+Never supply a zero proof, dummy namespace, relaxed signature, successful fallback
+or disabled current-origin/session/consent check to make the old model accept it.
+
+Attachment is a separate versioned operation bound to the original pending
+record, expected configuration revision, same installation mapping/resources/
+community key/source and a fresh genuine NamespaceAuthorityProof. Its signed
+successor and actual Directory transaction/readback add only the authorized
+namespace association. Preserve the original signed profile and operation history;
+do not mutate them in place or reinterpret old installation IDs. Uncertain
+attachment retains the original request/transaction for reconciliation.
+
+The current operational origin is immutable. Attaching a naming namespace must
+not silently replace that origin with an HNS host, add aliases or change MOSS,
+session, CSRF or Learning consent audiences. A multi-origin or Learning-consent
+successor is separate from ordinary HTTPS v1 and requires its own explicit review.
+
+## Current implementation gaps and ownership
+
+The merged Wizard source implements pending-Web2 registration preparation,
+hosted enrollment evidence, immutable original-draft reconciliation, and the
+installation-preparation handoff described above. Do not reimplement automatic
+registration or reinterpret the old strict create profile as the current Web2
+profile. Strict verified-proof decoders remain correct for verified namespace
+listing, grant creation and member issuance, but they are not the pending-Web2
+registration path.
+
+The remaining implementation and acceptance joins are the supported fresh-host
+package/bootstrap producers, genuine hosting control and DNS/TLS observations,
+installation nonce/readback, member authentication, optional name UI, first-song
+publication/playback, ordinary restart/retry behavior, and live Fluence staging
+acceptance. HNS attachment remains a separate versioned operation with genuine
+namespace authority; it does not block ordinary HTTPS use. Naming, Core/Directory,
+Storage, the member application and the contract owners retain their existing
+component responsibilities.
+
+Existing component results do not establish the full journey by themselves.
+Use the acceptance status linked above before assigning remaining host or staging work.
+
+## Retained historical boundaries
+
+Before 2026-11-14, this file described mandatory proof before deployment,
+import/restore and second-host recovery. The prior source remains preserved in
+W1 history and the exact beforeimage; useful identity, atomic journal, bounded
+output, same-operation retry, secret separation and refusal rules continue to
+apply. Preserve V2/archive/restore evidence without advertising those features
+as v1. The old name-specific exception is not current policy; real reservations
+and exact namespace authority govern. Paper member flows do not replace Linux
+bootstrap or current runtime acceptance.

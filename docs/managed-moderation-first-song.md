@@ -78,7 +78,7 @@ or post.
 
 Provider references are the [Filebase RPC documentation](https://filebase.com/docs/ipfs/rpc-api)
 and [Kubo RPC documentation](https://docs.ipfs.tech/reference/kubo/rpc/).
-Supplemental forced alignment is currently an [offline foundation](song-alignment.md)
+Supplemental forced alignment is currently an [offline foundation](deferred/song-alignment.md)
 with separate authentication, binding and execution qualification still pending.
 It cannot rewrite the immutable published lyric manifest or purchase a second
 ROOT registration, song pin or post.

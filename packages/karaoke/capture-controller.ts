@@ -10,7 +10,7 @@
 // the centralized client sent pause first and its server dropped that tail;
 // and a first chunk stamped up to ANCHOR_SLACK_MS before its epoch's anchor is
 // mapped from the anchor instead of aborting the take.
-// See docs/karaoke-capture-handoff.md.
+// See docs/archive/handoffs/karaoke-capture-handoff.md.
 import {
   createKaraokeCaptureLifecycle,
   type CaptureEngineLike,

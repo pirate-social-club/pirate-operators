@@ -1,0 +1,412 @@
+{
+  "generator": "ffmpeg flite",
+  "voices": {
+    "reference": "slt",
+    "correctFixture": "rms",
+    "mismatchFixture": "awb",
+    "unintelligibleFixture": "kal",
+    "song": "slt"
+  },
+  "files": [
+    {
+      "file": "reference-midnight-waves-0.mp3",
+      "text": "I saw the harbor light",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-0.mp3",
+      "text": "I saw the harbor light",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-midnight-waves-1.mp3",
+      "text": "And the light is low",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-1.mp3",
+      "text": "And the light is low",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-midnight-waves-2.mp3",
+      "text": "We drift where the dark waves roll",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-2.mp3",
+      "text": "We drift where the dark waves roll",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-midnight-waves-3.mp3",
+      "text": "The harbor keeps us slow",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-3.mp3",
+      "text": "The harbor keeps us slow",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-midnight-waves-4.mp3",
+      "text": "Sing until the morning",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-4.mp3",
+      "text": "Sing until the morning",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-midnight-waves-5.mp3",
+      "text": "Midnight carries us home",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-midnight-waves-5.mp3",
+      "text": "Midnight carries us home",
+      "voice": "rms"
+    },
+    {
+      "file": "song-midnight-waves.mp3",
+      "text": "I saw the harbor light. ... And the light is low. ... We drift where the dark waves roll. ... The harbor keeps us slow. ... Sing until the morning. ... Midnight carries us home",
+      "voice": "slt"
+    },
+    {
+      "file": "reference-harbor-lights-0.mp3",
+      "text": "The harbor lights are waking",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-0.mp3",
+      "text": "The harbor lights are waking",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-harbor-lights-1.mp3",
+      "text": "The tide is turning slow",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-1.mp3",
+      "text": "The tide is turning slow",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-harbor-lights-2.mp3",
+      "text": "We count the distant anchors",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-2.mp3",
+      "text": "We count the distant anchors",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-harbor-lights-3.mp3",
+      "text": "And watch the lanterns glow",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-3.mp3",
+      "text": "And watch the lanterns glow",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-harbor-lights-4.mp3",
+      "text": "The water answers softly",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-4.mp3",
+      "text": "The water answers softly",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-harbor-lights-5.mp3",
+      "text": "As evening starts to go",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-harbor-lights-5.mp3",
+      "text": "As evening starts to go",
+      "voice": "rms"
+    },
+    {
+      "file": "song-harbor-lights.mp3",
+      "text": "The harbor lights are waking. ... The tide is turning slow. ... We count the distant anchors. ... And watch the lanterns glow. ... The water answers softly. ... As evening starts to go",
+      "voice": "slt"
+    },
+    {
+      "file": "reference-paper-boats-0.mp3",
+      "text": "Paper boats are sailing",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-0.mp3",
+      "text": "Paper boats are sailing",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-paper-boats-1.mp3",
+      "text": "Across the quiet rain",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-1.mp3",
+      "text": "Across the quiet rain",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-paper-boats-2.mp3",
+      "text": "They fold around the current",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-2.mp3",
+      "text": "They fold around the current",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-paper-boats-3.mp3",
+      "text": "And find their course again",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-3.mp3",
+      "text": "And find their course again",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-paper-boats-4.mp3",
+      "text": "A small light keeps them floating",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-4.mp3",
+      "text": "A small light keeps them floating",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-paper-boats-5.mp3",
+      "text": "Until the clouds remain",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-paper-boats-5.mp3",
+      "text": "Until the clouds remain",
+      "voice": "rms"
+    },
+    {
+      "file": "song-paper-boats.mp3",
+      "text": "Paper boats are sailing. ... Across the quiet rain. ... They fold around the current. ... And find their course again. ... A small light keeps them floating. ... Until the clouds remain",
+      "voice": "slt"
+    },
+    {
+      "file": "reference-silver-rain-0.mp3",
+      "text": "Silver rain is falling",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-0.mp3",
+      "text": "Silver rain is falling",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-silver-rain-1.mp3",
+      "text": "Along the empty pier",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-1.mp3",
+      "text": "Along the empty pier",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-silver-rain-2.mp3",
+      "text": "The roof repeats the rhythm",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-2.mp3",
+      "text": "The roof repeats the rhythm",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-silver-rain-3.mp3",
+      "text": "For anyone to hear",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-3.mp3",
+      "text": "For anyone to hear",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-silver-rain-4.mp3",
+      "text": "We hum beneath the awning",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-4.mp3",
+      "text": "We hum beneath the awning",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-silver-rain-5.mp3",
+      "text": "Until the sky is clear",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-silver-rain-5.mp3",
+      "text": "Until the sky is clear",
+      "voice": "rms"
+    },
+    {
+      "file": "song-silver-rain.mp3",
+      "text": "Silver rain is falling. ... Along the empty pier. ... The roof repeats the rhythm. ... For anyone to hear. ... We hum beneath the awning. ... Until the sky is clear",
+      "voice": "slt"
+    },
+    {
+      "file": "reference-red-horizon-0.mp3",
+      "text": "Red horizon rising",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-0.mp3",
+      "text": "Red horizon rising",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-red-horizon-1.mp3",
+      "text": "Beyond the sleeping town",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-1.mp3",
+      "text": "Beyond the sleeping town",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-red-horizon-2.mp3",
+      "text": "The rooftops catch the color",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-2.mp3",
+      "text": "The rooftops catch the color",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-red-horizon-3.mp3",
+      "text": "Before the sun is found",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-3.mp3",
+      "text": "Before the sun is found",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-red-horizon-4.mp3",
+      "text": "We follow morning eastward",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-4.mp3",
+      "text": "We follow morning eastward",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-red-horizon-5.mp3",
+      "text": "And never hurry down",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-red-horizon-5.mp3",
+      "text": "And never hurry down",
+      "voice": "rms"
+    },
+    {
+      "file": "song-red-horizon.mp3",
+      "text": "Red horizon rising. ... Beyond the sleeping town. ... The rooftops catch the color. ... Before the sun is found. ... We follow morning eastward. ... And never hurry down",
+      "voice": "slt"
+    },
+    {
+      "file": "reference-night-ferry-0.mp3",
+      "text": "The night ferry is leaving",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-0.mp3",
+      "text": "The night ferry is leaving",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-night-ferry-1.mp3",
+      "text": "Its lights are thin and blue",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-1.mp3",
+      "text": "Its lights are thin and blue",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-night-ferry-2.mp3",
+      "text": "The waves repeat the engine",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-2.mp3",
+      "text": "The waves repeat the engine",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-night-ferry-3.mp3",
+      "text": "Across the darkened blue",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-3.mp3",
+      "text": "Across the darkened blue",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-night-ferry-4.mp3",
+      "text": "We wait beside the railing",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-4.mp3",
+      "text": "We wait beside the railing",
+      "voice": "rms"
+    },
+    {
+      "file": "reference-night-ferry-5.mp3",
+      "text": "Until the shore is new",
+      "voice": "slt"
+    },
+    {
+      "file": "correct-night-ferry-5.mp3",
+      "text": "Until the shore is new",
+      "voice": "rms"
+    },
+    {
+      "file": "song-night-ferry.mp3",
+      "text": "The night ferry is leaving. ... Its lights are thin and blue. ... The waves repeat the engine. ... Across the darkened blue. ... We wait beside the railing. ... Until the shore is new",
+      "voice": "slt"
+    },
+    {
+      "file": "voice-mismatch.mp3",
+      "text": "And the night is slow.",
+      "voice": "awb"
+    },
+    {
+      "file": "voice-unintelligible.mp3",
+      "text": "mm hm mm mm.",
+      "voice": "kal"
+    }
+  ]
+}

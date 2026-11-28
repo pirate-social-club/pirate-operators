@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-playback-renewal.ts; see docs/karaoke-learner-handoff.md.
+// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-playback-renewal.ts; see docs/archive/handoffs/karaoke-learner-handoff.md.
 export interface KaraokePlaybackGrant {
   url: string;
   expiresAtMs: number;

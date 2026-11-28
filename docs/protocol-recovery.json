@@ -1,7 +1,7 @@
 {
   "source": "protocol revision 5, 2026-11-03; read-only editor-history recovery",
   "sourceSha256": "3f725f43774c8deae776a3e0332d4006aa247b46807a5ca7f7bf6bc659c80c90",
-  "restoredDocument": "operator-protocol.md",
+  "restoredDocument": "archive/design/operator-protocol.md",
   "exactSectionsSha256": {
     "## 3. Encoding conventions": "0726e1a0e5f0c0e5353364ba3a7ca5d349bb08cf289b2668eb5839cef5ce9888",
     "## 4. Evidence records": "a61198744f8019c436215dc3d22bf5f4dae6f23b9be80c77767dfe9fbc177ee6",

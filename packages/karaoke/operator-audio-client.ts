@@ -5,7 +5,7 @@
 // socket: "live" means the operator's ready message, the reconnect reuses the
 // ticket connection, and control frames are the operator's audio_pause,
 // audio_seek and finish. Audio is never replayed after a reconnect.
-// See docs/karaoke-capture-handoff.md.
+// See docs/archive/handoffs/karaoke-capture-handoff.md.
 import { encodeKaraokeBinaryFrame } from "./binary-codec.ts";
 import type { CaptureAnchorSink } from "./capture-lifecycle.ts";
 import { KARAOKE_TRANSPORT_PROTOCOL_VERSION } from "./transport.ts";

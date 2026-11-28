@@ -1,4 +1,4 @@
-// The LearningRecords encoding, version 1 (docs/learning-records-contract.md).
+// The LearningRecords encoding, version 1 (docs/deferred/learning-records-contract.md).
 // Shared by the operator's publisher and the independent reader, and checked
 // against fixtures/learning-records-v1.json.
 import {

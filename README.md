@@ -1,183 +1,86 @@
 # Pirate operators
 
-The approved [Web2 release and optional HNS plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
-starts Web2 foundation contracts, consent redesign and integration repair in
-parallel. The first-song pilot uses plain sign-in with learning-results disabled.
-Dance and shared aggregation follow as explicit Web2 release work. HNS is an
-optional later attachment to the same on-chain community and content; it is not
-required for registration, discovery or gas eligibility. The plan supersedes
-conflicting historical scope below and does not claim a qualified release.
+Pirate operators is the standalone, pre-launch implementation of independently operated Pirate communities. It contains the Solid community client, Linux/Web2 installation path, Worker services, MegaETH testnet contracts, publication pipeline, and local acceptance harness.
 
-The [compact public results amendment](docs/learning-results-v2.md) sets the
-next recording/payment direction: one terminal result per lesson or run,
-internal usage accounting for Pirate's own service and guaranteed coverage for
-independent providers. [Learner-held history](docs/learner-history.md) defines
-the private tutoring/export boundary. These specifications do not change the
-current v1 runtime or resolve the MOSS consent release gate.
+The current product authority is the [Web2 release and optional HNS delivery plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md). The first invited pilot is deliberately narrow: a fresh Linux host, ordinary HTTPS, automatic community enrollment, plain member sign-in, one owner-published song, playback, and persistence through an ordinary restart. HNS is optional later attachment work, not a registration or gas prerequisite. Study, Karaoke, Dance, the shared feed, and rewards are expanded Web2 scope. Spaces are deferred beyond the MVP; Nostr is not product scope.
 
-The [application contract inventory](docs/contracts/inventory.md) distinguishes
-current implementation candidates from retained source and deployment history.
-The [Web2-first Directory V3](docs/contracts/community-directory-v3.md) is the
-new enrollment candidate; neither source availability nor earlier deployment
-evidence qualifies it for release.
+This is testnet software for disposable data. Nothing here is production qualified, backup/restore is unavailable in the pilot profile, and selected-host acceptance remains open even where source and hosted CI are green. Do not use real funds, production credentials, mainnet chain IDs, or irreplaceable content.
 
-For launch, the workspace owner is the only song publisher.
-[Owner-only MegaETH song publication](docs/megaeth-song-publication.md) is the
-active launch contract: the owner signs in with the ordinary MOSS account and
-publishes a pirate.community-post/3 song under policy
-pirate-owner-curated/2026-11-08/1, with no DATA registration, Ika activation,
-creator wallet or Royalties step. Media and lyrics stay off-chain. That is
-Release 1. Palm-verified publishing by other users is a separate later release
-and is not implemented. Registration, creator-wallet and royalty material below
-describes the completed registered journey or deferred integration work.
+## Repository layout
 
-A standalone experiment for independently operated communities, song admission,
-karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
-explains the first milestone: ordinary HTTPS, a genuine registry, community
-configuration, Alchemy.run provisioning, Infisical and first publication. The
-current owner-curated acceptance run follows the
-[explicit moderation-deferral policy](docs/owner-curated-first-song.md), with
-operator-declared rating/language and genuine retained audio recognition.
-Native app.tld/browser acceptance is a separate follow-up.
-Sponsored customer name purchases are later work. The recovered
-[operator protocol](docs/operator-protocol.md) owns admission/publication rules.
-The [payment specification](docs/operator-payments.md) is pinned to the merged
-main baseline in its [source record](docs/payment-specification-source.json).
-Its original implementation-state notes are dated; the runtime and current
-integration limits below take precedence over those status observations.
-[HNS resolution and ingress](docs/hns-community-ingress.md) puts actual HIP-5
-client support before transport selection. It retains prior gateway evidence
-and requires a separate instance if that HTTPS route is chosen.
+- `apps/web` — Solid community client and static/IPFS release tooling.
+- `apps/community-wizard` — operator setup wizard for the Linux/Web2 journey.
+- `apps/creator-spike` — isolated creator-wallet testnet spike; not a pilot dependency.
+- `services` and `packages` — community runtime, publication, learning, media, reward, and protocol implementation.
+- `contracts` — MegaETH application contracts and interfaces.
+- `deploy` — Linux installation and ingress packaging.
+- `docs` — current contracts, deferred designs, evidence, and archived lane history; start with [docs/README.md](docs/README.md).
+- `harness` and `test` — local integration and acceptance harnesses.
 
-Spaces support is deferred beyond the decentralized community MVP. The wizard
-may show "Spaces — Coming soon" as a disabled option. Wizard v1 starts on
-ordinary HTTPS, with HNS as an optional follow-up. Spaces infrastructure and a
-possible Cloudflare Containers port
-are later work under the [namespace scope](docs/decentralized-setup.md#mvp-namespace-scope).
+## Development
 
-Our application contracts target MegaETH testnet 6343. Ordinary wallet access
-uses MOSS. The active payment implementation uses OperatorPayments deposits
-and signed purchases for admission jobs and karaoke segment takes. Payments
-and [LearningRecords](docs/learning-records-contract.md) are merged from PRs 14
-and 18, with separate [testnet evidence](docs/megaeth-testnet.md). This does not
-establish completed first-song acceptance. The
-payment signer can choose any recipient and amount within its community/token
-deposit; admin-controlled recipient and spending limits are not implemented.
-OperatorPayments is optional for the disposable first-song path.
+Use Node.js 24.15 or a later Node.js 24 release, Foundry 1.9.0, and ffmpeg/ffprobe. The root integration tests also require a pinned Caddy 2.11.9 executable, private `TMPDIR` scratch space, and a private `PIRATE_TEST_RUN_PARENT` directory under `/run`. `.github/workflows/local.yml` contains the verified Caddy download and hash-check commands; the required executable SHA-256 is `a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf`.
 
-External Megapot operates on Base. That fact does not make Base a deployment
-target for Pirate contracts. The selected [manual testnet reward pilot](docs/manual-rewards-pilot.md)
-uses Base Sepolia ticket and prize receipts, operator-managed conversion and
-MegaETH USDm inventory, followed by explicit guarded MOSS payouts. It introduces
-no automatic bridge. First integration reuses the accepted November manual
-rehearsal, with its synthetic ticket/prize and prefunded testnet balance labelled.
-Actual-provider qualification remains separate; rehearsal evidence establishes
-no live drawing, conversion or mainnet payout route.
-
-## Local development
-
-Use Node.js 24 and Foundry 1.9.0 with the pinned dependency lockfile:
+From the repository root, the unsharded local check is:
 
 ```sh
 npm ci --ignore-scripts
+npm ci --ignore-scripts --prefix apps/web
+npm ci --ignore-scripts --prefix apps/community-wizard
 forge build
-npm run check
+(
+  set -eu
+  runtime_dir=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}
+  case $runtime_dir in
+    /run/*) ;;
+    *) echo "XDG_RUNTIME_DIR must be under /run" >&2; exit 1 ;;
+  esac
+  if [ ! -d "$runtime_dir" ] || [ ! -O "$runtime_dir" ] || [ ! -w "$runtime_dir" ]; then
+    echo "XDG_RUNTIME_DIR must be a writable user-owned directory" >&2
+    exit 1
+  fi
+  TMPDIR="$(mktemp -d)"
+  PIRATE_TEST_RUN_PARENT="$(mktemp -d "$runtime_dir/pirate-root-tests.XXXXXXXX")"
+  export TMPDIR PIRATE_TEST_RUN_PARENT
+  PIRATE_CADDY_BINARY=/path/to/caddy \
+  PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
+  npm run check
+)
 ```
 
-On Linux, run the checks with only loopback after dependency installation:
+If `XDG_RUNTIME_DIR` is absent, provision a user-owned mode-0700 directory under `/run` and use that path in place of `$runtime_dir`. Do not use a root-owned parent for the ordinary local check.
+
+Hosted CI does not run that unsharded command in its network namespace. It runs four root-test shards through `harness/ci/run-root-tests.mjs`; each shard creates both private scratch directories inside the namespace. The CI-shaped command for one shard is:
 
 ```sh
-unshare -Urn sh -c 'ip link set lo up && npm run check'
+TEST_SHARD=1/4 \
+PIRATE_CADDY_BINARY=/path/to/caddy \
+PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf \
+sudo --preserve-env=PATH,HOME,TEST_SHARD,PIRATE_CADDY_BINARY,PIRATE_CADDY_SHA256 \
+  unshare --net bash -c '
+    set -euo pipefail
+    ip link set lo up
+    TMPDIR="$(mktemp -d)"
+    PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)"
+    export TMPDIR PIRATE_TEST_RUN_PARENT
+    node harness/ci/run-root-tests.mjs
+  '
 ```
 
-The local acceptance harness runs actual Worker handlers, cryptography,
-WebSockets, SQLite persistence and Solidity on Anvil. Provider calls and payment
-providers are explicitly simulated. Its synthetic audio and public fixture
-keys are test material, never credentials for a public deployment. Local tests
-exercise behavior; they do not prove hosted security or real provider results.
+Set `TEST_SHARD` to `1/4`, `2/4`, `3/4`, or `4/4`. The shard runner writes `.local/root-tests-<shard>.xml`. The image-runtime container probe is a separate scoped CI job, not part of those root shards.
 
-`npm run build` currently packages the local Worker using cf. The planned
-community stack is provisioned by Alchemy.run. cloudflare.config.ts is a disabled
-packaging template, not a production deployment. The harness supplies isolated
-local runtime configurations. The separate first-song application has reviewed
-Alchemy packages, hosted MOSS authentication, private storage and durable
-publication journals. Its current qualification is recorded below.
+The root check runs TypeScript, root integration tests, Solidity tests, and the repeatable acceptance harness. Hosted CI additionally runs the Web, Study, Karaoke, Wizard, and Creator suites before `release-ready` can pass. Local acceptance uses real handlers, cryptography, WebSockets, SQLite persistence, and Anvil; external providers and payment services are explicit simulations. Fixture keys are public test material only.
 
-## Current work
+## Current documentation
 
-The [community browser contract](docs/community-web-client.md) specifies the
-stable community HTTPS origin, same-origin cookie sessions, karaoke handshake,
-publication-time pages and read-only IPFS mirrors. The apps/web project retains
-its fixture-backed static/mirror release and separately builds the live community
-client. The live client connects MOSS, private master and fixed-slot stem
-uploads, job status and public song playback. Under the owner publishing policy
-only the controller-authorized owner account is shown release controls, and the
-release routes refuse every other account before any reservation. The launch
-client has no creator wallet connection step; the server's creator connection
-routes are preserved for the deferred integration.
+- [Documentation index](docs/README.md)
+- [Web2 release plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+- [Linux Web2 first-song installation](docs/self-hosting/linux-web2-first-song.md)
+- [Hosted Wizard contract](docs/web2-onboarding-linux-wizard.md)
+- [Application contract inventory](docs/contracts/inventory.md)
+- [First-song runtime](docs/first-song-runtime.md)
+- [Owner-only MegaETH song publication](docs/megaeth-song-publication.md)
 
-Deferred for launch: the creator-wallet design in PR 10 adds operator-funded Sui/Ika setup and a
-creator-owned EVM recipient for the separate Aeneid song-registration test.
-It does not change ordinary MOSS participation or establish a production DATA
-migration. Saved passkey access and reopen-and-sign acceptance remain to be
-qualified across supported devices. PR 13 records an owner-reported real-
-browser activation/reopen/sign pilot with independently checked chain/signature
-evidence. The first-song creator has now signed in, reopened that saved wallet
-and submitted the selected recording. Broader browser/device acceptance and
-production service guarantees remain open. The selected real song is now
-ROOT-registered to that creator wallet.
-Provider keys stay with the operator that uses them.
+Alchemy.run owns selected managed Cloudflare resources; Infisical is the service-secret source. Use `cf` for diagnostics only where it does not change Alchemy-owned resources. Do not add Wrangler configuration.
 
-The merged [account and portability design](docs/community-accounts-portability.md)
-separates private account IDs, credential bindings and public authors. The
-application now implements those boundaries, stable post/lyric identities and
-explicit D1 migrations. Sealed uploads and publication jobs retain immutable
-inputs, provider receipts, prepared external operations and reconciliation
-proofs. These additions do not implement the entire portability specification.
-
-PR 15 implements the provisioning wizard and records disposable infrastructure
-recovery acceptance. Its launcher has independent review and live startup
-qualification for the new managed-mode community. That community has its own
-fixed TLD, operator-created registry clone, deployed directory/posts profile and
-exact deployment manifests. The wizard does not create the registry clone or
-automate those contract transactions. c22 stays independent for storage/job tests.
-
-Draft [PR 26](https://github.com/pirate-social-club/pirate-operators/pull/26)
-integrates the prerequisite sources and first-song application. The
-[owner-curated rollout](docs/owner-curated-rollout.md) is live and independently
-qualified. [Actual first-song acceptance](docs/deployments/first-song-managed-20261105.first-song-acceptance.json)
-records both sealed stems, five verified public pins, one Aeneid ROOT registration,
-one MegaETH post and anonymous playback after reload. Health reports firstSong:
-ready. The selected recording was submitted with the title "Test"; its sealed
-metadata is preserved. Its original held admission and three provider receipts,
-including the classifier refusal, remain unchanged beside the append-only
-owner-curated decision. Automated content moderation is deferred; the refusal
-was not converted into a successful automated check. The [delayed-recovery
-update and same-amendment replay](docs/deployments/first-song-managed-20261105.published-recovery-rollout.json)
-also passed with unchanged table hashes, signer nonces and one post. Current
-public read latency is about 19–31 seconds and still needs improvement.
-
-## Local reward and provider research
-
-The existing RewardPool models one immutable drawing, signed registration,
-fixed-recipient payout, conservation and emergency recovery. Allocations do not
-expire after finalization. Its sponsored path requires the claimant's original
-ECDSA key. Exact EIP-7702 delegation markers are supported; delegated session
-keys, ERC-1271 and other contract-wallet signatures are not supported.
-The community verifier and selected Very attester remain trusted inputs.
-See [the local pool contract](docs/reward-pool.md).
-
-[External Megapot fork tests](docs/megapot-fork.md) read pinned provider code
-and mutate only a local Foundry fork. They prove selected contract call shapes,
-not live drawing delivery or a chosen reward route. The
-[provider boundary](docs/megapot-boundary.md) records those limits.
-
-A [Very diagnostic probe](docs/very-probe.md) and
-[scope contract](docs/very-reward-scope.md) address credential nullifiers.
-One recorded enrollment passed the diagnostic comparisons; it does not prove
-one enrollment per person or complete reward eligibility. Follow the
-[assurance limits](docs/very-assurance.md).
-
-PROVENANCE.json records the copied scorer's source and changes. The experiment
-has no runtime imports into the centralized API or SSR frontend. No licence
-grant has been added to the experiment.
+PROVENANCE.json records copied source provenance. There is no runtime dependency on api-next or the previous React application. No license grant has been added to this repository.

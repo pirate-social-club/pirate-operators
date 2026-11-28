@@ -1,4 +1,4 @@
-// Independently adopted from api-next a5c63b8 packages/platform-cf/src/elevenlabs-karaoke-stt.ts; see docs/karaoke-capture-handoff.md.
+// Independently adopted from api-next a5c63b8 packages/platform-cf/src/elevenlabs-karaoke-stt.ts; see docs/archive/handoffs/karaoke-capture-handoff.md.
 import type { KaraokeRecognizedWord } from "../scoring/scoring.ts";
 import type {
   KaraokeStreamingSttAdapter,

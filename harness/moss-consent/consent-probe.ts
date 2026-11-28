@@ -1,4 +1,4 @@
-// The MOSS consent probe's checks (docs/learning-records-contract.md section
+// The MOSS consent probe's checks (docs/deferred/learning-records-contract.md section
 // 9): build a LearningRecords Consent for a learner, then classify a returned
 // signature (plain, ERC-6492 or ERC-8010), verify it over the MegaETH RPC and
 // simulate openAttempt as the grader would send it. Nothing here sends a

@@ -1,5 +1,5 @@
 // Wire facts independently checked against the exact Base Sepolia Sourcify ABI on November7.
-// Runtime/source pins: docs/megapot-fork.md. No signer or financial execution is provided.
+// Runtime/source pins: docs/deferred/megapot-fork.md. No signer or financial execution is provided.
 import {
   createPublicClient,
   decodeEventLog,

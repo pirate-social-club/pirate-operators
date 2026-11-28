@@ -1,36 +1,33 @@
 # Community web client and deployment contract, version 2
 
+Status: current for the browser session, canonical-origin, mirror, static
+publishing, localization and release/deployment boundaries. It is not a current
+service-custody or second-community acceptance plan. The
+[Web2 release plan](self-hosting/checkpoint-1-pilot-delivery-20261114.md) owns
+pilot scope, Linux hosting, enrollment, recognition custody and gas policy;
+where older acceptance rows below conflict, the release plan wins.
+
 This document specifies the browser client for an independently operated
-community and the way it is deployed. It is a design contract; current task
-records supply implementation and live acceptance evidence. Historical local
-behavior described below is not a claim that every requirement is still absent.
+community and the way it is deployed. Implementation and live acceptance status
+come from the application source, required CI and cited runtime evidence, not
+from the age or presence of this contract.
 
-The owner decision of 2026-11-05 makes community-owned moderation/storage
-accounts the next wizard's supported path, paired with Pirate's funded creator
-service. This extends deployment acceptance D3 and adds D8-D10 without making
-HNS discovery or independent creator-treasury operation a prerequisite. The
-existing first-song managed profile remains a separate fixed test.
-
-Version 2 adopts the account boundary in
-[community accounts and portability](community-accounts-portability.md).
+Version 2 adopts the account boundary in the archived
+[community accounts and portability design](archive/design/community-accounts-portability.md).
 The session identifies a private community account and its authenticating
 credential; wallet authority is resolved for each capability that needs it.
-MOSS remains the first sign-in integration. This is a design amendment, not
-an implemented session migration or an additional onboarding step.
+MOSS remains the first sign-in integration.
 
-The [restored operator protocol](operator-protocol.md) supplies section 7
+The archived [operator protocol](archive/design/operator-protocol.md) supplies historical section 7
 sign-in and section 8.2 ticket requirements. This document completes their
 browser cookie and handshake behavior. The current payment contract owns
-payment fields and does not change the browser key boundary. The
-[current setup overview](decentralized-setup.md) owns the provisioning direction:
-Alchemy.run, Infisical, MegaETH and the first song on ordinary HTTPS. Native
-app.tld acceptance, customer name purchase and Telegram attachment follow
-separately. OperatorPayments purchases replace the original payment fields;
+payment fields and does not change the browser key boundary.
+OperatorPayments purchases replace the original payment fields;
 the current payment specification owns them. Browser session and handshake
 rules here remain.
 
-Launch applicability, November 8: under the adopted launch ruling the
-workspace owner is the only song publisher. The active release flow is
+Under the adopted launch ruling the workspace owner is the only song publisher.
+The active release flow is
 [owner-only MegaETH song publication](megaeth-song-publication.md). The owner
 signs in with the ordinary MOSS session described here and uploads, seals and
 publishes with no creator passkey, creator wallet connection, Palm prompt,
@@ -39,13 +36,11 @@ publisher flag; the release routes enforce the controller-signed owner
 authorization before any reservation or seal, so a learner or another wallet is
 refused even when it calls the routes directly. Published is the normal success
 state. Learner sign-in, Study, Karaoke, rewards and cash-out rules in this
-document are unchanged. The creator-wallet and funding paragraphs below describe
-the completed registered first-song journey and deferred integration work; they
-are not launch requirements. Palm-verified publishing by other users is a
-separate later release.
+document are expanded-release design context. Palm-verified publishing by other
+users is a separate later release.
 
-The [creator-wallet contract](creator-wallet.md) owns the additional first-song
-release flow of the registered journey. It is an operator-submitted, testnet-only Ika exception to the
+The [creator-wallet contract](deferred/creator-wallet.md) owns the deferred
+registered-IP flow. It is an operator-submitted, testnet-only Ika exception to the
 earlier MOSS plan's blanket exclusion. It requires a separate creator passkey,
 persisted passkey-backed access, verified cap ownership before acceptance signing and
 confirmed on-chain activation before upload or registration. Ordinary sign-in,
@@ -53,9 +48,9 @@ karaoke, study and dance posts retain this document's session flow. Creator
 setup opens the dedicated wallet site by popup or redirect, not an iframe.
 The creator's encrypted wallet record is distinct from community session
 storage and does not introduce saved song drafts.
-The [funding and wizard contract](creator-wallet-payments.md) requires a verified
+The [funding and wizard contract](deferred/creator-wallet-payments.md) requires a verified
 registration-service connection and capped operator test allowance before
-enabling releases. No creator checkout is part of the first-song test. Only
+enabling releases. No creator checkout is part of the first-song pilot. Only
 independent registration operators manage native SUI/IKA inventory; communities using Pirate's service
 do not. An incomplete creator capability leaves ordinary participation available.
 
@@ -66,15 +61,10 @@ Mirror authentication is a future extension. This is a deliberate origin and
 session boundary, not a limitation of IPFS hosting: static JavaScript can call
 live APIs, but this version does not authorize cross-origin browser sessions.
 
-Spaces is deferred beyond the decentralized community MVP. Wizard v1 starts
-on ordinary HTTPS, with HNS as an optional follow-up. A namespace picker may
-show a disabled "Spaces — Coming
-soon" option, with no promised date, setup form or provisioning action. It must
-not request Spaces keys or funds or block supported setup. The
-[MVP namespace scope](decentralized-setup.md#mvp-namespace-scope) also requires
-the configuration/API boundary to reject unsupported Spaces setup before any
-external effect. Cloudflare Containers feasibility is later engineering work,
-not part of the wizard's customer-facing deployment choices.
+Spaces are deferred beyond the MVP; Nostr is outside product scope. Wizard v1 starts on ordinary
+HTTPS, with HNS as optional later attachment work. The client and wizard must
+not present Spaces or Nostr setup, request keys or funds for them, or block
+supported setup on them.
 
 ## 1. Sessions and sign-in
 

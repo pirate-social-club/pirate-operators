@@ -7,8 +7,8 @@ publication/discovery rules. The first-song profile disables learning-results.
 The baseline [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58)
 at `9374f4c`, Directory [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56)
 at `aef30d0`, and consent [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59)
-at `c6c98cb` are merged and CI-qualified source. First-song application/runtime
-and selected-host acceptance remain unqualified. V5 and Dance V2 stay inactive
+at `c6c98cb` are merged and CI-qualified source. First-song application/runtime source is merged and CI-qualified;
+selected-host acceptance remains unqualified. V5 and Dance V2 stay inactive
 pending application and policy gates; listing-service and indexer acceptance
 remain separate work.
 
@@ -29,8 +29,8 @@ authority; existing manifests and deployments are not silently migrated.
 The first-song profile has no learning-results target. The merged
 [separate publication-consent specification](publication-consent-v1.md) defines
 the inactive V5/Dance V2 foundation, not an activated application profile. The
-[V4 sign-in specification](../learning-results-v4-sign-in.md),
-[V4 rollout](../learning-v4-rollout.md), LearningRecords and LearningResultsV2/V3
+[V4 sign-in specification](../deferred/learning-results-v4-sign-in.md),
+[V4 rollout](../deferred/learning-v4-rollout.md), LearningRecords and LearningResultsV2/V3
 remain retained source and history, not alternative new-community setup paths.
 Preserve their original policies, result identities and pending journals.
 
@@ -46,7 +46,7 @@ attestation from discovery control; delisting affects discovery.
 payments. Its spending-cap limitation remains a separate finding. A learning
 result or Dance verdict does not itself authorize payment or fund a reward.
 [Dance verdicts](dance-verdicts-v1.md) use a separate capture-policy validator.
-[RewardPool](../reward-pool.md) remains an independent drawing experiment.
+[RewardPool](../deferred/reward-pool.md) remains an independent drawing experiment.
 
 The [implementation profile](community-implementation.md),
 [disposable profile](disposable-first-song.md),
@@ -57,7 +57,7 @@ specification is not evidence of a deployed and accepted community.
 
 ## Setup and migration
 
-The [setup plan](../decentralized-setup.md) describes the existing HTTPS path.
+The archived [setup design](../archive/design/decentralized-setup.md) records the earlier HTTPS path; the release plan governs current scope.
 Its per-TLD registry prerequisites reflect the retained deployment model, pending
 the shared-registry caller migration; do not create a new clone as a shortcut to
 shared naming. The wizard and directory cannot switch merely by substituting a

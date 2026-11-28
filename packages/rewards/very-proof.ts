@@ -2,7 +2,7 @@
 // Source SHA-256: 33aa710366c3479a88e7339684912aeeeda6259e7fbf0f406fa0ae10b14c9e62. Changes: dynamic credential-expiry bound; reward provider composition.
 import { createHash } from "node:crypto";
 
-// Format observed by api-next; provenance and limits are in docs/very-probe.md.
+// Format observed by api-next; provenance and limits are in docs/deferred/very-probe.md.
 export const SCALAR_FIELD =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 export const BASE_FIELD =

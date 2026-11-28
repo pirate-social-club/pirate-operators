@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-playback-graph.ts; see docs/karaoke-learner-handoff.md.
+// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/capture/karaoke-playback-graph.ts; see docs/archive/handoffs/karaoke-learner-handoff.md.
 export type KaraokePlaybackInterruption = (songMs: number, state: AudioContextState, alreadyPaused: boolean) => void;
 
 /** Playback owns this context; individual takes borrow it and release only their mic graph. */

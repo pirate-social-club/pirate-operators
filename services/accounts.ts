@@ -1,4 +1,4 @@
-// Learner accounts that sign with code (docs/learning-records-contract.md
+// Learner accounts that sign with code (docs/deferred/learning-records-contract.md
 // section 9). A MOSS account that has never transacted has no code yet, so
 // its signatures arrive ERC-8010-wrapped: the learner's own EIP-7702
 // authorization, the call that sets the account up, and the inner signature
