@@ -13,6 +13,11 @@ export interface Web2MediaStorageView {
   savedAt?: number;
   pinCount?: number;
   checkedAt?: number;
+  observation?: {
+    outcome: "ok" | "declined" | "unavailable";
+    checkedAt: number;
+    pinCount?: number;
+  };
 }
 
 export function createWeb2StorageSetup(input: {
@@ -28,6 +33,7 @@ export function createWeb2StorageSetup(input: {
       savedAt: status.savedAt,
       pinCount: status.check.pinCount,
       checkedAt: status.check.checkedAt,
+      observation: structuredClone(status.observation),
     };
   }
   return {
@@ -38,15 +44,19 @@ export function createWeb2StorageSetup(input: {
     ): Promise<Record<string, unknown>> {
       insist(input.storage, "media_storage_unavailable", 503);
       if (action === "storage-save") {
-        exact(body, ["token", "requestId"]);
+        exact(body, ["token", "requestId", "baseGeneration"]);
         insist(
           typeof body.token === "string" &&
-            typeof body.requestId === "string",
+            typeof body.requestId === "string" &&
+            (body.baseGeneration === null ||
+              (Number.isSafeInteger(body.baseGeneration) &&
+                (body.baseGeneration as number) > 0)),
           "media_storage_input_invalid",
         );
         const outcome = await input.storage.checkAndSave({
           requestId: body.requestId,
           token: body.token,
+          baseGeneration: body.baseGeneration as number | null,
         });
         return { action, ...outcome };
       }

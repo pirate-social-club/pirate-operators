@@ -41,18 +41,41 @@ export interface CommunityMediaGeneration {
   generation: number;
   savedAt: number;
   check: { pinCount: number; responseSha256: string; checkedAt: number };
+  /** Latest durable observation of this credential at the provider. The save's
+   * own passing check until a re-check records a newer one; a declined or
+   * unavailable result here means the token is stored but currently refused
+   * or unverifiable, and the display must say so rather than revert to saved. */
+  observation: {
+    outcome: "ok" | "declined" | "unavailable";
+    checkedAt: number;
+    pinCount?: number;
+  };
 }
-interface CipherRecord extends CommunityMediaGeneration {
+interface ObservationRecord {
+  schema: "pirate.community-media-observation/1";
+  generation: number;
+  sequence: number;
+  outcome: "ok" | "declined" | "unavailable";
+  pinCount?: number;
+  responseSha256?: string;
+  checkedAt: number;
+}
+interface CipherRecord {
   schema: "pirate.community-media-credential/1";
   requestId: string;
   id: string;
+  generation: number;
   iv: string;
   tag: string;
   ciphertext: string;
+  savedAt: number;
+  check: { pinCount: number; responseSha256: string; checkedAt: number };
 }
 const CREDENTIAL_ID = "filebase-ipfs-rpc";
 const fileName = (generation: number) =>
   evidenceId(CREDENTIAL_ID) + "-" + generation + ".json";
+const observationName = (sequence: number) =>
+  evidenceId(CREDENTIAL_ID) + "-observation-" + sequence + ".json";
 
 export async function createCommunityMediaStorage(
   input: CommunityMediaStorageInputs,
@@ -86,6 +109,35 @@ export async function createCommunityMediaStorage(
     }
     return result.sort((a, b) => a - b);
   }
+  async function observations(): Promise<number[]> {
+    const prefix = evidenceId(CREDENTIAL_ID) + "-observation-";
+    const result: number[] = [];
+    for (const name of await readdir(input.directory)) {
+      if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
+      const digits = name.slice(prefix.length, -".json".length);
+      if (!/^[0-9]{1,9}$/.test(digits)) continue;
+      const value = Number(digits);
+      if (Number.isSafeInteger(value) && value > 0) result.push(value);
+    }
+    return result.sort((a, b) => a - b);
+  }
+  async function latestObservation(
+    generation: number,
+  ): Promise<ObservationRecord | null> {
+    const list = await observations();
+    for (let i = list.length - 1; i >= 0; i--) {
+      const record = await readPrivateJSON<ObservationRecord>(
+        join(input.directory, observationName(list[i]!)),
+      );
+      assert(
+        record.schema === "pirate.community-media-observation/1" &&
+          record.sequence === list[i],
+        "community_media_observation_changed",
+      );
+      if (record.generation === generation) return record;
+    }
+    return null;
+  }
   async function load(generation: number): Promise<CipherRecord> {
     const record = await readPrivateJSON<CipherRecord>(
       join(input.directory, fileName(generation)),
@@ -103,25 +155,50 @@ export async function createCommunityMediaStorage(
     if (!list.length) return null;
     return load(list[list.length - 1]!);
   }
-  function metadata(record: CipherRecord): CommunityMediaGeneration {
+  async function metadata(
+    record: CipherRecord,
+  ): Promise<CommunityMediaGeneration> {
+    const observation = await latestObservation(record.generation);
     return {
       generation: record.generation,
       savedAt: record.savedAt,
       check: structuredClone(record.check),
+      observation: observation
+        ? {
+            outcome: observation.outcome,
+            checkedAt: observation.checkedAt,
+            ...(observation.pinCount === undefined
+              ? {}
+              : { pinCount: observation.pinCount }),
+          }
+        : {
+            outcome: "ok",
+            checkedAt: record.check.checkedAt,
+            pinCount: record.check.pinCount,
+          },
     };
   }
   const api = {
     /** Check the submitted token read-only, then commit that same generation.
-     * A declined or unavailable check writes nothing and keeps any previously
+     * A repeated request id returns the originally committed generation
+     * without probing or writing again, which is what makes a lost reply
+     * exactly recoverable. A replacement must name the generation the operator
+     * reviewed; a stale review is refused before any provider effect. A
+     * declined or unavailable check writes nothing and keeps any previously
      * committed generation active. The plaintext is zeroized on every path. */
     async checkAndSave({
       requestId,
       token,
+      baseGeneration,
     }: {
       requestId: string;
       token: string;
+      /** The active generation the operator reviewed when entering this token,
+       * or null when no generation existed. Binds a replacement to its review
+       * so a stale tab cannot overwrite a later rotation. */
+      baseGeneration: number | null;
     }): Promise<
-      | { state: "saved"; generation: number }
+      | { state: "saved"; generation: number; recovered: boolean }
       | { state: "declined" }
       | { state: "unavailable" }
     > {
@@ -135,10 +212,21 @@ export async function createCommunityMediaStorage(
         token.length > 0 && token.length <= 1024 && !/[\s\x00-\x1f]/.test(token),
         "media_storage_token_invalid",
       );
+      for (const existing of await generations()) {
+        const record = await load(existing);
+        if (record.requestId === requestId)
+          return { state: "saved", generation: existing, recovered: true };
+      }
+      const list = await generations();
+      const activeGeneration = list.length ? list[list.length - 1]! : null;
+      insist(
+        baseGeneration === activeGeneration,
+        "media_storage_generation_changed",
+        409,
+      );
       const outcome = await checkPinListAccess(token, send);
       if (outcome.state === "declined") return { state: "declined" };
       if (outcome.state === "unavailable") return { state: "unavailable" };
-      const list = await generations();
       const generation = (list[list.length - 1] ?? 0) + 1;
       const value = Buffer.from(token, "utf8");
       const iv = randomBytes(12);
@@ -179,7 +267,7 @@ export async function createCommunityMediaStorage(
       } finally {
         value.fill(0);
       }
-      return { state: "saved", generation };
+      return { state: "saved", generation, recovered: false };
     },
     /** Recover a possibly-completed save after a lost reply. The request id is
      * the only handle; no secret is ever required or returned. */
@@ -201,7 +289,7 @@ export async function createCommunityMediaStorage(
       assert(!disposed);
       await input.lease.assertHeld();
       const record = await active();
-      return record ? metadata(record) : null;
+      return record ? await metadata(record) : null;
     },
     /** Resolve the active generation for local publication use only. The
      * plaintext exists inside the action callback and is zeroized after. */
@@ -244,15 +332,47 @@ export async function createCommunityMediaStorage(
     > {
       assert(!disposed);
       await input.lease.assertHeld();
-      if (!(await active())) return { state: "missing" };
-      return api.useToken(async (token) => {
-        const outcome = await checkPinListAccess(token, send);
-        return outcome.state === "ok"
-          ? { state: "ok" as const, pinCount: outcome.pinCount }
-          : outcome.state === "declined"
+      const record = await active();
+      if (!record) return { state: "missing" };
+      const outcome = await api.useToken(async (token) => {
+        const probe = await checkPinListAccess(token, send);
+        return probe.state === "ok"
+          ? {
+              state: "ok" as const,
+              pinCount: probe.pinCount,
+              responseSha256: probe.responseSha256 as string,
+            }
+          : probe.state === "declined"
             ? { state: "declined" as const }
             : { state: "unavailable" as const };
       });
+      // The observation is durable: after a restart the display still knows
+      // the stored credential was declined or unverifiable, rather than
+      // reverting to a bare saved appearance.
+      const sequence = ((await observations()).pop() ?? 0) + 1;
+      await immutableRecord(
+        input.directory,
+        evidenceId(CREDENTIAL_ID) + "-observation-" + sequence,
+        {
+          schema: "pirate.community-media-observation/1",
+          generation: record.generation,
+          sequence,
+          outcome: outcome.state === "ok" ? "ok" : outcome.state,
+          ...(outcome.state === "ok"
+            ? {
+                pinCount: outcome.pinCount,
+                responseSha256: outcome.responseSha256,
+              }
+            : {}),
+          checkedAt: now(),
+        } satisfies ObservationRecord,
+        input.lease,
+      );
+      return outcome.state === "ok"
+        ? { state: "ok", pinCount: outcome.pinCount }
+        : outcome.state === "declined"
+          ? { state: "declined" }
+          : { state: "unavailable" };
     },
     /** Current active generation number, for journal binding without any
      * secret material. Null before the first committed generation. */

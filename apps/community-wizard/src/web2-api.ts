@@ -17,7 +17,10 @@ export type Web2Action =
   | "publishing-reconcile"
   | "installation-prepare"
   | "install"
-  | "installation-status";
+  | "installation-status"
+  | "storage-save"
+  | "storage-check"
+  | "storage-reconcile";
 const actions: readonly string[] = [
   "prepare",
   "resume-prepare",
@@ -31,6 +34,9 @@ const actions: readonly string[] = [
   "installation-prepare",
   "install",
   "installation-status",
+  "storage-save",
+  "storage-check",
+  "storage-reconcile",
 ];
 const record = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);

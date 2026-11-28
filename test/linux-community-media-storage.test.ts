@@ -115,16 +115,19 @@ test(
     assert.deepEqual(await storage.checkAndSave({
       requestId: "a".repeat(32),
       token: "token-refused",
+      baseGeneration: null,
     }), { state: "declined" });
     assert.equal(await storage.status(), null);
     assert.equal((await readdir(join(root, "vault"))).length, 0);
 
     // Genuine save: probe passed first, generation one committed.
+    const probesBefore = calls.length;
     const first = await storage.checkAndSave({
       requestId: "b".repeat(32),
       token: "token-alpha",
+      baseGeneration: null,
     });
-    assert.deepEqual(first, { state: "saved", generation: 1 });
+    assert.deepEqual(first, { state: "saved", generation: 1, recovered: false });
     const status = await storage.status();
     assert.equal(status?.generation, 1);
     assert.equal(status?.check.pinCount, 3);
@@ -153,9 +156,42 @@ test(
       { state: "not-saved" },
     );
 
+    // The acceptance case: the same save request repeated after a lost reply
+    // recovers the original generation without probing again and without
+    // committing a second generation.
+    assert.deepEqual(
+      await storage.checkAndSave({
+        requestId: "b".repeat(32),
+        token: "token-alpha",
+        baseGeneration: null,
+      }),
+      { state: "saved", generation: 1, recovered: true },
+    );
+    assert.equal(
+      calls.length,
+      probesBefore + 1,
+      "a repeated save must not probe the provider again",
+    );
+    assert.equal((await storage.status())?.generation, 1);
+
+    // A stale review is refused before any provider effect or write: the
+    // operator entering a replacement against generation zero when generation
+    // one is already active cannot overwrite it.
+    const callsBeforeStale = calls.length;
+    await assert.rejects(
+      storage.checkAndSave({
+        requestId: "f".repeat(32),
+        token: "token-bravo",
+        baseGeneration: null,
+      }),
+      /media_storage_generation_changed/,
+    );
+    assert.equal(calls.length, callsBeforeStale);
+    assert.equal((await storage.status())?.generation, 1);
+
     // Failed replacement: the previous generation stays active and usable.
     assert.deepEqual(
-      await storage.checkAndSave({ requestId: "d".repeat(32), token: "token-refused" }),
+      await storage.checkAndSave({ requestId: "d".repeat(32), token: "token-refused", baseGeneration: 1 }),
       { state: "declined" },
     );
     assert.equal((await storage.status())?.generation, 1);
@@ -168,8 +204,8 @@ test(
     // Successful rotation: generation two becomes active, generation one is
     // retained immutably, and the active secret switches.
     assert.deepEqual(
-      await storage.checkAndSave({ requestId: "e".repeat(32), token: "token-bravo" }),
-      { state: "saved", generation: 2 },
+      await storage.checkAndSave({ requestId: "e".repeat(32), token: "token-bravo", baseGeneration: 1 }),
+      { state: "saved", generation: 2, recovered: false },
     );
     assert.equal((await storage.status())?.generation, 2);
     assert.equal((await storage.status())?.check.pinCount, 0);

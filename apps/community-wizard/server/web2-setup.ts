@@ -624,13 +624,16 @@ export async function createWeb2Setup(
     const body = object(structuredClone(value));
     delete body.revision;
     busy = true;
+    let outcome: Record<string, unknown>;
     try {
-      const outcome = await storage.act(action, body);
+      outcome = await storage.act(action, body);
       storageCache = await storage.read();
-      return Object.assign(snapshot(), { outcome });
     } finally {
       busy = false;
     }
+    // The snapshot is composed only after busy clears: the operator must never
+    // receive a completed outcome wrapped in a still-busy view.
+    return Object.assign(snapshot(), { outcome });
   }
   return {
     snapshot,
