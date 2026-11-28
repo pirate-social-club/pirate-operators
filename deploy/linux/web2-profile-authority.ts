@@ -341,6 +341,11 @@ export async function authenticateWeb2InstallationAuthorization(
     "install_enrollment_authorization_changed",
     409,
   );
+  insist(
+    (await authority.client.getChainId()) === p.chainId,
+    "wrong_application_chain",
+    503,
+  );
   const block = await authority.client.getBlock({ blockTag: "safe" });
   const now = authority.now();
   insist(
