@@ -148,13 +148,47 @@ test("operator saves the media token, loses the reply, and recovers the same gen
     const html = await page.content();
     expect(html.includes("token-alpha")).toBe(false);
 
+    // A lost replacement reply offers recovery immediately — before any
+    // refresh — with the token input hidden, because the pending request
+    // outranks replacement mode.
+    await page.getByText("Replace or revoke this token", { exact: true }).click();
+    await page.getByRole("button", { name: "Replace token", exact: true }).click();
+    await page.getByLabel("Filebase IPFS RPC API token").fill("token-beta");
+    f.filebase.accepted.set("token-beta", 5);
+    await page.route(
+      "**/api/web2/storage-save",
+      async (route) => {
+        const fetched = route.fetch();
+        void fetched.catch(() => {});
+        await fetched;
+        await route.abort("failed");
+      },
+      { times: 1 },
+    );
+    await page.getByRole("button", { name: "Check and save replacement", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Check saved token", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Filebase IPFS RPC API token")).toHaveCount(0);
+    const replaceProbes = f.filebase.calls.filter((c) => c.path.includes("/pin/ls")).length;
+    // Reconciliation recovers the committed replacement generation and clears
+    // replacement mode: the saved step renders with no further probe.
+    await page.getByRole("button", { name: "Check saved token", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Token saved", exact: true }),
+    ).toBeVisible();
+    expect((await f.state()).mediaStorage?.generation).toBe(2);
+    expect(
+      f.filebase.calls.filter((c) => c.path.includes("/pin/ls")).length,
+    ).toBe(replaceProbes);
+
     // A declined replacement says so honestly and writes nothing.
     await page.getByText("Replace or revoke this token", { exact: true }).click();
     await page.getByRole("button", { name: "Replace token", exact: true }).click();
     await page.getByLabel("Filebase IPFS RPC API token").fill("token-refused");
     await page.getByRole("button", { name: "Check and save replacement", exact: true }).click();
     await expect(page.getByRole("alert").first()).toContainText("Filebase declined this token");
-    expect((await f.state()).mediaStorage?.generation).toBe(1);
+    expect((await f.state()).mediaStorage?.generation).toBe(2);
   } finally {
     process.chdir(previous);
     await f.close();
