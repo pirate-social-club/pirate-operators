@@ -22,8 +22,7 @@ export function Web2Wizard() {
   const [snapshot, setSnapshot] = createSignal<Web2Snapshot>(),
     [error, setError] = createSignal(""),
     [busy, setBusy] = createSignal(false);
-  const [name, setName] = createSignal(""),
-    [origin, setOrigin] = createSignal(""),
+  const 
     [controller, setController] = createSignal(""),
     [owner, setOwner] = createSignal(""),
     [invite, setInvite] = createSignal("");
@@ -163,8 +162,6 @@ export function Web2Wizard() {
               e.preventDefault();
               void perform(async () => {
                 const state = await send("prepare", {
-                  name: name(),
-                  origin: origin(),
                   controller: controller(),
                   publisher: view()!.serverPublisher?.address ?? "",
                   inviteToken: invite(),
@@ -175,27 +172,10 @@ export function Web2Wizard() {
               });
             }}
           >
-            <label>
-              Community name
-              <input
-                required
-                maxlength={63}
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
-                disabled={locked()}
-              />
-            </label>
-            <label>
-              HTTPS community origin
-              <input
-                required
-                type="url"
-                placeholder="https://community.example"
-                value={origin()}
-                onInput={(e) => setOrigin(e.currentTarget.value)}
-                disabled={locked()}
-              />
-            </label>
+            <p data-testid="enrollment-identity">
+              Community: {view()!.dns?.selection?.name ?? ""} at{" "}
+              {view()!.dns?.verifiedHostname ?? ""}
+            </p>
             <button
               type="button"
               disabled={locked()}

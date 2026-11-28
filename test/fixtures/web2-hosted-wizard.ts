@@ -81,6 +81,10 @@ export async function hostedWizardFixture(
     signingOrigin?:string;
     observeInstallationAttempts?:boolean;
     missingCustody?: boolean;
+    /** False where the test drives DNS verification through the real browser
+     * or actions itself; the fixture pre-verifies through real HTTP otherwise
+     * so enrollment tests start from the honest precondition. */
+    preVerifyDns?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "pw2-wizard-"));
@@ -369,8 +373,13 @@ export async function hostedWizardFixture(
         pins["bafybeig" + String(i).padStart(40, "0")] = { Type: "recursive" };
       return new Response(JSON.stringify({ Keys: pins }), { status: 200 });
     };
+    // The community identity the fixture proves through real DNS verification:
+    // preparation derives name and origin from that proof, so these exist only
+    // for assertions and for the pre-verified selection.
+    const communityName = "Wizard Garden";
+    const communityHostname = "wizard-community.example";
     const prepareInput = {
-      name:"Wizard Garden",origin:"https://wizard-community.example",controller,
+      controller,
       publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
     };
     let installationAttempts=0;
@@ -400,7 +409,7 @@ export async function hostedWizardFixture(
       },
     };
     if(options.sameRecipient) {
-      const selected={name:prepareInput.name,origin:prepareInput.origin,controller,publisher:controller};
+      const selected={name:communityName,origin:"https://"+communityHostname,controller,publisher:controller};
       const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
       await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
       const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken);
@@ -413,6 +422,7 @@ export async function hostedWizardFixture(
         enrollment:await oldClient.status(prepared,proof),phase:"funded"});
       await save();
     }
+    let dnsVerified = false;
     const dnsAnswers = {
       txt: new Map<string, string[]>(),
       a: new Map<string, string[]>(),
@@ -448,6 +458,9 @@ export async function hostedWizardFixture(
       inputs.dns = await createWeb2DnsSetup({
         directory: join(directory, "dns-journal"),
         resolver: dnsResolver,
+        // TEST-NET-3 documentation range: a stand-in for the public address
+        // the packaged deployment will supply, never a real host.
+        serverIpv4: "203.0.113.10",
       });
       setup = await createWeb2Setup(directory, inputs);
       server = createWizardServer(
@@ -471,6 +484,48 @@ export async function hostedWizardFixture(
       origin =
         "http://127.0.0.1:" + (server.address() as { port: number }).port;
       origins.push(origin);
+      if (options.preVerifyDns !== false && !dnsVerified) {
+        // Self-contained plain HTTP: raw() is declared later in fixture setup
+        // order, so the pre-verification cannot use it. Same real server
+        // surface, same cookie, origin and CSRF requirements.
+        const act = async (action: string, payload: object) => {
+          const stateResponse = await fetch(origin + "/api/web2/state", {
+            headers: { cookie: "wizard_fixture=paired" },
+          });
+          const stateBody = (await stateResponse.json()) as { csrf: string };
+          const response = await fetch(origin + "/api/web2/" + action, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              cookie: "wizard_fixture=paired",
+              origin,
+              "x-wizard-token": stateBody.csrf,
+            },
+            body: JSON.stringify(payload),
+          });
+          if (response.status !== 200)
+            throw Error("fixture " + action + " failed: " + response.status);
+          return (await response.json()) as {
+            view: {
+              dns: {
+                challenge: { txtName: string; value: string } | null;
+                control: string;
+              };
+            };
+          };
+        };
+        const selected = await act("dns-select", {
+          name: communityName,
+          hostname: communityHostname,
+        });
+        dnsAnswers.txt.set(selected.view.dns.challenge!.txtName, [
+          selected.view.dns.challenge!.value,
+        ]);
+        const checked = await act("dns-check", {});
+        if (checked.view.dns.control !== "verified")
+          throw Error("fixture dns verification did not verify");
+        dnsVerified = true;
+      }
       await recordNative("running");
     };
     await start();
@@ -595,6 +650,8 @@ export async function hostedWizardFixture(
       dnsAnswers,
       inviteToken,
       prepareInput,
+      communityName,
+      communityHostname,
       raw,
       state,
       post,

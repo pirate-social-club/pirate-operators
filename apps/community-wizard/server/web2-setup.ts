@@ -311,7 +311,13 @@ export async function createWeb2Setup(
           "web2_prepare_required",
           409,
         );
-        Object.assign(body, journal.request, {
+        // Only the operator-supplied roles carry forward: the community name
+        // and origin are never body input anymore. Preparation re-derives them
+        // from the DNS proof, and the original-selection consistency check
+        // below refuses any drift from the journaled request.
+        Object.assign(body, {
+          controller: journal.request.controller,
+          publisher: journal.request.publisher,
           inviteToken: journal.invitationRefused
             ? body.inviteToken
             : journal.inviteToken,
@@ -323,19 +329,27 @@ export async function createWeb2Setup(
       }
       if (action === "prepare") {
         exact(body, [
-          "name",
-          "origin",
           "controller",
           "publisher",
           "inviteToken",
           "noticeAccepted",
         ]);
         insist(body.noticeAccepted === true, "pilot_notice_required", 409);
-        const name = text(body.name, 63);
-        insist(!/[<>\x00-\x1f]/.test(name), "invalid_community_name");
+        // The community name and origin are never operator-typed at this
+        // step: preparation consumes the DNS-proven selection, so the
+        // enrollment can only ever be prepared for the hostname the operator
+        // actually proved control of. The same origin is what the signing
+        // window shows and what the registrar's installed-site check reads.
+        insist(input.dns, "web2_dns_unavailable", 503);
+        const dnsState = input.dns.snapshot();
+        insist(
+          dnsState.verifiedHostname !== null && dnsState.selection !== null,
+          "web2_dns_control_required",
+          409,
+        );
         const selected: SelectionInput = {
-          name,
-          origin: httpsOrigin(body.origin),
+          name: dnsState.selection.name,
+          origin: httpsOrigin(`https://${dnsState.verifiedHostname}`),
           controller: inputAddress(body.controller, "controller"),
           publisher: inputAddress(body.publisher, "publisher"),
         };

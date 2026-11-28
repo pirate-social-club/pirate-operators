@@ -71,12 +71,17 @@ export interface DnsView {
   verifiedHostname: string | null;
   routing: "unchecked" | "answers" | "absent" | "unavailable";
   routingAddresses: string[];
+  /** The routing target the A record must point at, supplied by the packaged
+   * deployment. Null means this installation does not know its public
+   * address, and the screen must say so rather than invent one. */
+  serverIpv4: string | null;
 }
 
 export async function createWeb2DnsSetup(input: {
   directory: string;
   resolver?: DnsResolver;
   now?: () => number;
+  serverIpv4?: string;
 }) {
   const resolver = input.resolver ?? defaultResolver;
   const now = input.now ?? (() => Date.now());
@@ -168,6 +173,7 @@ export async function createWeb2DnsSetup(input: {
         control() === "verified" ? state.selection!.hostname : null,
       routing: state.routingObservation?.outcome ?? "unchecked",
       routingAddresses: state.routingObservation?.addresses ?? [],
+      serverIpv4: input.serverIpv4 ?? null,
     };
   }
 
@@ -177,7 +183,10 @@ export async function createWeb2DnsSetup(input: {
     const hostname = normalizeHostname(body.hostname);
     insist(hostname !== null, "hostname_invalid", 400);
     const changed = state.selection?.hostname !== hostname;
-    state = {
+    // The in-memory state is published only after persistence succeeds: a
+    // failed write must never leave the running wizard displaying state the
+    // disk does not hold, because a restart would silently rewrite history.
+    const next: DnsJournal = {
       ...state,
       revision: state.revision + 1,
       selection: { name: body.name.trim(), hostname },
@@ -186,7 +195,8 @@ export async function createWeb2DnsSetup(input: {
       controlObservation: changed ? null : state.controlObservation,
       routingObservation: changed ? null : state.routingObservation,
     };
-    await persist(state);
+    await persist(next);
+    state = next;
     return snapshot();
   }
 
@@ -196,31 +206,42 @@ export async function createWeb2DnsSetup(input: {
     // An expired challenge can never verify: renew before any observation so
     // the operator is told to copy the new value rather than chase a dead one.
     if (at >= state.challenge.expiresAt) {
-      state = {
+      const next: DnsJournal = {
         ...state,
         revision: state.revision + 1,
         challenge: freshChallenge(),
         proof: null,
         controlObservation: { at, outcome: "expired" },
       };
-      await persist(state);
+      await persist(next);
+      state = next;
       return snapshot();
     }
     const hostname = state.selection.hostname;
     // Routing observation is independent: its failure must never mask the
     // control outcome and vice versa.
-    let routingOutcome: "answers" | "absent" | "unavailable" = "absent";
-    let addresses: string[] = [];
-    try {
-      const [v4, v6] = await Promise.all([
-        resolver.resolve4(hostname).catch(() => [] as string[]),
-        resolver.resolve6(hostname).catch(() => [] as string[]),
-      ]);
-      addresses = [...v4, ...v6];
-      routingOutcome = addresses.length > 0 ? "answers" : "absent";
-    } catch {
-      routingOutcome = "unavailable";
-    }
+    const empty = (error: unknown) => {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      return code === "ENOTFOUND" || code === "ENODATA";
+    };
+    const attempt = async (lookup: () => Promise<string[]>) => {
+      try {
+        return { records: await lookup(), outage: false };
+      } catch (error) {
+        return { records: [] as string[], outage: !empty(error) };
+      }
+    };
+    const [v4, v6] = await Promise.all([
+      attempt(() => resolver.resolve4(hostname)),
+      attempt(() => resolver.resolve6(hostname)),
+    ]);
+    const addresses = [...v4.records, ...v6.records];
+    const routingOutcome: "answers" | "absent" | "unavailable" =
+      addresses.length > 0
+        ? "answers"
+        : v4.outage || v6.outage
+          ? "unavailable"
+          : "absent";
     let outcome: "verified" | "mismatch" | "unanswered" | "unavailable";
     let records: string[] = [];
     try {
@@ -239,18 +260,35 @@ export async function createWeb2DnsSetup(input: {
       outcome =
         code === "ENOTFOUND" || code === "ENODATA" ? "unanswered" : "unavailable";
     }
+    // Time is sampled again after resolution: a code that expired while the
+    // resolver was being asked can never accept a verification.
+    const answeredAt = now();
+    if (answeredAt >= state.challenge.expiresAt) {
+      const next: DnsJournal = {
+        ...state,
+        revision: state.revision + 1,
+        challenge: freshChallenge(),
+        proof: null,
+        controlObservation: { at: answeredAt, outcome: "expired" },
+        routingObservation: { at: answeredAt, outcome: routingOutcome, addresses },
+      };
+      await persist(next);
+      state = next;
+      return snapshot();
+    }
     const proof =
       outcome === "verified"
         ? { hostname, value: state.challenge.value, verifiedAt: at }
         : null;
-    state = {
+    const next: DnsJournal = {
       ...state,
       revision: state.revision + 1,
       proof: outcome === "verified" ? proof : state.proof?.hostname === hostname && state.challenge.value === state.proof.value ? state.proof : null,
       controlObservation: { at, outcome },
       routingObservation: { at, outcome: routingOutcome, addresses },
     };
-    await persist(state);
+    await persist(next);
+    state = next;
     return snapshot();
   }
 

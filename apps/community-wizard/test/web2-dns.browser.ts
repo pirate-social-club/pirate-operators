@@ -16,7 +16,7 @@ test("operator proves DNS control before enrollment, then saves storage with los
   const previous = process.cwd();
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin = "https://signing.fixture.example";
-  const f = await hostedWizardFixture({ signingOrigin });
+  const f = await hostedWizardFixture({ signingOrigin, preVerifyDns: false });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -79,6 +79,7 @@ test("operator proves DNS control before enrollment, then saves storage with los
       page.getByText("The TXT record confirms you control songs.example.com."),
     ).toBeVisible();
     await page.getByTestId("dns-routing").getByText("Route traffic").click();
+    await expect(page.getByLabel("server IPv4 address")).toHaveValue("203.0.113.10");
 
     // Storage is now visible — still before any wallet or enrollment.
     await expect(

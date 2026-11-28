@@ -234,6 +234,17 @@ export function Web2DnsSection(props: {
             Add an A record at {dns()!.selection!.hostname}. Set TTL to 300
             seconds and the proxy to DNS only.
           </p>
+          <Show
+            when={dns()!.serverIpv4}
+            fallback={
+              <p>
+                This installation does not know its public IPv4 address. Point
+                the A record at the public address of this VPS.
+              </p>
+            }
+          >
+            {(ip) => <CopyField value={ip()} label="server IPv4 address" />}
+          </Show>
           <p>
             Routing status:{" "}
             {dns()!.routing === "answers"

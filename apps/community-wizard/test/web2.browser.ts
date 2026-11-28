@@ -13,7 +13,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
   // The real native chain fixture consumes repository-owned compiled artifacts.
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin="https://signing.fixture.example";
-  const f = await hostedWizardFixture({ publishing: true, signingOrigin });
+  const f = await hostedWizardFixture({ publishing: true, signingOrigin, preVerifyDns: false });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -74,10 +74,22 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await expect(
       page.getByRole("heading", { name: "Set up your HTTPS community" }),
     ).toBeVisible();
-    await page
-      .getByLabel("Community name", { exact: true })
-      .fill(f.prepareInput.name);
-    await page.getByLabel("HTTPS community origin").fill(f.prepareInput.origin);
+
+    // DNS verification is the enrollment precondition: the operator proves
+    // control of the community hostname first, and preparation consumes that
+    // proof server-side rather than any typed-in origin.
+    const verifyDns = async () => {
+      const dnsSection = page.getByTestId("dns-section");
+      await dnsSection.getByLabel("Community name", { exact: true }).fill(f.communityName);
+      await dnsSection.getByLabel("Community web address", { exact: true }).fill(f.communityHostname);
+      await page.getByRole("button", { name: "Show DNS records", exact: true }).click();
+      const txtName = await page.getByLabel("TXT record name").inputValue();
+      const txtValue = await page.getByLabel("TXT value").inputValue();
+      f.dnsAnswers.txt.set(txtName, [txtValue]);
+      await page.getByRole("button", { name: "Check the TXT record", exact: true }).click();
+      await expect(page.getByTestId("dns-verified")).toBeVisible();
+    };
+    await verifyDns();
     await initiateWindow("Connect MOSS");
     await expect(page.getByLabel("Owner wallet", {exact:true})).toHaveValue(f.prepareInput.controller);
     await page.getByLabel("Owner wallet", {exact:true}).fill(f.nominatedOwner);

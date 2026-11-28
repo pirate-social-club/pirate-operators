@@ -15,7 +15,7 @@ test("operator saves the media token, loses the reply, and recovers the same gen
   const previous = process.cwd();
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin = "https://signing.fixture.example";
-  const f = await hostedWizardFixture({ signingOrigin });
+  const f = await hostedWizardFixture({ signingOrigin, preVerifyDns: false });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -74,15 +74,25 @@ test("operator saves the media token, loses the reply, and recovers the same gen
     await expect(
       page.getByRole("heading", { name: "Set up your HTTPS community" }),
     ).toBeVisible();
-    // Hostname and community details first; the storage section appears only
-    // after the prepared selection exists.
+    // DNS verification comes first; storage appears once control is proven,
+    // before enrollment preparation.
     await expect(page.getByLabel("Filebase IPFS RPC API token")).toHaveCount(0);
-    // The enrollment form keeps its own copy of these fields in the interim:
-    // the DNS section above is the first-class name and hostname entry, and
-    // the sequence rebuild will have enrollment consume that selection.
-    const enrollment = page.locator("form", { hasText: "HTTPS community origin" });
-    await enrollment.getByLabel("Community name", { exact: true }).fill(f.prepareInput.name);
-    await enrollment.getByLabel("HTTPS community origin").fill(f.prepareInput.origin);
+
+    // DNS verification is the enrollment precondition: the operator proves
+    // control of the community hostname first, and preparation consumes that
+    // proof server-side rather than any typed-in origin.
+    const verifyDns = async () => {
+      const dnsSection = page.getByTestId("dns-section");
+      await dnsSection.getByLabel("Community name", { exact: true }).fill(f.communityName);
+      await dnsSection.getByLabel("Community web address", { exact: true }).fill(f.communityHostname);
+      await page.getByRole("button", { name: "Show DNS records", exact: true }).click();
+      const txtName = await page.getByLabel("TXT record name").inputValue();
+      const txtValue = await page.getByLabel("TXT value").inputValue();
+      f.dnsAnswers.txt.set(txtName, [txtValue]);
+      await page.getByRole("button", { name: "Check the TXT record", exact: true }).click();
+      await expect(page.getByTestId("dns-verified")).toBeVisible();
+    };
+    await verifyDns();
     await initiateWindow("Connect MOSS");
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
     await page.getByLabel("Pilot invitation").fill(f.inviteToken);
