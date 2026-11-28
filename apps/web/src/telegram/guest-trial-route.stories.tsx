@@ -371,12 +371,35 @@ export const ArabicLanguagePreservesPromptAndAudio: Story = {
     expect(
       prompt?.querySelector("[data-reference-audio] audio")?.getAttribute("src"),
     ).toBe(beforeAudio);
+  },
+};
+
+
+export const ConversationControlsRemainReachable: Story = {
+  render: () => renderFixture(),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await chooseMidnightWaves(canvas);
+    await submitFixtureRecording(canvas, /mismatch fixture recording/);
+    await expect(await canvas.findByText("Incorrect. Try again.")).toBeInTheDocument();
+    await userEvent.click(await canvas.findByRole("button", { name: "Menu" }));
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /\/language\s+Language/ }),
+    );
+    expect(
+      (await canvas.findByText("Language for instructions")).closest("section")
+        ?.getBoundingClientRect().height,
+    ).toBeGreaterThan(150);
     await userEvent.click(
       await canvas.findByRole("button", { name: /Pinned message\s+Songs/ }),
     );
     expect(
       (await canvas.findByRole("group", { name: "Songs" })).getBoundingClientRect().height,
     ).toBeGreaterThan(200);
+    await userEvent.click(await canvas.findByRole("button", { name: "Next (3)" }));
+    await expect(
+      await canvas.findByRole("button", { name: "Silver Rain" }),
+    ).toBeInTheDocument();
   },
 };
 
@@ -447,6 +470,25 @@ export const TestnetRewardAndUnavailableLinkingEnding: Story = {
     await expect(canvas.queryByRole("button", { name: "Connect account" })).toBeNull();
     await expect(
       canvas.getByRole("button", { name: "Choose another song" }),
+    ).toBeEnabled();
+  },
+};
+
+
+export const ReplacementAccountConfirmationView: Story = {
+  render: () => renderFixture({ account: "signed-in" }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await finishMidnightLesson(canvas, canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Connect account" }),
+    );
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Use a different account" }),
+    );
+    await expect(await canvas.findByText("0x9f03…77ad")).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Connect account" }),
     ).toBeEnabled();
   },
 };
