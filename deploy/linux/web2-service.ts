@@ -24,6 +24,10 @@ import {
   type PairedOperatorRuntime,
   type PairedOperatorInputs,
 } from "./bootstrap-local-target.ts";
+import {
+  forwardingOutput,
+  sshForwardingHint,
+} from "./operator-forwarding.ts";
 import { linuxCreateRuntimeProfileFrom } from "./create-runtime-profile.ts";
 import {
   linuxWeb2DraftFrom,
@@ -316,14 +320,15 @@ export async function runWeb2Service(configurationFile: string) {
       );
       owner = session;
       if (cancellation.signal.aborted) stop();
-      else
+      else {
+        const port = Number(new URL(session.origin).port);
         process.stdout.write(
-          "Open " +
-            session.origin +
-            "\nPrivate pairing code: " +
-            session.pairingCode +
-            "\n",
+          forwardingOutput(
+            sshForwardingHint(port, process.env),
+            session.pairingCode,
+          ),
         );
+      }
     } catch (error) {
       if (!(error instanceof Web2ServiceStartupFailure)) throw error;
       owner = error;
