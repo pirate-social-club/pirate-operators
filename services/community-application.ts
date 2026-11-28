@@ -769,11 +769,32 @@ async function communityFetchBusiness(
       },
     );
     if (release) return release;
-    const config = await configuration();
+    const readbackConfiguration = async () => {
+      try {
+        return await configuration();
+      } catch (error) {
+        if (!web2 || !env.NATIVE_APPLICATION_ORIGINAL_JSON) throw error;
+        const original = await web2ApplicationOriginal(env),
+          plan = original.record.body;
+        insist(
+          plan.enrollment.schema ===
+            "pirate.linux-web2-installation-authorization/1" &&
+            plan.draft.enrollment.operations.every(
+              (operation) =>
+                operation.kind !== "registration" ||
+                operation.state !== "consumed",
+            ),
+          "community_authority_unavailable",
+          503,
+        );
+        return plan.draft.configuration;
+      }
+    };
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-community.json"
     ) {
+      const config = await readbackConfiguration();
       const nonce = url.searchParams.get("nonce");
       if (!nonce) return reply(config);
       insist(
@@ -815,6 +836,7 @@ async function communityFetchBusiness(
         },
       });
     }
+    const config = await configuration();
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-client.json"
