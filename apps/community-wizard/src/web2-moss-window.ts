@@ -5,7 +5,7 @@ import {hashJson,canonical,insist,object,exact} from "../../../packages/communit
 import type {Address,Hex,TypedDataDefinition} from "viem";
 import type {Web2Wallet} from "../../../deploy/linux/web2-operator-inputs.ts";
 export const MOSS_WINDOW_PROTOCOL="pirate.web2-moss-window/1";
-export type SigningPurpose="connect"|"enrollment"|"owner-authorization";
+export type SigningPurpose="connect"|"enrollment"|"installation-plan"|"owner-authorization";
 export interface MossWindowRequest {
   protocol:typeof MOSS_WINDOW_PROTOCOL;kind:"request";channel:Hex;requestDigest:Hex;
   purpose:SigningPurpose;expectedController:Address|null;network:"testnet";data:unknown;
@@ -27,20 +27,22 @@ export function mossSigningOrigin(value:string) {
 }
 const enrollmentFields="enrollmentId:bytes32,inviteId:bytes32,allowanceId:bytes32,communityKey:bytes32,installationId:bytes32,controller:address,publisher:address,origin:string,configurationUri:string,registrationCommitment:bytes32,policyHash:bytes32,noticeSha256:bytes32,expiresAt:uint64";
 const ownerFields="schema:string,communityId:bytes32,ownerWallet:address,policyVersion:string,policySha256:bytes32,validFrom:uint64,expiresAt:uint64";
+const installationFields="enrollmentId:bytes32,communityId:bytes32,installationId:bytes32,generation:uint64,planId:string,durableScope:bytes32,releaseArtifactDigest:bytes32,releaseSourceDigest:bytes32,targetDigest:bytes32,hostFingerprint:string";
 export function mossSigningPurpose(data:unknown,expected:Address):Exclude<SigningPurpose,"connect"> {
   const d=object(data);exact(d,["domain","primaryType","types","message"]);
   const domain=object(d.domain),types=object(d.types),message=object(d.message);
   exact(domain,["name","version","chainId","verifyingContract"]);
   insist(domain.chainId===6343&&account(domain.verifyingContract),"web2_wallet_request_invalid");
-  const enrollment=d.primaryType==="HostedEnrollment",owner=d.primaryType==="OwnerPublishingAuthorization";
+  const enrollment=d.primaryType==="HostedEnrollment",installation=d.primaryType==="InstallationPlan",owner=d.primaryType==="OwnerPublishingAuthorization";
   insist((enrollment&&domain.name==="Pirate Hosted Enrollment"&&domain.version==="1") ||
+    (installation&&domain.name==="Pirate Web2 Installation Plan"&&domain.version==="1") ||
     (owner&&domain.name==="Pirate Owner Publishing Authorization"&&domain.version==="2"),"web2_wallet_signing_purpose_invalid");
   exact(types,[String(d.primaryType)]);
-  const fields=(enrollment?enrollmentFields:ownerFields).split(",").map(field=>{const [name,type]=field.split(":");return {name,type};});
+  const fields=(enrollment?enrollmentFields:installation?installationFields:ownerFields).split(",").map(field=>{const [name,type]=field.split(":");return {name,type};});
   insist(canonical(types[String(d.primaryType)])===canonical(fields),"web2_wallet_request_invalid");
   exact(message,fields.map(f=>f.name!));
-  insist(enrollment ? message.controller===expected : message.schema==="pirate.owner-publishing-authorization/2","web2_wallet_request_invalid");
-  return enrollment ? "enrollment" : "owner-authorization";
+  insist(enrollment ? message.controller===expected : installation ? true : message.schema==="pirate.owner-publishing-authorization/2","web2_wallet_request_invalid");
+  return enrollment ? "enrollment" : installation ? "installation-plan" : "owner-authorization";
 }
 export function checkedMossWindowRequest(value:unknown,openerOrigin:string,signingOrigin:string):MossWindowRequest {
   const r=object(value);exact(r,["protocol","kind","channel","requestDigest","purpose","expectedController","network","data"]);

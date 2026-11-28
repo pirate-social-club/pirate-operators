@@ -307,7 +307,7 @@ export function Web2Wizard() {
               <button
                 disabled={locked() || !reviewed()}
                 onClick={() =>
-                  void perform(() =>
+                  void perform(async () =>
                     send("install", {
                       planId: view()!.installPlan!.planId,
                       planDigest: view()!.installPlan!.planDigest,
@@ -341,16 +341,11 @@ export function Web2Wizard() {
         >
           <h2>Community registration</h2>
           <p>
-            The registrar first verifies a fresh signed public HTTPS readback of
-            this exact installation. Only that verified original is registered;
-            a lost reply is reconciled rather than replaced.
+            Registration starts automatically after the registrar verifies a
+            fresh signed public HTTPS readback of this exact installation. Only
+            that verified original is registered; a lost reply is reconciled
+            rather than replaced.
           </p>
-          <button
-            disabled={locked()}
-            onClick={() => void perform(() => send("redeem"))}
-          >
-            Register the verified installation
-          </button>
           <button
             disabled={locked()}
             onClick={() => void perform(() => send("reconcile"))}

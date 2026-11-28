@@ -76,6 +76,7 @@ export async function hostedWizardFixture(
     signingOrigin?:string;
     observeInstallationAttempts?:boolean;
     scriptedInstallation?: boolean;
+    failFirstApply?: boolean;
     missingCustody?: boolean;
   } = {},
 ) {
@@ -354,7 +355,8 @@ export async function hostedWizardFixture(
     // or public-HTTPS evidence. Those proofs belong to the installer and VM lane.
     const scripted=()=>{
       let plan:import("../../packages/community-setup/linux-web2-profile.ts").LinuxWeb2PlanSummary|null=null,
-        running=false;
+        running=false,
+        applyFailed=!options.failFirstApply;
       return {
         async prepare(value:unknown) {
           const draft=linuxWeb2DraftFrom(value),
@@ -389,6 +391,7 @@ export async function hostedWizardFixture(
         },
         async apply(selection:{planId:string;planDigest:string}) {
           if(!plan||selection.planId!==plan.planId||selection.planDigest!==plan.planDigest)throw Error("scripted installation selection changed");
+          if(!applyFailed){applyFailed=true;throw Error("scripted installation apply interrupted");}
           running=true;
           return {...selection,installationId:plan.installationId,state:"running" as const};
         },

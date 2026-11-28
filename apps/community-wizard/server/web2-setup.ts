@@ -530,8 +530,13 @@ export async function createWeb2Setup(
         journal.pending = action;
         journal.phase = "pending";
         await save();
+        const reconcileFirstRegistration =
+          action === "reconcile" &&
+          journal.observation?.state === "running" &&
+          journal.installationCommitment !== null &&
+          !journal.enrollment?.operations.some((op) => op.kind === "registration");
         journal.enrollment =
-          action === "redeem"
+          action === "redeem" || reconcileFirstRegistration
             ? await client.redeem(
                 journal.prepared,
                 journal.controllerSignature,
@@ -634,6 +639,10 @@ export async function createWeb2Setup(
               409,
             );
           journal.installationCommitment = candidate;
+          // The operator's approval is part of the pre-effect original. It must
+          // be durable before Docker/launcher effects, so a restart during apply
+          // reconciles this same installation instead of requesting a new review.
+          await save();
         }
         if (action !== "installation-prepare") {
           const observation =
@@ -644,6 +653,29 @@ export async function createWeb2Setup(
           journal.observation = observation;
           journal.phase =
             observation.state === "running" ? "running" : "pending";
+          if (
+            observation.state === "running" &&
+            !journal.enrollment?.operations.some(
+              (op) => op.kind === "registration",
+            )
+          ) {
+            insist(
+              journal.prepared &&
+                journal.controllerSignature &&
+                journal.installationCommitment !== null,
+              "web2_installation_commitment_required",
+              409,
+            );
+            journal.revision++;
+            journal.pending = "redeem";
+            await save();
+            journal.enrollment = await client.redeem(
+              journal.prepared,
+              journal.controllerSignature,
+              journal.installationCommitment,
+            );
+            journal.phase = "running";
+          }
         }
       } else insist(false, "unknown_web2_action", 404);
       journal.pending = null;

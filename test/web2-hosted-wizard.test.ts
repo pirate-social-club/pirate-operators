@@ -44,10 +44,10 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     assert(view.challenge);
     view = await f.send("authorize", { signature: await f.sign(view.challenge) });
     assert.equal(view.controllerAuthorized, true);
-    view = await f.install();
     f.dropRedeemReply();
-    view = await f.send("redeem", {});
+    view = await f.install();
     assert.equal(view.phase, "unknown");
+    assert.equal(f.broadcasts(), 1);
     const identity = view.selection;
     const legacy = JSON.parse(await readFile(f.journal, "utf8"));
     legacy.inviteToken = "ab".repeat(32);
@@ -135,6 +135,48 @@ test("the Wizard gates registration on a running installation and publishing on 
   }
 });
 
+
+test("an interrupted install restart reuses the retained installation approval for the same plan", async () => {
+  const f = await hostedWizardFixture({
+    scriptedInstallation: true,
+    failFirstApply: true,
+  });
+  try {
+    let view = await f.send("prepare", f.prepareInput);
+    view = await f.send("authorize", { signature: await f.sign(view.challenge) });
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    const installationSignature = await f.sign(view.installationChallenge);
+    const interrupted = await f.post("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+      installationSignature,
+    });
+    assert.equal(interrupted.status, 502);
+    await f.restart();
+    const retained = JSON.parse(await readFile(f.journal, "utf8"));
+    assert.equal(retained.pending, "install");
+    assert.equal(
+      retained.installationCommitment.controllerSignature,
+      installationSignature,
+    );
+    assert.equal(retained.observation, null);
+    view = await f.send("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+    });
+    assert.equal(view.observation?.state, "running");
+    assert.equal(f.broadcasts(), 1);
+    const after = JSON.parse(await readFile(f.journal, "utf8"));
+    assert.deepEqual(after.installationCommitment, retained.installationCommitment);
+  } finally {
+    await f.close();
+  }
+});
+
 test("unknown preparation resumes after reconstruction using the retained original community", async () => {
   const f = await hostedWizardFixture();
   try {
@@ -187,13 +229,24 @@ test("unexpected invitation input is refused and a wrong signature can be correc
       view.challenge as ReturnType<typeof enrollmentTypedData>,
     );
     view = await f.send("authorize", { signature: wrong });
-    view = await f.install();
-    const denied = await f.post("redeem", {});
+    view = await f.send("installation-prepare", {});
+    const plan = view.installPlan;
+    assert(plan);
+    const denied = await f.post("install", {
+      planId: plan.planId,
+      planDigest: plan.planDigest,
+      approved: true,
+      installationSignature: await f.sign(view.installationChallenge),
+    });
     assert.equal(denied.status, 409);
     assert.equal(denied.body.code, "hosted_authorization_refused");
     assert.equal((await f.state()).controllerAuthorized, false);
     assert.equal(f.broadcasts(), 0);
-    view = await f.send("redeem", { signature: await f.sign(view.challenge) });
+    view = await f.send("authorize", {
+      signature: await f.sign(view.challenge),
+    });
+    view = await f.send("installation-status", {});
+    assert.equal(f.broadcasts(), 1);
     await f.mine();
     view = await f.send("reconcile", {});
     assert.equal(view.enrollment?.operations[0]?.state, "consumed");

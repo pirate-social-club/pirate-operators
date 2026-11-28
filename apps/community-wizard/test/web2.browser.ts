@@ -100,14 +100,16 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
     await page.getByRole("button", { name: "Review Linux installation" }).click();
     await expect(page.getByText("using the authorized controller and publisher", { exact: false })).toBeVisible();
     await page.getByLabel("I reviewed this installation on the selected host.").check();
-    await page.getByRole("button", { name: "Install reviewed community" }).click();
-    await expect(
-      page.getByRole("button", { name: "Register the verified installation", exact: true }),
-    ).toBeEnabled();
     const broadcastsBeforeRegistration = f.broadcasts();
-    await page.getByRole("button", { name: "Register the verified installation", exact: true }).click();
+    f.dropRedeemReply();
+    await initiateWindow("Install reviewed community");
     await expect.poll(() => f.broadcasts()).toBe(broadcastsBeforeRegistration + 1);
+    await expect.poll(async () => (await f.state()).busy).toBe(false);
     await f.mine();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Set up your HTTPS community" }),
+    ).toBeVisible();
     await page
       .getByRole("button", { name: "Reconcile original enrollment" })
       .first()
@@ -121,6 +123,8 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
     await expect(
       page.getByRole("button", {name:"Review owner publishing"}),
     ).toBeVisible();
+    await page.getByLabel("Nominated owner wallet", {exact:true}).fill(f.nominatedOwner);
+    await page.getByLabel("I reviewed the controller, owner and server publisher for publishing").check();
     await page.getByRole("button", {name:"Review owner publishing"}).click();
     await expect(page.getByText(f.nominatedOwner, {exact:false}).first()).toBeVisible();
     await page.getByLabel("I reviewed the owner policy, window, destination and every service limit").check();
@@ -137,7 +141,7 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
     await expect(page.getByText("Publishing grant attached",{exact:true})).toBeVisible();
     expect(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted).toEqual(acceptedBefore);
     expect(f.attachmentEffects()).toBe(1);
-    expect(signedTypes).toEqual(["HostedEnrollment","HostedEnrollment","HostedEnrollment","OwnerPublishingAuthorization"]);
+    expect(signedTypes).toEqual(["HostedEnrollment","HostedEnrollment","HostedEnrollment","InstallationPlan","OwnerPublishingAuthorization"]);
     const before = f.broadcasts();
     await page.reload();
     await expect(
@@ -190,7 +194,7 @@ test("actual hosted Web2 enrollment installs before registration and resumes in 
       ),
     ).toBe(false);
     await page.screenshot({
-      path: info.outputPath("web2-funded-installer-unavailable.png"),
+      path: info.outputPath("web2-automatic-registration.png"),
       fullPage: true,
     });
     await info.attach("public-enrollment.json", {
