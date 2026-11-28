@@ -4,17 +4,20 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { expectLearningActivityFrameGeometry } from "../test-support/activity-frame-geometry.ts";
 
 import { StudyingRouteView } from "./studying-route-view";
-import { StudyLoading } from "./screen.tsx";
+import { StudyLoading, StudyScreen } from "./screen.tsx";
 import {
   createAuthRequiredClient,
-  createFailingClient,
+  createRecoveringLoadClient,
   createStoryLessonClient,
   createStoryRecorder,
-  storyCorrectAttempt,
-  storyLessonPayload,
   storyPostId,
-  storyWrongAttempt,
 } from "./studying-story-fixtures";
+import {
+  createMountedStudyFixture,
+  mountedStudyAccount,
+  mountedStudyPostId,
+  type MountedStudyFixtureOptions,
+} from "./studying-mounted-story-fixtures.ts";
 
 const meta = {
   title: "Studying/Screens/Route",
@@ -25,8 +28,9 @@ const meta = {
     docs: {
       description: {
         component:
-          "The studying route driven through its injected seams: a mocked lesson client and a fake recorder. " +
-          "No network or microphone: answers wait for the injected grading response, retain feedback, and advance only through explicit Next.",
+          "The studying screen and its lower-level route seam. Primary lesson, completion and recovery stories mount " +
+          "StudyScreen through the production operator adapter and a server-shaped spoken lesson fixture; narrow " +
+          "loading, auth and in-flight seam states keep an injected route client. No network or microphone is used.",
       },
     },
   },
@@ -35,56 +39,102 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+type Canvas = ReturnType<typeof within>;
 
 const noop = () => {};
+
+function mountedStudy(options: MountedStudyFixtureOptions = {}) {
+  return () => {
+    const fixture = createMountedStudyFixture(options);
+    return (
+      <StudyScreen
+        account={mountedStudyAccount}
+        client={fixture.client}
+        lessonId={fixture.initialLessonId}
+        onExit={noop}
+        postId={mountedStudyPostId}
+        recorder={createStoryRecorder()}
+      />
+    );
+  };
+}
+
+async function submitSpoken(canvas: Canvas) {
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "Record" }),
+  );
+  await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
+}
+
+async function expectResults(canvasElement: HTMLElement, score: string) {
+  await waitFor(() =>
+    expect(
+      canvasElement.querySelector("[data-activity-results]"),
+    ).not.toBeNull(),
+  );
+  const results = canvasElement.querySelector("[data-activity-results]");
+  await expect(results).toHaveTextContent(score);
+  await expect(results).toHaveTextContent("Correct");
+  await expect(results).toHaveTextContent("Missed");
+  expect(canvasElement.textContent).not.toContain("day streak");
+  expect(canvasElement.textContent).not.toContain("$MOON");
+}
+
 export const LessonFlow: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient()}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
+  render: mountedStudy(),
   parameters: {
     docs: {
       description: {
         story:
-          "Happy path: record the say-it-back card (Stop submits a correct attempt and the server advances to its current card), then answer the multiple-choice card, inspect feedback and press Next to reach streak-qualified completion.",
+          "Production-shaped spoken lesson through the mounted StudyScreen: four server-owned cards, one first-pass miss returning later, and completion at the real 3/4 score. There is no translation card, reward badge or streak page.",
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await submitSpoken(canvas);
+    await canvas.findByText("La luna sigue brillando sobre el mar");
+
+    await submitSpoken(canvas);
+    await canvas.findByText("Incorrect");
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Continue" }),
+    );
+    await canvas.findByText("Cada palabra vuelve a su lugar");
+
+    await submitSpoken(canvas);
+    await canvas.findByText("Cantamos hasta ver salir el sol");
+
+    await submitSpoken(canvas);
+    await canvas.findByText("La luna sigue brillando sobre el mar");
+
+    await submitSpoken(canvas);
+    await expectResults(canvasElement, "3/4");
+    await expect(
+      canvas.getByRole("button", { name: "Continue" }),
+    ).toBeEnabled();
+    await expect(
+      canvas.getByRole("button", { name: "Study again" }),
+    ).toBeEnabled();
   },
 };
 
 export const RecordingOutcomeUnknown: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient({
-        loadLesson: async () => ({
-          ...storyLessonPayload,
-          spoken_submission: {
-            state: "provider_outcome_unknown",
-            session_item_id: "ex-say-1",
-            attempt_number: 1,
-            next_action: "operator_review",
-          },
-        }),
-      })}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
+  render: mountedStudy({ unresolvedRecording: true }),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "The upload outcome is unknown after the provider may have accepted it. The mounted screen blocks the old lesson, then New lesson reaches a fresh spoken card.",
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await submitSpoken(canvas);
     await expect(
-      await canvas.findByRole("button", { name: "New lesson" }),
-    ).toBeEnabled();
-    await expect(canvas.getByRole("button", { name: "Exit study" })).toBeEnabled();
-    await expect(
-      canvas.getByRole("heading", { name: "Couldn't get your result" }),
+      await canvas.findByRole("heading", { name: "Couldn't get your result" }),
     ).toBeInTheDocument();
     await expect(
       canvas.getByText("This lesson can't continue. Start a new one."),
@@ -92,89 +142,85 @@ export const RecordingOutcomeUnknown: Story = {
     await expect(canvas.getByRole("alert")).toHaveTextContent(
       "Couldn't get your result",
     );
-    await expect(
-      canvas.queryByRole("button", { name: "Recording paused" }),
-    ).toBeNull();
-    await expect(canvas.queryByRole("button", { name: "Leave Study" })).toBeNull();
     await expectLearningActivityFrameGeometry(canvasElement);
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "New lesson" }),
+    );
+    await expect(
+      await canvas.findByRole("button", { name: "Record" }),
+    ).toBeEnabled();
+    await expect(
+      canvas.queryByRole("heading", { name: "Couldn't get your result" }),
+    ).toBeNull();
+    await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
   },
 };
 
 export const ExpiredLesson: Story = {
   name: "Lesson ended",
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient({
-        loadLesson: async () => ({
-          ...storyLessonPayload,
-          expired: true,
-          resolved_count: 2,
-          served_count: 4,
-          exercises: [],
-        }),
-      })}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(
-      await canvas.findByRole("heading", { name: "This lesson has ended" }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByText("You finished 2 of 4 cards."),
-    ).toBeInTheDocument();
-    await expect(canvas.queryByRole("button", { name: "Record" })).toBeNull();
-    await expect(
-      canvas.getByRole("button", { name: "New lesson" }),
-    ).toBeEnabled();
-    await expectLearningActivityFrameGeometry(canvasElement);
-  },
-};
-
-export const MissedAttempts: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient({
-        submitAttempt: async (input) => storyWrongAttempt(input),
-      })}
-      onExit={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
+  render: mountedStudy({
+    closeOnOpen: true,
+    resolvedBefore: 1,
+    firstPassCorrectBefore: 1,
+  }),
   parameters: {
     docs: {
       description: {
         story:
-          "Every attempt misses: each graded spoken presentation is spent server-side, so the miss reveals the transcript feedback and Continue moves to the server's next card; the missed line returns later in the lesson.",
+          "The real in-flight closure race: the learner opens a lesson with one card finished, submits after its legacy deadline closes it, sees the ended warning, then starts a fresh spoken lesson.",
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await canvas.findByText("La luna sigue brillando sobre el mar");
+    await submitSpoken(canvas);
+    await expect(
+      await canvas.findByRole("heading", { name: "This lesson has ended" }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getByText("You finished 1 of 4 cards."),
+    ).toBeInTheDocument();
+    await expect(canvas.queryByRole("button", { name: "Record" })).toBeNull();
+    await expectLearningActivityFrameGeometry(canvasElement);
 
     await userEvent.click(
+      canvas.getByRole("button", { name: "New lesson" }),
+    );
+    await expect(
       await canvas.findByRole("button", { name: "Record" }),
-    );
-
-    // The miss is final for this appearance: feedback, then Continue.
-    await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
-    await expect(await canvas.findByText(/Incorrect/)).toBeInTheDocument();
-    await expect(await canvas.findByText(/You said:/)).toBeInTheDocument();
+    ).toBeEnabled();
     await expect(
-      await canvas.findByRole("button", { name: "Continue" }),
-    ).toBeInTheDocument();
+      canvas.queryByRole("heading", { name: "This lesson has ended" }),
+    ).toBeNull();
+    await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
+  },
+};
 
+export const MissedAttempts: Story = {
+  render: mountedStudy({ resolvedBefore: 1, firstPassCorrectBefore: 1 }),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "A spoken miss is spent for this appearance. Continue takes the learner to the server's next spoken card; the missed line returns later in the same lesson.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText("La luna sigue brillando sobre el mar");
+    await submitSpoken(canvas);
+    await expect(await canvas.findByText("Incorrect")).toBeInTheDocument();
     await userEvent.click(
       await canvas.findByRole("button", { name: "Continue" }),
     );
+    await canvas.findByText("Cada palabra vuelve a su lugar");
+    await expect(canvas.queryByText("What does this line mean?")).toBeNull();
     await expect(
-      await canvas.findByText("What does this line mean?"),
-    ).toBeInTheDocument();
+      canvas.getByRole("button", { name: "Record" }),
+    ).toBeEnabled();
   },
 };
 
@@ -195,7 +241,10 @@ export const Loading: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await expectLearningActivityFrameGeometry(canvasElement, { header: false, footer: false });
+    await expectLearningActivityFrameGeometry(canvasElement, {
+      header: false,
+      footer: false,
+    });
   },
 };
 
@@ -213,12 +262,35 @@ export const MountedLoading: Story = {
 };
 
 export const LoadFailure: Story = {
-  render: () => (
-    <StudyingRouteView client={createFailingClient()} onExit={noop} postId={storyPostId} />
-  ),
+  render: () => {
+    const client = createRecoveringLoadClient();
+    return (
+      <StudyingRouteView
+        client={client}
+        onExit={noop}
+        postId={storyPostId}
+        recorder={createStoryRecorder()}
+      />
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "The first load fails transiently; the explicit retry must return the learner to the spoken card rather than only prove that the error button renders.",
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
-    await within(canvasElement).findByRole("button", { name: "Try Again" });
-    await expectLearningActivityFrameGeometry(canvasElement);
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Try Again" }),
+    );
+    await expect(
+      await canvas.findByRole("button", { name: "Record" }),
+    ).toBeEnabled();
+    await expect(canvas.queryByText("Study unavailable")).toBeNull();
+    await canvas.findByText("Yo no sé por qué te fuiste tan temprano");
   },
 };
 
@@ -286,106 +358,27 @@ export const Grading: Story = {
   },
 };
 
-/** The server completed the lesson and the streak qualified. */
+/** The mounted screen completes through the operator results surface. */
 export const Completion: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient()}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
+  render: mountedStudy({ resolvedBefore: 3, firstPassCorrectBefore: 2 }),
   parameters: {
     docs: {
       description: {
         story:
-          "Injected legacy client that supplies a streak directly. The production v2 results-then-streak sequence reads exact-attempt completion separately and is covered by Flows/Studying/Completion.",
+          "Final spoken answer through the real mounted completion path. The operator has no exact-lesson earned-day capability, so the results score is terminal: no streak page, qualification fixture, reward badge or translation card.",
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Record" }),
-    );
-    await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
-    // Owner correction: genuine grading feedback remains until explicit Next.
-    await userEvent.click(
-      await canvas.findByRole("button", {
-        name: "I don't know why you left so early",
-      }),
-    );
-    await expect(await canvas.findByText("Correct", { exact: true })).toBeVisible();
-    await expect(canvas.queryByText("day streak")).toBeNull();
-    await userEvent.click(await canvas.findByRole("button", { name: "Next" }));
-    await waitFor(() =>
-      expect(canvas.getByText("day streak")).toBeInTheDocument(),
-    );
-  },
-};
-
-/** The lesson completed but the daily qualification target was not met. */
-export const QualificationNotAchieved: Story = {
-  render: () => (
-    <StudyingRouteView
-      client={createStoryLessonClient({
-        submitAttempt: async (input) => {
-          const result = storyCorrectAttempt(input);
-          if (input.type !== "translation_choice") return result;
-          return {
-            ...result,
-            study_progress: {
-              current_streak: 4,
-              next_due_at: Math.floor(Date.now() / 1000) + 86_400,
-              qualified_today: false,
-              study_attempt_count: 2,
-              study_correct_count: 1,
-              study_target_count: 10,
-            },
-          };
-        },
-      })}
-      onExit={noop}
-      onStudyAgain={noop}
-      postId={storyPostId}
-      recorder={createStoryRecorder()}
-    />
-  ),
-  parameters: {
-    docs: {
-      description: {
-        story:
-          "What production shows today: the results page with accuracy and correct/missed tiles, Continue back to the song and a quiet Study again.",
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Record" }),
-    );
-    await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
-    // Feedback must be inspected before explicit Next applies server progress.
-    await userEvent.click(
-      await canvas.findByRole("button", {
-        name: "I don't know why you left so early",
-      }),
-    );
-    await expect(await canvas.findByText("Correct", { exact: true })).toBeVisible();
-    await expect(canvasElement.querySelector("[data-activity-results]")).toBeNull();
-    await userEvent.click(await canvas.findByRole("button", { name: "Next" }));
-    await waitFor(() =>
-      expect(
-        canvasElement.querySelector("[data-activity-results]"),
-      ).not.toBeNull(),
-    );
+    await canvas.findByText("Cantamos hasta ver salir el sol");
+    await submitSpoken(canvas);
+    await expectResults(canvasElement, "3/4");
     await expect(
       canvas.getByRole("button", { name: "Continue" }),
-    ).toBeInTheDocument();
+    ).toBeEnabled();
     await expect(
       canvas.getByRole("button", { name: "Study again" }),
-    ).toBeInTheDocument();
+    ).toBeEnabled();
   },
 };

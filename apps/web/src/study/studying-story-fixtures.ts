@@ -18,7 +18,7 @@ import type {
   StudyingRecorder,
 } from "./studying-route-model";
 
-export const storyPostId = "pst_study1";
+export const storyPostId = `0x${"3".repeat(64)}`;
 
 export const storySayItBackServerExercise: StudyingServerExercise = {
   id: "ex-say-1",
@@ -27,8 +27,41 @@ export const storySayItBackServerExercise: StudyingServerExercise = {
   max_attempts: 3,
   prompt_text: "Yo no sé por qué te fuiste tan temprano",
   reference_text: "Yo no sé por qué te fuiste tan temprano",
-  translation_text: "I don't know why you left so early",
 };
+
+export const storySecondSayItBackServerExercise: StudyingServerExercise = {
+  id: "ex-say-2",
+  type: "say_it_back",
+  line_index: 1,
+  max_attempts: 3,
+  prompt_text: "La luna sigue brillando sobre el mar",
+  reference_text: "La luna sigue brillando sobre el mar",
+};
+
+export const storyThirdSayItBackServerExercise: StudyingServerExercise = {
+  id: "ex-say-3",
+  type: "say_it_back",
+  line_index: 2,
+  max_attempts: 3,
+  prompt_text: "Cada palabra vuelve a su lugar",
+  reference_text: "Cada palabra vuelve a su lugar",
+};
+
+export const storyFourthSayItBackServerExercise: StudyingServerExercise = {
+  id: "ex-say-4",
+  type: "say_it_back",
+  line_index: 3,
+  max_attempts: 3,
+  prompt_text: "Cantamos hasta ver salir el sol",
+  reference_text: "Cantamos hasta ver salir el sol",
+};
+
+const storySpokenExercises = [
+  storySayItBackServerExercise,
+  storySecondSayItBackServerExercise,
+  storyThirdSayItBackServerExercise,
+  storyFourthSayItBackServerExercise,
+];
 
 export const storyMultipleChoiceServerExercise: StudyingServerExercise = {
   id: "ex-mc-1",
@@ -52,63 +85,44 @@ export const storyMultipleChoiceExercise: StudyingMultipleChoiceExercise =
   toMultipleChoiceExercise(storyMultipleChoiceServerExercise);
 
 // Server-owned progression: the payload carries only the server's current
-// card; the choice card arrives through the attempt result's next_lesson.
+// spoken card, matching the operator payload. It carries no reward, streak or
+// translation-choice fact.
 export const storyLessonPayload: StudyingLessonPayload = {
   post_id: storyPostId,
-  title: "Paper Moon",
+  correct_count: 0,
   resolved_count: 0,
-  served_count: 2,
+  served_count: 4,
   session_id: "ses_story1",
-  previous_streak: 4,
-  reward_label: "+25 $MOON",
+  spoken_submission: null,
   exercises: [storySayItBackServerExercise],
 };
 
 export function storyCorrectAttempt(input: StudyingAttemptInput) {
-  const completing = input.type === "translation_choice";
+  if (input.type !== "say_it_back")
+    throw Object.assign(
+      new Error(
+        "This community provides spoken Study cards. Translation cards are unavailable.",
+      ),
+      { code: "study_translation_unavailable" },
+    );
+  const index = storySpokenExercises.findIndex(
+    (exercise) => exercise.id === input.exercise_id,
+  );
+  if (index < 0) throw new Error("Unknown spoken story exercise");
+  const resolved = index + 1;
+  const completing = resolved === storySpokenExercises.length;
   return {
     attempt_state: "spent" as const,
     attempts_remaining: 0,
-    correct_option_id:
-      input.type === "translation_choice" ? "opt-a" : undefined,
     next_lesson: {
-      exercises: completing ? [] : [storyMultipleChoiceServerExercise],
-      resolved_count: completing ? 2 : 1,
+      exercises: completing ? [] : [storySpokenExercises[resolved]],
+      resolved_count: resolved,
     },
     outcome: "correct" as const,
-    session: completing
-      ? { first_pass_correct_count: 2, status: "completed" }
-      : { first_pass_correct_count: 1, status: "active" },
-    ...(completing
-      ? {
-          study_progress: {
-            current_streak: 5,
-            next_due_at: Math.floor(Date.now() / 1000) + 86_400,
-            qualified_today: true,
-            study_attempt_count: 2,
-            study_correct_count: 2,
-            study_target_count: 10,
-          },
-        }
-      : {}),
-  };
-}
-
-export function storyWrongAttempt(input: StudyingAttemptInput) {
-  // Every graded spoken presentation is spent server-side: the miss is final
-  // for this appearance and the lesson moves to the server's next card, with
-  // the missed line returning later in the lesson.
-  return {
-    attempt_number: input.attempt_number,
-    attempt_state: "spent" as const,
-    attempts_remaining: 0,
-    heard_transcript: "yo no sé por qué te fuiste",
-    next_lesson: {
-      exercises: [storyMultipleChoiceServerExercise],
-      resolved_count: 0,
+    session: {
+      first_pass_correct_count: resolved,
+      status: completing ? ("completed" as const) : ("active" as const),
     },
-    outcome: "incorrect" as const,
-    session: { first_pass_correct_count: 0, status: "active" },
   };
 }
 
@@ -136,17 +150,20 @@ export function createAuthRequiredClient(): StudyingClient {
   };
 }
 
-/** Client whose load fails transiently, exercising the retry state. */
-export function createFailingClient(
+/** Client whose first load fails transiently and whose explicit retry succeeds. */
+export function createRecoveringLoadClient(
   message = "Connection lost while loading the lesson.",
 ): StudyingClient {
+  let failed = false;
   return {
     loadLesson: async () => {
-      throw new Error(message);
+      if (!failed) {
+        failed = true;
+        throw new Error(message);
+      }
+      return storyLessonPayload;
     },
-    submitAttempt: async () => {
-      throw new Error(message);
-    },
+    submitAttempt: async (input) => storyCorrectAttempt(input),
   };
 }
 
