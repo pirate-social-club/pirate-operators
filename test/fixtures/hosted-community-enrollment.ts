@@ -77,6 +77,8 @@ function compile() {
   const files = [
     "contracts/community/CommunityDirectoryV3.sol",
     "contracts/community/PublicationReference.sol",
+    "contracts/community/CommunityPostsV1.sol",
+    "contracts/interfaces/community/ICommunityPostsV1.sol",
     "contracts/interfaces/community/ICommunityDirectoryV1.sol",
     "contracts/interfaces/community/ICommunityDirectoryV3.sol",
     "contracts/test/MockAccount.sol",
@@ -144,7 +146,9 @@ function compile() {
   );
   return artifacts;
 }
-export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean } = {}) {
+export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean; chainId?: 31337 | 6343 } = {}) {
+  const chainId = options.chainId ?? 31337,
+    fixtureChain = { ...foundry, id: chainId };
   const compiled = compile(),
     portReservation = createServer();
   portReservation.listen(0, "127.0.0.1");
@@ -161,9 +165,9 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       "--port",
       String(port),
       "--chain-id",
-      "31337",
+      String(chainId),
       "--timestamp",
-      String(options.packaged ? Math.floor(Date.now() / 1000) - 30 : 1800000000),
+      String(options.packaged || chainId === 6343 ? Math.floor(Date.now() / 1000) - 30 : 1800000000),
       "--slots-in-an-epoch",
       "1",
       "--silent",
@@ -190,7 +194,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     };
   const local = createPublicClient({
     transport: http(url, { retryCount: 0 }),
-    chain: foundry,
+    chain: fixtureChain,
   });
   const journal = options.packaged ? await mkdtemp(join(tmpdir(), "hosted-worker-journal-")) : undefined;
   const mf = new Miniflare({
@@ -206,12 +210,13 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       dropSend: 0,
       dropBeforeSend: 0,
       sendCount: 0,
-      clock: options.packaged ? Math.floor(Date.now() / 1000) : 1800000030,
+      clock: options.packaged || chainId === 6343 ? Math.floor(Date.now() / 1000) : 1800000030,
       invalidPin: false,
       redirectPin: false,
       installationStatus: 200,
       installationMismatch: false,
       installationProofInvalid: false,
+      readInstallation: undefined as typeof fetch | undefined,
       registrarSignatures: 0,
       funderSignatures: 0,
       failRpc: false,
@@ -302,7 +307,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const wallet = createWalletClient({
       account: admin,
       transport: http(url, { retryCount: 0 }),
-      chain: foundry,
+      chain: fixtureChain,
     });
     const hash = await wallet.deployContract({
       abi: compiled.CommunityDirectoryV3!.abi,
@@ -312,6 +317,18 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const receipt = await local.waitForTransactionReceipt({ hash });
     assert(receipt.contractAddress);
     const directory = lower(receipt.contractAddress);
+    const postsHash = await wallet.deployContract({
+      abi: compiled.CommunityPostsV1!.abi,
+      bytecode: compiled.CommunityPostsV1!.bytecode,
+      args: [directory],
+    });
+    const postsReceipt = await local.waitForTransactionReceipt({ hash: postsHash });
+    assert(postsReceipt.contractAddress);
+    const posts = {
+      address: lower(postsReceipt.contractAddress),
+      runtimeCodeHash: keccak256((await local.getCode({ address: postsReceipt.contractAddress, blockNumber: postsReceipt.blockNumber }))!),
+      deploymentBlock: String(postsReceipt.blockNumber),
+    };
     const configure = await wallet.writeContract({
       address: directory,
       abi: directoryV3Abi,
@@ -343,7 +360,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       serviceOrigin: "https://hosted.example",
       deployment: {
         schema: "pirate.web2-directory/3",
-        chainId: 31337,
+        chainId,
         directory,
         directoryCodeHash: directoryV3Build.runtimeCodeHash,
         directoryAbiSha256: directoryV3Build.abiSha256,
@@ -496,7 +513,8 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       funder: signer(funder),
       readConfiguration: async (uri) =>
         fetch(`${proxyUrl}/ipfs/${uri.slice(7)}`),
-      readInstallation: async (url) => {
+      readInstallation: async (url, init) => {
+        if (state.readInstallation) return state.readInstallation(url, init);
         const requestUrl = new URL(String(url)),
           id = requestUrl.searchParams.get("communityId");
         const installed = id ? installations.get(id as `0x${string}`) : undefined;
@@ -567,18 +585,18 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       const profile = validateWeb2Profile({
         ...policy.deployment,
         communityKey: key,
-        communityId: directoryInstanceId(31337, key),
+        communityId: directoryInstanceId(chainId, key),
         installationId,
       });
       const config: Web2CommunityConfig = {
         schema: "pirate.community-config/4",
-        chainId: 31337,
+        chainId,
         directory,
         communityId: profile.communityId,
         communityKey: key,
         installationId,
         configurationRevision: 1,
-        postsContract: lower(stranger.address),
+        postsContract: posts.address,
         controller: lower(opts.controller ?? controller.address),
         publisher: lower(opts.publisher ?? publisher.address),
         operatorPayments: zero,
@@ -685,6 +703,8 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       prepare,
       pins,
       compiled,
+      posts,
+      proxyUrl,
       enrollment,
       funding,
       async close() {

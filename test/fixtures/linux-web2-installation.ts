@@ -81,9 +81,11 @@ export async function ingressFixture() {
   const trusted = await certificate("trusted"),
     untrusted = await certificate("untrusted");
   let requests = 0;
+  let applicationHandler: ((req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void | Promise<void>) | undefined;
   let communityResponse: { status: number; communityId?: string } | undefined;
   const upstream = createServer(trusted, (req, res) => {
     requests++;
+    if (applicationHandler) return applicationHandler(req, res);
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/api/public/community" && communityResponse) {
       res.writeHead(communityResponse.status).end(JSON.stringify({ communityId: communityResponse.communityId }));
@@ -131,7 +133,7 @@ export async function ingressFixture() {
     );
     async function call(path = "/", overrides: RequestOptions = {}) {
       const ca = await readFile(rootCertificate);
-      return await new Promise<{ status: number; body: string }>(
+      return await new Promise<{ status: number; body: string; headers: import("node:http").IncomingHttpHeaders }>(
         (resolve, reject) => {
           const req = request(
             {
@@ -154,7 +156,7 @@ export async function ingressFixture() {
                   req.destroy(Error("fixture_response_limit"));
               });
               res.once("error", reject);
-              res.once("end", () => resolve({ status: res.statusCode!, body }));
+              res.once("end", () => resolve({ status: res.statusCode!, body, headers: res.headers }));
             },
           );
           req.once("error", reject);
@@ -196,6 +198,9 @@ export async function ingressFixture() {
       requests: () => requests,
       setCommunityResponse(status: number, communityId?: string) {
         communityResponse = { status, communityId };
+      },
+      setApplicationHandler(handler?: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void | Promise<void>) {
+        applicationHandler = handler;
       },
       async preflight() {
         const args = [
