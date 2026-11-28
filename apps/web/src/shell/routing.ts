@@ -5,6 +5,7 @@ export type AppView =
   | "account"
   | "publish"
   | "settings"
+  | "telegram"
   | "song"
   | "missing";
 export type ActivityRoute =
@@ -18,7 +19,7 @@ export function appView(hash: string): AppView {
   if (hash.startsWith("#song-")) return "song";
   const view = hash.slice(2);
   return hash.startsWith("#/") &&
-    ["songs", "account", "publish", "settings"].includes(view)
+    ["songs", "account", "publish", "settings", "telegram"].includes(view)
     ? (view as AppView)
     : "missing";
 }
@@ -90,7 +91,7 @@ export function fragmentNavigationHref(href: string, current?: URL): string {
     target.origin !== current.origin ||
     target.pathname !== current.pathname ||
     !(
-      /^#\/(?:songs|account|publish|settings|join)?$/.test(target.hash) ||
+      /^#\/(?:songs|account|publish|settings|telegram|join)?$/.test(target.hash) ||
       target.hash.startsWith("#song-") ||
       target.hash.startsWith("#profile-")
     )
