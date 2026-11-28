@@ -60,6 +60,7 @@ import {
 } from "../../apps/community-wizard/server/web2-setup.ts";
 import { createWizardServer } from "../../apps/community-wizard/server/http.ts";
 import { LinuxInputError } from "../../packages/community-setup/shared-linux-profile.ts";
+import { linuxWeb2DraftFrom } from "../../packages/community-setup/linux-web2-profile.ts";
 
 export async function hostedWizardFixture(
   options: {
@@ -70,6 +71,7 @@ export async function hostedWizardFixture(
     grantWindowSeconds?:number;
     signingOrigin?:string;
     observeInstallationAttempts?:boolean;
+    scriptedInstallation?: boolean;
     missingCustody?: boolean;
   } = {},
 ) {
@@ -334,9 +336,51 @@ export async function hostedWizardFixture(
     };
     let installationAttempts=0;
     const installationUnavailable=async()=>{installationAttempts++;throw Error("fixture installation must not run after an expired owner window");};
+    // Explicit Wizard sequencing stand-in. It preserves the draft, selection and
+    // running state for UI/server tests; it is not installer, container, ingress
+    // or public-HTTPS evidence. Those proofs belong to the installer and VM lane.
+    const scripted=()=>{
+      let plan:import("../../packages/community-setup/linux-web2-profile.ts").LinuxWeb2PlanSummary|null=null,
+        running=false;
+      return {
+        async prepare(value:unknown) {
+          const draft=linuxWeb2DraftFrom(value),
+            registration=draft.enrollment.operations.find(op=>op.kind==="registration"&&op.state==="consumed");
+          plan={
+            planId:"web2-"+draft.enrollment.enrollmentId.slice(2),
+            planDigest:hashText(canonical(draft)).slice(2),
+            installationId:"wizard-host-fixture",
+            summary:{
+              communityId:draft.configuration.communityId,
+              origin:draft.configuration.app.origin,
+              name:draft.configuration.app.label,
+              controller:draft.configuration.controller,
+              publisher:draft.configuration.publisher,
+              registrationTransaction:registration?.transactionHash ?? null,
+              verifiedListing:false,
+              namesEnabled:false,
+              learningEnabled:false,
+              danceEnabled:false,
+            },
+          };
+          return structuredClone(plan);
+        },
+        async apply(selection:{planId:string;planDigest:string}) {
+          if(!plan||selection.planId!==plan.planId||selection.planDigest!==plan.planDigest)throw Error("scripted installation selection changed");
+          running=true;
+          return {...selection,installationId:plan.installationId,state:"running" as const};
+        },
+        async status(selection:{planId:string;planDigest:string}) {
+          if(!plan||selection.planId!==plan.planId||selection.planDigest!==plan.planDigest)throw Error("scripted installation selection changed");
+          return {...selection,installationId:plan.installationId,state:running?"running" as const:"prepared" as const};
+        },
+        async close() {},
+      };
+    };
+    const scriptedPort=options.scriptedInstallation?scripted():undefined;
     const inputs = {
       policy,
-      ...(options.observeInstallationAttempts ? {installation:{prepare:installationUnavailable,apply:installationUnavailable,status:installationUnavailable,close:async()=>{}}} : {}),
+      ...(options.observeInstallationAttempts ? {installation:{prepare:installationUnavailable,apply:installationUnavailable,status:installationUnavailable,close:async()=>{}}} : scriptedPort ? {installation:scriptedPort} : {}),
       ...(options.signingOrigin ? {signingOrigin:options.signingOrigin} : {}),
       notice,
       hostInstallationId:"wizard-host-fixture",

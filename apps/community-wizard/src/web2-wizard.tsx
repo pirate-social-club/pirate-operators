@@ -250,23 +250,18 @@ export function Web2Wizard() {
             exact origin, configuration and selected pilot policy. It does not
             send a community transaction.
           </p>
-          <button
-            disabled={locked()}
-            onClick={() =>
-              void perform(async () =>
-                send(
-                  "redeem",
-                  view()!.controllerAuthorized
-                    ? {}
-                    : { signature: await sign(view()!.challenge) },
-                ),
-              )
-            }
-          >
-            {view()!.controllerAuthorized
-              ? "Retry original registration"
-              : "Authorize community registration"}
-          </button>
+          <Show when={!view()!.controllerAuthorized}>
+            <button
+              disabled={locked()}
+              onClick={() =>
+                void perform(async () =>
+                  send("authorize", { signature: await sign(view()!.challenge) }),
+                )
+              }
+            >
+              Authorize the exact community installation
+            </button>
+          </Show>
           <Show when={view()!.controllerAuthorized}>
             <button
               disabled={locked()}
@@ -275,6 +270,90 @@ export function Web2Wizard() {
               Reconcile original enrollment
             </button>
           </Show>
+        </Show>
+        <Show when={view()!.controllerAuthorized}>
+          <h2>Install on this Linux host</h2>
+          <Show
+            when={view()!.installationAvailable}
+            fallback={
+              <p>
+                The real Linux Web2 installer is unavailable. Enrollment is
+                retained; this community is not reported installed.
+              </p>
+            }
+          >
+            <button
+              disabled={locked()}
+              onClick={() => void perform(() => send("installation-prepare"))}
+            >
+              Review Linux installation
+            </button>
+            <Show when={view()!.installPlan}>
+              <p>
+                Install {view()!.installPlan!.summary.name} at{" "}
+                {view()!.installPlan!.summary.origin}, using the authorized
+                controller and publisher shown above. Names, learning and Dance
+                remain disabled.
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={reviewed()}
+                  onChange={(e) => setReviewed(e.currentTarget.checked)}
+                  disabled={locked()}
+                />
+                I reviewed this installation on the selected host.
+              </label>
+              <button
+                disabled={locked() || !reviewed()}
+                onClick={() =>
+                  void perform(() =>
+                    send("install", {
+                      planId: view()!.installPlan!.planId,
+                      planDigest: view()!.installPlan!.planDigest,
+                      approved: true,
+                    }),
+                  )
+                }
+              >
+                Install reviewed community
+              </button>
+              <button
+                disabled={locked()}
+                onClick={() => void perform(() => send("installation-status"))}
+              >
+                Read installation status
+              </button>
+            </Show>
+          </Show>
+        </Show>
+        <Show
+          when={
+            view()!.controllerAuthorized &&
+            view()!.observation?.state === "running" &&
+            !view()!.enrollment?.operations.some(
+            (op) => op.kind === "registration" && op.state === "consumed",
+          )
+          }
+        >
+          <h2>Community registration</h2>
+          <p>
+            The registrar first verifies a fresh signed public HTTPS readback of
+            this exact installation. Only that verified original is registered;
+            a lost reply is reconciled rather than replaced.
+          </p>
+          <button
+            disabled={locked()}
+            onClick={() => void perform(() => send("redeem"))}
+          >
+            Register the verified installation
+          </button>
+          <button
+            disabled={locked()}
+            onClick={() => void perform(() => send("reconcile"))}
+          >
+            Reconcile original enrollment
+          </button>
         </Show>
         <Show
           when={view()!.enrollment?.operations.some(
@@ -422,60 +501,6 @@ export function Web2Wizard() {
             </Show>
             <Show when={view()!.publishing!.attached}>
               <p>{view()!.publishing!.live ? "Publishing grant attached" : "Original grant attachment recorded; window expired"}</p>
-            </Show>
-          </Show>
-          <h2>Install on this Linux host</h2>
-          <Show
-            when={view()!.installationAvailable}
-            fallback={
-              <p>
-                The real Linux Web2 installer is unavailable. Enrollment is
-                retained; this community is not reported installed.
-              </p>
-            }
-          >
-            <button
-              disabled={locked() || !view()!.publishing?.attached}
-              onClick={() => void perform(() => send("installation-prepare"))}
-            >
-              Review Linux installation
-            </button>
-            <Show when={view()!.installPlan}>
-              <p>
-                Install {view()!.installPlan!.summary.name} at{" "}
-                {view()!.installPlan!.summary.origin}, using the registered
-                controller and publisher shown above. Names, learning and Dance
-                remain disabled.
-              </p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={reviewed()}
-                  onChange={(e) => setReviewed(e.currentTarget.checked)}
-                  disabled={locked()}
-                />
-                I reviewed this installation on the selected host.
-              </label>
-              <button
-                disabled={locked() || !reviewed()}
-                onClick={() =>
-                  void perform(() =>
-                    send("install", {
-                      planId: view()!.installPlan!.planId,
-                      planDigest: view()!.installPlan!.planDigest,
-                      approved: true,
-                    }),
-                  )
-                }
-              >
-                Install reviewed community
-              </button>
-              <button
-                disabled={locked()}
-                onClick={() => void perform(() => send("installation-status"))}
-              >
-                Read installation status
-              </button>
             </Show>
           </Show>
         </Show>

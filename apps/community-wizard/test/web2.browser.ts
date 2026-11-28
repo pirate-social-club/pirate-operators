@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { hostedWizardFixture } from "../../../test/fixtures/web2-hosted-wizard.ts";
 
-test("actual hosted Web2 enrollment resumes in the browser without an invitation or reporting a missing installer as running", async ({
+test("actual hosted Web2 enrollment installs before registration and resumes in the browser without an invitation", async ({
   page,
   context,
 }, info) => {
@@ -13,7 +13,7 @@ test("actual hosted Web2 enrollment resumes in the browser without an invitation
   // The real native chain fixture consumes repository-owned compiled artifacts.
   process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
   const signingOrigin="https://signing.fixture.example";
-  const f = await hostedWizardFixture({ publishing: true, signingOrigin });
+  const f = await hostedWizardFixture({ publishing: true, signingOrigin, scriptedInstallation: true });
   try {
     await context.addCookies([
       { name: "wizard_fixture", value: "paired", url: f.origin },
@@ -88,21 +88,29 @@ test("actual hosted Web2 enrollment resumes in the browser without an invitation
     await page
       .getByRole("button", { name: "Prepare enrollment", exact: true })
       .click();
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
     await expect(page.getByRole("alert")).toContainText("cancelled");
     expect((await f.state()).controllerAuthorized).toBe(false);
     changeAfterSign=true;
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
     await expect(page.getByRole("alert")).toContainText("account_changed");
     expect((await f.state()).controllerAuthorized).toBe(false);
     accountChanged=false;
-    await initiateWindow("Authorize community registration");
+    await initiateWindow("Authorize the exact community installation");
+    await page.getByRole("button", { name: "Review Linux installation" }).click();
+    await expect(page.getByText("using the authorized controller and publisher", { exact: false })).toBeVisible();
+    await page.getByLabel("I reviewed this installation on the selected host.").check();
+    await page.getByRole("button", { name: "Install reviewed community" }).click();
     await expect(
-      page.getByRole("button", { name: "Reconcile original enrollment" }),
+      page.getByRole("button", { name: "Register the verified installation", exact: true }),
     ).toBeEnabled();
+    const broadcastsBeforeRegistration = f.broadcasts();
+    await page.getByRole("button", { name: "Register the verified installation", exact: true }).click();
+    await expect.poll(() => f.broadcasts()).toBe(broadcastsBeforeRegistration + 1);
     await f.mine();
     await page
       .getByRole("button", { name: "Reconcile original enrollment" })
+      .first()
       .click();
     await expect(
       page.getByRole("button", {
@@ -111,7 +119,7 @@ test("actual hosted Web2 enrollment resumes in the browser without an invitation
       }),
     ).toHaveCount(0);
     await expect(
-      page.getByText("Setup state: registered", { exact: true }),
+      page.getByRole("button", {name:"Review owner publishing"}),
     ).toBeVisible();
     await page.getByRole("button", {name:"Review owner publishing"}).click();
     await expect(page.getByText(f.nominatedOwner, {exact:false}).first()).toBeVisible();
@@ -133,7 +141,7 @@ test("actual hosted Web2 enrollment resumes in the browser without an invitation
     const before = f.broadcasts();
     await page.reload();
     await expect(
-      page.getByText("Setup state: registered", { exact: true }),
+      page.getByText("Setup state: running", { exact: true }),
     ).toBeVisible();
     expect(f.broadcasts()).toBe(before);
     const gate = f.holdNextStatus();
@@ -168,13 +176,8 @@ test("actual hosted Web2 enrollment resumes in the browser without an invitation
     ).toBeEnabled();
     expect(f.broadcasts()).toBe(before);
     await expect(
-      page.getByText("The real Linux Web2 installer is unavailable.", {
-        exact: false,
-      }),
+      page.getByText("Last installation observation: running", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Install reviewed community" }),
-    ).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.length)).toBe(0);
     expect(
       requests.some((r) => r.path === "/api/web2/topup" && r.method === "POST"),

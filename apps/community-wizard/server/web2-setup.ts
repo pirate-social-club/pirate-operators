@@ -409,6 +409,12 @@ export async function createWeb2Setup(
           "web2_controller_proof_required",
           409,
         );
+        if (action === "redeem" && input.installation)
+          insist(
+            journal.observation?.state === "running",
+            "web2_installation_required",
+            409,
+          );
         if (action === "topup" && Object.hasOwn(body, "proofs")) {
           insist(
             journal.recipientProofs !== null &&
@@ -517,7 +523,10 @@ export async function createWeb2Setup(
           journal.request &&
             journal.enrollment &&
             journal.deployment &&
-            journal.plan,
+            journal.plan &&
+            journal.enrollment.operations.some(
+              (op) => op.kind === "registration" && op.state === "consumed",
+            ),
           "safe_registration_required",
           409,
         );
@@ -535,7 +544,6 @@ export async function createWeb2Setup(
         );
         if (action !== "installation-prepare")
           insist(journal.installPlan, "web2_installation_review_required", 409);
-        await publishing.attachment(enrollmentDraft());
         if (!journal.installDraft) journal.installDraft = enrollmentDraft();
         journal.revision++;
         journal.pending = action;

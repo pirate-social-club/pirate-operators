@@ -300,7 +300,6 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     return owned;
   }
   function graphFor(draft: LinuxWeb2Draft, attachment?: Web2PublishingAttachment): NativeGraph {
-    if (ownerOnly(draft.configuration.policies.admission)) assert(attachment,"web2_publishing_attachment_required");
     if (attachment) {
       const a = publishingAttachment(attachment), scope = a.selection.scope, c = draft.configuration;
       assert(scope.enrollmentId === draft.enrollment.enrollmentId && scope.hostInstallationId === policy.installationId &&
@@ -453,8 +452,19 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         let intent = await optionalWeb2Record<BindingIntent>(intentPath);
         if (intent) validateIntent(intent, draft);
         else {
-          const attachment = ownerOnly(draft.configuration.policies.admission)
-            ? (assert(publishing,"web2_publishing_authority_unavailable"), await publishing.attachment(draft)) : undefined;
+          let attachment: Web2PublishingAttachment | undefined;
+          if (ownerOnly(draft.configuration.policies.admission) && publishing) {
+            try {
+              attachment = await publishing.attachment(draft);
+            } catch (error) {
+              const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+              assert(
+                code === "registration_not_confirmed" ||
+                  code === "web2_publishing_attachment_required",
+                "web2_publishing_attachment_unavailable",
+              );
+            }
+          }
           const graph = graphFor(draft, attachment);
           intent = {
             schema: "pirate.web2-runtime-binding-intent/1",
