@@ -9,7 +9,7 @@ import { preparePin } from "../packages/community/ipfs.ts";
 import { enrollmentDocument } from "../packages/community/hosted-enrollment.ts";
 import { linuxWeb2DraftFrom } from "../packages/community-setup/linux-web2-profile.ts";
 import { web2ProfileDocument } from "../packages/community/web2-directory.ts";
-import { authenticateWeb2InstallationAuthorization } from "../deploy/linux/web2-profile-authority.ts";
+import { authenticateWeb2InstallEnrollment, authenticateWeb2InstallationAuthorization } from "../deploy/linux/web2-profile-authority.ts";
 import { signRecord } from "../deploy/linux/installed-records.ts";
 import {
   inspectCommunityIngress,
@@ -35,7 +35,7 @@ test(
   "empty Directory installation proves itself through HTTPS before one recovered registration",
   { timeout: 120000 },
   async (t) => {
-    const hosted = await hostedFixture({}, { chainId: 6343 });
+    const hosted = await hostedFixture({ challengeSeconds: 20 }, { chainId: 6343 });
     const ingress = await ingressFixture();
     const runtime = await communityRuntime();
     let edge: Awaited<ReturnType<typeof startPublicIngress>> | undefined;
@@ -61,6 +61,17 @@ test(
     input.body.config = input.config;
     input.body.uri = configurationPin.uri;
     const prepared = await hosted.prepare(input);
+    // A second genuine enrollment expires on the same schedule but is never
+    // registered. It is the negative restart authority control below.
+    const unregisteredInput = await hosted.permissionless();
+    unregisteredInput.config.app.origin = ingress.ingress.origin;
+    unregisteredInput.config.feed.endpoint = ingress.ingress.origin + "/api/feed";
+    const unregisteredBytes = new TextEncoder().encode(canonical(unregisteredInput.config)),
+      unregisteredPin = await preparePin(unregisteredBytes, "application/json");
+    hosted.pins.set(unregisteredPin.uri, unregisteredBytes);
+    unregisteredInput.body.config = unregisteredInput.config;
+    unregisteredInput.body.uri = unregisteredPin.uri;
+    const unregisteredPrepared = await hosted.prepare(unregisteredInput);
     const deployment = {
       schema: "pirate.community-deployment/2" as const,
       origin: input.config.app.origin,
@@ -270,13 +281,13 @@ test(
         { error: "installation unavailable" },
         { status: 503, headers: { "cache-control": "no-store" } },
       );
-    assert.equal((await hosted.post("/redeem", prepared.auth)).status, 503);
+    assert.equal((await hosted.post("/redeem", prepared.registrationAuth)).status, 503);
     assert.equal(hosted.state.registrarSignatures, firstSignatures);
     assert.equal(hosted.state.sendCount, 0);
     hosted.state.readInstallation = unavailableInstallation;
 
     hosted.state.failRpc = true;
-    assert.equal((await hosted.post("/redeem", prepared.auth)).status, 503);
+    assert.equal((await hosted.post("/redeem", prepared.registrationAuth)).status, 503);
     assert.equal(hosted.state.registrarSignatures, firstSignatures);
     assert.equal(hosted.state.sendCount, 0);
     hosted.state.failRpc = false;
@@ -326,7 +337,7 @@ test(
         { headers: { "cache-control": "no-store" } },
       );
     };
-    const mismatched = await hosted.post("/redeem", prepared.auth);
+    const mismatched = await hosted.post("/redeem", prepared.registrationAuth);
     assert.equal(mismatched.status, 409);
     assert.equal(mismatched.body.error, "installation_plan_commitment_mismatch");
     assert.equal(hosted.state.registrarSignatures, firstSignatures);
@@ -334,14 +345,14 @@ test(
     hosted.state.readInstallation = realInstallation;
 
     ingress.replaceUpstreamTrust(false);
-    assert.equal((await hosted.post("/redeem", prepared.auth)).status, 503);
+    assert.equal((await hosted.post("/redeem", prepared.registrationAuth)).status, 503);
     assert.equal(hosted.state.registrarSignatures, firstSignatures);
     assert.equal(hosted.state.sendCount, 0);
     ingress.replaceUpstreamTrust(true);
     await ingress.ready();
 
     hosted.state.dropSend = 1;
-    const redemption = await hosted.post("/redeem", prepared.auth);
+    const redemption = await hosted.post("/redeem", prepared.registrationAuth);
     assert.equal(redemption.status, 200, JSON.stringify(redemption));
     assert.equal(hosted.state.registrarSignatures, firstSignatures + 1);
     assert.equal(hosted.state.sendCount, 1);
@@ -355,7 +366,7 @@ test(
     // A retry after the dropped broadcast acknowledgement reconciles the same
     // original registration and never signs or sends a replacement.
     await hosted.mine();
-    const again = await hosted.post("/redeem", prepared.auth);
+    const again = await hosted.post("/redeem", prepared.registrationAuth);
     assert.equal(again.status, 200, JSON.stringify(again));
     assert.equal(hosted.state.registrarSignatures, firstSignatures + 1);
     assert.equal(hosted.state.sendCount, 1);
@@ -363,6 +374,53 @@ test(
       .find((op) => op.kind === "registration");
     assert.equal(recovered?.state, "consumed");
     assert.equal(recovered?.transactionHash, transactionHash);
+
+    const restartAuthority = {
+      client: hosted.client,
+      deployment: directoryDeployment,
+      send: communityIpfsTransport(deployment),
+      now: () => BigInt(Math.floor(Date.now() / 1000)),
+      maxSafeBlockAgeSeconds: 600n,
+      registrar: hosted.policy.registrar,
+      registrarRevision: 1n,
+    };
+    const unregisteredDraft = linuxWeb2DraftFrom({
+      schema: "pirate.linux-web2-draft/1",
+      name: unregisteredInput.config.app.label,
+      origin: deployment.origin,
+      deployment: {
+        ...deployment,
+        directoryProfile: web2ProfileDocument(unregisteredInput.profile),
+      },
+      configuration: unregisteredInput.config,
+      enrollment: {
+        schema: "pirate.hosted-enrollment-status/1",
+        enrollmentId: unregisteredPrepared.e.id,
+        communityId: unregisteredInput.config.communityId,
+        installationId: unregisteredInput.config.installationId,
+        profile: web2ProfileDocument(unregisteredInput.profile),
+        configurationUri: unregisteredInput.body.uri,
+        operations: [],
+      },
+      authorization: {
+        enrollment: enrollmentDocument(unregisteredPrepared.e),
+        controllerSignature: unregisteredPrepared.auth.controllerSignature,
+      },
+    });
+    const expiryWait = prepared.e.expiresAt * 1000 - Date.now() + 1000;
+    if (expiryWait > 0) await new Promise((resolve) => setTimeout(resolve, expiryWait));
+    const restartEvidence = await authenticateWeb2InstallEnrollment(restartAuthority, draft);
+    assert.equal(restartEvidence.schema, "pirate.linux-web2-enrollment-evidence/1");
+    assert.equal(restartEvidence.transactionHash, transactionHash);
+    await assert.rejects(
+      authenticateWeb2InstallEnrollment(restartAuthority, unregisteredDraft),
+      /install_enrollment_authorization_expired/,
+    );
+    const { authorization: _authorization, ...withoutApproval } = draft;
+    await assert.rejects(
+      authenticateWeb2InstallEnrollment(restartAuthority, withoutApproval),
+      /registration_not_confirmed/,
+    );
 
     // After the receipt, a Directory outage is not bootstrap authority. The
     // installed application refuses the readback instead of re-signing stale
