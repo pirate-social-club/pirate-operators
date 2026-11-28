@@ -38,7 +38,7 @@ import {
 } from "./local-target-controller.ts";
 import { publicIngressFrom, type PublicIngress } from "./public-ingress.ts";
 import {
-  authenticateWeb2Enrollment,
+  authenticateWeb2InstallEnrollment,
   ownWeb2ChainAuthority,
   readWeb2HostAdmission,
   type Web2ChainAuthority,
@@ -248,7 +248,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     await lease.assertHeld();
     await verifyWeb2BootstrapRelease(captured.bootstrap, captured.trust);
     assert(draft.origin === policy.origin, "web2_binding_origin_changed");
-    await authenticateWeb2Enrollment(chain, draft);
+    await authenticateWeb2InstallEnrollment(chain, draft);
     const controller = await createLocalController(policy.target, lease);
     try {
       const host = await controller.inspectHost(AbortSignal.timeout(45000));

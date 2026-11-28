@@ -394,6 +394,25 @@ export async function authenticateWeb2InstallationAuthorization(
   };
 }
 
+/** Select the authority evidence appropriate to this exact draft. A consumed
+ * registration keeps the stronger chain-transaction path; before that receipt
+ * exists the controller-signed enrollment is the only admitted authority. */
+export async function authenticateWeb2InstallEnrollment(
+  input: Web2ChainAuthority,
+  value: unknown,
+): Promise<Web2InstallEnrollment> {
+  const draft = linuxWeb2DraftFrom(value);
+  const original = draft.enrollment.operations.find(
+    (op) => op.kind === "registration",
+  );
+  return original &&
+    original.state === "consumed" &&
+    original.transactionHash &&
+    original.receipt !== null
+    ? authenticateWeb2Enrollment(input, draft)
+    : authenticateWeb2InstallationAuthorization(input, draft);
+}
+
 export async function readWeb2HostAdmission(input: {
   path: string;
   trust: TrustAnchor;
