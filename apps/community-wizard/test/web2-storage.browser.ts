@@ -95,11 +95,11 @@ test("operator saves the media token, loses the reply, and recovers the same gen
     await verifyDns();
     await initiateWindow("Connect MOSS");
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
-    await page.getByLabel("Pilot invitation").fill(f.inviteToken);
+    await expect(page.getByLabel("Pilot invitation")).toHaveCount(0);
     await page.getByLabel("I accept this pilot notice", { exact: false }).check();
     await page.getByRole("button", { name: "Prepare enrollment", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Authorize community registration" }),
+      page.getByRole("button", { name: "Authorize the exact community installation" }),
     ).toBeVisible();
 
     // The storage step is now visible. The token field is masked and empty.
