@@ -512,6 +512,56 @@ export const PendingGradeStaysWithOriginatingLesson: Story = {
   },
 };
 
+let resolveFinalGrade: ((result: TelegramGradeResult) => void) | undefined;
+
+export const PendingFinalGradePreservesSongContext: Story = {
+  render: () => {
+    const fixture = createTelegramGuestTrialFixture({
+      gradeAttempt: () =>
+        new Promise<TelegramGradeResult>((resolve) => {
+          resolveFinalGrade = resolve;
+        }),
+    });
+    return (
+      <TelegramGuestTrialRoute
+        boundary={fixture.boundary}
+        initialLessons={[{ songId: "midnight-waves", lineIndex: 5, takes: 5 }]}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Midnight Waves · Resume" }),
+    );
+    await canvas.findByText("Midnight carries us home");
+    await submitFixtureRecording(canvas, /correct fixture recording/);
+    await expect(await canvas.findByText("Checking your last answer")).toBeInTheDocument();
+
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Pinned message\s+Songs/ }),
+    );
+    await userEvent.click(await canvas.findByRole("button", { name: "Harbor Lights" }));
+    await canvas.findByText("The harbor lights are waking");
+
+    resolveFinalGrade?.({ outcome: "correct" });
+    await expect(await canvas.findByText(/Great work\. 83%/)).toBeInTheDocument();
+    expect(promptState(canvasElement)).toEqual({
+      lineIndex: "0",
+      takeCount: "0",
+      line: "The harbor lights are waking",
+    });
+
+    await userEvent.click(await canvas.findByRole("button", { name: "Menu" }));
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /\/song\s+Full song & details/ }),
+    );
+    const details = await canvas.findByRole("article", { name: "Full song and details" });
+    expect(details).toHaveTextContent("Harbor Lights");
+    expect(details).not.toHaveTextContent("Midnight Waves");
+  },
+};
+
 export const PinnedSongsRemainAfterCompletion: Story = {
   render: () => renderFixture(),
   play: async ({ canvasElement }) => {
@@ -617,6 +667,16 @@ export const ReplacementAccountRequiresFreshConfirmation: Story = {
     );
     await expect(await canvas.findByText("Account connected")).toBeInTheDocument();
     expect(replacementFixture.links).toHaveLength(1);
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Connect account" }),
+    );
+    expect(canvas.queryByText("nightshift.example/connect")).toBeNull();
+    expect(replacementFixture.links).toHaveLength(1);
+    expect(replacementFixture.links[0]?.account.address).toBe(
+      "0x9f03000000000000000000000000000000000077ad",
+    );
+    expect(canvas.getAllByText("Account connected")).toHaveLength(1);
   },
 };
 

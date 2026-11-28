@@ -199,8 +199,9 @@ export function TelegramGuestTrialRoute(props: {
       pushEvent({ kind: "correct" });
       if (lineIndex + 1 >= song.lines.length) {
         updateLesson(songId, (lesson) => ({ ...lesson, takes: take + 1, completed: true }));
+        const selectedSongId = activeSongId();
         if (displayedLesson) setActiveSongId(null);
-        setSongContextId(songId);
+        if (displayedLesson || selectedSongId === null) setSongContextId(songId);
         pushEvent({
           kind: "result",
           songId,
@@ -332,6 +333,7 @@ export function TelegramGuestTrialRoute(props: {
   function openWebsite(resultId: string) {
     setRecordingOpen(false);
     setMenuOpen(false);
+    if (boundary.hasRecordedLink()) return;
     const account = boundary.initialAccount();
     if (!account) {
       setWebsite({ kind: "signed-out", resultId });
